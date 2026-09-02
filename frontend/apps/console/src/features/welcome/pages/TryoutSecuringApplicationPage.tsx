@@ -21,6 +21,7 @@ import {useState, type JSX} from 'react';
 import {Trans, useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router';
 import RouteConfig from '../../../configs/RouteConfig';
+import WebMcpAvailabilityNotice from '../../webmcp/components/WebMcpAvailabilityNotice';
 import CodeInline from '../components/CodeInline';
 import CredentialsBlock from '../components/CredentialsBlock';
 import ExternalLink from '../components/ExternalLink';
@@ -146,6 +147,8 @@ export default function TryoutSecuringConsumerApp(): JSX.Element {
                 {t('common:welcome.applicationTryout.subtitle', {productName})}
               </Typography>
             </Box>
+
+            <WebMcpAvailabilityNotice />
 
             <WayfinderSampleSetup />
 

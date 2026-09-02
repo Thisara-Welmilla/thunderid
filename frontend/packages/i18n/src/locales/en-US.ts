@@ -176,6 +176,37 @@ const translations = {
     'welcome.dismissed': 'Welcome window can be reopened through the user dropdown menu.',
     'welcome.sections.start': 'Start',
     'welcome.sections.recent': 'Recent',
+    // WebMCP guided walkthrough
+    'webmcp.confirm.provenance':
+      'This was requested by an AI agent running in this browser tab. Nothing is saved until you confirm.',
+    'webmcp.createApplication.title': 'Create this application?',
+    'webmcp.createApplication.description':
+      'The wizard behind this dialog is filled in with the values below. Confirm to create the application.',
+    'webmcp.createApplication.confirmLabel': 'Create application',
+    'webmcp.configureLoginFlow.title': "Change this application's login flow?",
+    'webmcp.configureLoginFlow.description':
+      'The change below is staged on the Flows tab behind this dialog. Confirm to save it.',
+    'webmcp.configureLoginFlow.confirmLabel': 'Save login flow',
+    'webmcp.testLogin.title': 'Start a test sign-in?',
+    'webmcp.testLogin.description':
+      'This opens a new tab at the sign-in screen for this application. The authorization code is sent to its redirect URI, so that URL has to be running to complete the exchange.',
+    'webmcp.testLogin.confirmLabel': 'Open sign-in',
+    'webmcp.fields.name': 'Name',
+    'webmcp.fields.template': 'Template',
+    'webmcp.fields.organizationUnit': 'Organization unit',
+    'webmcp.fields.organizationUnitDefault': "The deployment's only organization unit",
+    'webmcp.fields.redirectUris': 'Redirect URIs',
+    'webmcp.fields.redirectUri': 'Redirect URI',
+    'webmcp.fields.grant': 'Grant',
+    'webmcp.fields.grantValue': 'Authorization code with PKCE',
+    'webmcp.fields.application': 'Application',
+    'webmcp.fields.newLoginFlow': 'New login flow',
+    'webmcp.fields.currentLoginFlow': 'Current login flow',
+    'webmcp.fields.authorizationUrl': 'Authorization URL',
+    'webmcp.fields.none': 'None',
+    'webmcp.notice.title': 'Your browser can walk you through this',
+    'webmcp.notice.description':
+      'An AI agent in this tab can set up single sign-on for your application by driving this console: creating the application, configuring its login flow, and starting a test sign-in. Every change is shown to you for confirmation first. Ask it to set up SSO for your app, or follow the steps below yourself.',
     'welcome.sections.tryoutProduct': 'Try Sample',
     'welcome.tryoutProduct.securingApplication': 'Secured Web Application',
     'welcome.tryoutProduct.securingApplicationDesc': 'Tryout user journeys of a secured web application',

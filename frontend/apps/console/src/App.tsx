@@ -16,6 +16,7 @@ import RouteConfig, {ROUTE_SEGMENTS} from './configs/RouteConfig';
 import AgentCreateProvider from './features/agents/contexts/AgentCreate/AgentCreateProvider';
 import ApplicationCreateProvider from './features/applications/contexts/ApplicationCreate/ApplicationCreateProvider';
 import OrganizationUnitDefaultFlowsSettings from './features/organization-units/OrganizationUnitDefaultFlowsSettings';
+import WebMcpProvider from './features/webmcp/WebMcpProvider';
 import WelcomeRedirect from './features/welcome/components/WelcomeRedirect';
 import GetStartedPage from './features/welcome/pages/GetStartedPage';
 import TryoutSecuringAIAgentsPage from './features/welcome/pages/TryoutSecuringAIAgentsPage';
@@ -161,6 +162,7 @@ export default function App(): JSX.Element {
       <RoutesProvider paths={RouteConfig}>
         <ToastProvider>
           <WelcomeRedirect />
+          <WebMcpProvider />
           <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route

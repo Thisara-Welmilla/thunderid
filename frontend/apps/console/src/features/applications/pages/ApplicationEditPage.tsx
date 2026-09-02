@@ -25,8 +25,9 @@ import {
 import {ArrowLeft, Edit} from '@wso2/oxygen-ui-icons-react';
 import {useState, useCallback, useMemo, type SyntheticEvent} from 'react';
 import {useTranslation} from 'react-i18next';
-import {Link, useLocation, useNavigate, useParams} from 'react-router';
+import {Link, useLocation, useNavigate, useParams, useSearchParams} from 'react-router';
 import RouteConfig from '../../../configs/RouteConfig';
+import useGuidedLoginFlowUpdate from '../../webmcp/hooks/useGuidedLoginFlowUpdate';
 import useUpdateApplication from '../api/useUpdateApplication';
 import SettingsLockNotice from '../components/common/SettingsLockNotice';
 import ShowClientSecret from '../components/create-application/ShowClientSecret';
@@ -106,7 +107,25 @@ export default function ApplicationEditPage() {
   const justCreatedSecret = (location.state as {justCreatedSecret?: JustCreatedSecret} | null)?.justCreatedSecret;
   const [secretDialogOpen, setSecretDialogOpen] = useState(Boolean(justCreatedSecret));
 
-  const [activeTabKey, setActiveTabKey] = useState('overview');
+  // The active tab lives in the URL rather than in local state so a tab is addressable: the
+  // console's own links can deep-link to one, and a WebMCP tool can open the tab that owns the
+  // change it is about to make. Replaces rather than pushes, so switching tabs does not fill the
+  // back stack.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTabKey = searchParams.get(ApplicationConstants.TAB_SEARCH_PARAM) ?? 'overview';
+  const setActiveTabKey = useCallback(
+    (tabKey: string): void => {
+      setSearchParams(
+        (current: URLSearchParams) => {
+          const next = new URLSearchParams(current);
+          next.set(ApplicationConstants.TAB_SEARCH_PARAM, tabKey);
+          return next;
+        },
+        {replace: true},
+      );
+    },
+    [setSearchParams],
+  );
   const [editedApp, setEditedApp] = useState<Partial<Application>>({});
   // Bumped on Save/Reset to force AccessSection/McpAccessSection/UrlsSection to remount with a
   // clean form — they keep local state (redirect URI list, react-hook-form defaults) that a
@@ -169,8 +188,8 @@ export default function ApplicationEditPage() {
     [handleFieldChange],
   );
 
-  const handleSave = useCallback(async () => {
-    if (!application || !applicationId) return;
+  const handleSave = useCallback(async (): Promise<Error | null> => {
+    if (!application || !applicationId) return null;
 
     const {certificate, ...updatedData} = {
       ...application,
@@ -187,10 +206,27 @@ export default function ApplicationEditPage() {
       await refetch();
       // Bumped only after refetch resolves to prevent stale data being passed to the remounted sections.
       setSectionResetKey((key) => key + 1);
-    } catch {
+      return null;
+    } catch (error) {
       logger.error('Failed to update application');
+      // Returned as well as logged so a caller that has to know the outcome (the guided login-flow
+      // update below) can act on it. The inline error in the save bar still comes from the
+      // mutation's own state, exactly as before.
+      return error as Error;
     }
   }, [application, applicationId, editedApp, updateApplication, refetch, logger]);
+
+  // Lets a WebMCP `configure_login_flow` tool call stage its change on the Flows tab and, once the
+  // admin confirms, save it through the same handler the save bar uses. A no-op when no tool call is
+  // in flight, which is every case in a browser without WebMCP.
+  useGuidedLoginFlowUpdate({
+    applicationId,
+    onFieldChange: handleFieldChange,
+    save: handleSave,
+    resolveErrorMessage: (mutationError: Error) =>
+      getApplicationErrorMessage(mutationError, tForErrors, 'update.error', 'Failed to update application.'),
+    onSelectTab: setActiveTabKey,
+  });
 
   const hasChanges = useMemo(
     () =>
@@ -536,7 +572,7 @@ export default function ApplicationEditPage() {
                 return {...prev, logoUrl: newLogoUrl};
               });
             }}
-            onSave={handleSave}
+            onSave={() => void handleSave()}
           />
         </PageTitle.Avatar>
         <PageTitle.Header>

@@ -22,6 +22,12 @@ const ApplicationConstants = {
    */
   NAME_MIN_LENGTH: 1,
   NAME_MAX_LENGTH: 100,
+
+  /**
+   * Search parameter carrying the open tab on the application edit page, so a tab is addressable
+   * and can be deep-linked to.
+   */
+  TAB_SEARCH_PARAM: 'tab',
 } as const;
 
 export default ApplicationConstants;

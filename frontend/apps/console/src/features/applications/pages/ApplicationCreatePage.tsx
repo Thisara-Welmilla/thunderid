@@ -33,6 +33,7 @@ import type {BasicFlowDefinition} from '../../flows/models/responses';
 import {resolveApplicationMeta, resolveTemplatesDeep} from '../../flows/utils/gatePreviewTransforms';
 import generateFlowGraph from '../../flows/utils/generateFlowGraph';
 import getFlowPromptComponentsSequence from '../../flows/utils/getFlowPromptComponentsSequence';
+import useGuidedApplicationDraft from '../../webmcp/hooks/useGuidedApplicationDraft';
 import useCreateApplication from '../api/useCreateApplication';
 import ConfigureSecuritySettings from '../components/create-application/configure-security-settings/ConfigureSecuritySettings';
 import ConfigureApplicationDetails from '../components/create-application/ConfigureApplicationDetails';
@@ -842,6 +843,14 @@ export default function ApplicationCreatePage(): JSX.Element {
       handleCreateApplication(skipOAuthConfig);
     }
   };
+
+  // Lets a WebMCP `create_application` tool call fill this wizard in and, once the admin confirms,
+  // submit it through the same handler the Create button uses. A no-op when no tool call is in
+  // flight, which is every case in a browser without WebMCP.
+  useGuidedApplicationDraft({
+    submit: () => ensureFlowAndCreateApplication(),
+    createdApplication: createApplication.data,
+  });
 
   const handleNextStep = (): void => {
     // DETAILS has a special wait condition for OU loading
