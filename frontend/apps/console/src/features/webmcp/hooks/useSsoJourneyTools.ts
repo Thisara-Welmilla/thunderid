@@ -11,15 +11,21 @@ import type {WebMcpConfirmation} from './useWebMcpConfirmation';
 import RouteConfig from '../../../configs/RouteConfig';
 import ApplicationConstants from '../../applications/constants/application-constants';
 import {hasUserAccess} from '../../applications/utils/oauth2Rules';
+import useGetFlowsMeta from '../../flows/api/useGetFlowsMeta';
 import {FlowType} from '../../flows/models/flows';
 import WebMcpTools from '../constants/webmcp-tools';
 import {WebMcpRefusalCodes, type GuidedApplicationDraft, type WebMcpRefusal} from '../models/journey';
 import type {WebMcpToolDescriptor, WebMcpToolResult} from '../models/webmcp';
 import {begin, isRefusal, requestSubmit, settleFailure, waitUntilPrefilled} from '../store/guidedJourneyStore';
+import {announce} from '../store/webMcpActivityStore';
 import buildTestLoginUrl from '../utils/buildTestLoginUrl';
+import {pointAtConfirmButton} from '../utils/cursorControl';
+import generateFlowHandle from '../utils/generateFlowHandle';
 import getSsoTemplateOptions from '../utils/getSsoTemplateOptions';
+import {sleep} from '../utils/pacing';
 import {asRefusal, toolRefusal, toolSuccess} from '../utils/toolResults';
 import validateRedirectUris from '../utils/validateRedirectUris';
+import {getWebMcpTimings} from '../utils/webMcpSpeed';
 
 /**
  * How long a tool waits for the console to reach the page it navigated to and take the draft. Long
@@ -33,6 +39,7 @@ const UI_READY_TIMEOUT_MS = 15_000;
 function getOAuth2Config(application: Application): OAuth2Config | undefined {
   return application.inboundAuthConfig?.find((config) => config.type === 'oauth2')?.config;
 }
+
 
 /**
  * Everything about an application a read tool is allowed to hand back. The client secret is
@@ -102,6 +109,14 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
   const {confirm} = confirmation;
 
   const templateOptions = useMemo(() => getSsoTemplateOptions(), []);
+
+  const {data: flowsMeta} = useGetFlowsMeta({flowType: FlowType.AUTHENTICATION});
+  // Every bundled authentication template except the empty "BLANK" one, which has no steps to run.
+  const authFlowTemplates = useMemo(
+    () => flowsMeta.templates.filter((template) => template.type !== 'BLANK'),
+    [flowsMeta.templates],
+  );
+  const authFlowTemplateTypes = useMemo(() => authFlowTemplates.map((template) => template.type), [authFlowTemplates]);
 
   /**
    * Resolves the organization unit the application should be created in.
@@ -336,6 +351,8 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
 
       const pending = begin({kind: 'createApplication', draft});
 
+      announce({label: t('common:webmcp.spotlight.openingWizard', 'Opening the application wizard')});
+
       try {
         // The template gallery is the console's own entry point into the wizard: it selects the
         // template, seeds the shared creation context and forwards to the create route. Going
@@ -353,6 +370,11 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
           return toolRefusal(refusal);
         }
 
+        // Point the pointer at the accept button (ringing it) while the dialog is up. Fire-and-forget:
+        // the confirm request is set synchronously below, so the button exists by the time it looks.
+        if (getWebMcpTimings().enabled) {
+          void pointAtConfirmButton(getWebMcpTimings().cursorMoveMs);
+        }
         const approved = await confirm({
           title: t('common:webmcp.createApplication.title', 'Create this application?'),
           description: t(
@@ -387,6 +409,8 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
           return toolRefusal(refusal);
         }
 
+        announce({label: t('common:webmcp.spotlight.creatingApplication', 'Creating the application')});
+        await sleep(getWebMcpTimings().preClickMs);
         requestSubmit();
 
         const outcome = await pending;
@@ -414,6 +438,127 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
       }
     },
     [templateOptions, resolveOrganizationUnit, navigate, confirm, t],
+  );
+
+  const createLoginFlow = useCallback(
+    async (args: Record<string, unknown>): Promise<WebMcpToolResult> => {
+      const name = typeof args.name === 'string' ? args.name.trim() : '';
+
+      if (name.length < 1 || name.length > 255) {
+        return toolRefusal({
+          code: WebMcpRefusalCodes.INVALID_NAME,
+          message: 'The flow name must be between 1 and 255 characters.',
+        });
+      }
+
+      const handle = generateFlowHandle(name);
+      if (!handle) {
+        return toolRefusal({
+          code: WebMcpRefusalCodes.INVALID_NAME,
+          message: 'The flow name must contain at least one letter or number.',
+        });
+      }
+
+      const requestedTemplate = typeof args.template === 'string' ? args.template.trim().toUpperCase() : '';
+      const template = authFlowTemplates.find((entry) => entry.type.toUpperCase() === requestedTemplate);
+
+      if (!template) {
+        return toolRefusal({
+          code: WebMcpRefusalCodes.FLOW_TEMPLATE_NOT_ALLOWED,
+          message: `"${String(args.template)}" is not an authentication flow template this journey creates from.`,
+          details: {
+            allowedTemplates: authFlowTemplates.map((entry) => ({type: entry.type, label: entry.display.label})),
+          },
+        });
+      }
+
+      const draft = {
+        name,
+        handle,
+        templateType: template.type,
+        templateLabel: template.display.label,
+        flowType: FlowType.AUTHENTICATION,
+      };
+
+      const pending = begin({kind: 'createLoginFlow', draft});
+
+      announce({label: t('common:webmcp.spotlight.openingFlowWizard', 'Opening the login flow wizard')});
+
+      try {
+        await navigate(RouteConfig.flows.create());
+
+        if (!(await waitUntilPrefilled(UI_READY_TIMEOUT_MS))) {
+          const refusal: WebMcpRefusal = {
+            code: WebMcpRefusalCodes.UI_NOT_READY,
+            message: 'The flow creation wizard did not open, so nothing was created.',
+          };
+          settleFailure(refusal);
+
+          return toolRefusal(refusal);
+        }
+
+        // Point the pointer at the accept button (ringing it) while the dialog is up. Fire-and-forget:
+        // the confirm request is set synchronously below, so the button exists by the time it looks.
+        if (getWebMcpTimings().enabled) {
+          void pointAtConfirmButton(getWebMcpTimings().cursorMoveMs);
+        }
+        const approved = await confirm({
+          title: t('common:webmcp.createLoginFlow.title', 'Create this login flow?'),
+          description: t(
+            'common:webmcp.createLoginFlow.description',
+            'The flow wizard behind this dialog is filled in with the values below. Confirm to create the login flow.',
+          ),
+          confirmLabel: t('common:webmcp.createLoginFlow.confirmLabel', 'Create login flow'),
+          details: [
+            {label: t('common:webmcp.fields.name', 'Name'), value: draft.name},
+            {label: t('common:webmcp.fields.template', 'Template'), value: draft.templateLabel},
+          ],
+        });
+
+        if (!approved) {
+          const refusal: WebMcpRefusal = {
+            code: WebMcpRefusalCodes.DECLINED,
+            message: 'The admin declined, so no login flow was created.',
+          };
+          settleFailure(refusal);
+
+          return toolRefusal(refusal);
+        }
+
+        announce({label: t('common:webmcp.spotlight.creatingLoginFlow', 'Creating the login flow')});
+        await sleep(getWebMcpTimings().preClickMs);
+        requestSubmit();
+
+        const outcome = await pending;
+
+        if (isRefusal(outcome)) {
+          return toolRefusal(outcome);
+        }
+
+        if (!('flowId' in outcome)) {
+          return toolRefusal({code: WebMcpRefusalCodes.REQUEST_FAILED, message: 'The login flow was not created.'});
+        }
+
+        return toolSuccess({
+          flowId: outcome.flowId,
+          name: draft.name,
+          template: draft.templateType,
+          flowType: draft.flowType,
+          message:
+            `The login flow "${draft.name}" was created through the console wizard, which is now open on the flow ` +
+            `builder. Attach it to an application with ${WebMcpTools.CONFIGURE_LOGIN_FLOW}.`,
+        });
+      } catch (error) {
+        const refusal = asRefusal(error, {
+          code: WebMcpRefusalCodes.REQUEST_FAILED,
+          message: 'The login flow was not created.',
+        });
+        settleFailure(refusal);
+
+        return toolRefusal(refusal);
+      }
+    },
+    [authFlowTemplates, navigate, confirm, t],
   );
 
   const configureLoginFlow = useCallback(
@@ -497,6 +642,10 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
         },
       });
 
+      announce({
+        label: t('common:webmcp.spotlight.openingFlows', "Opening the application's login flow settings"),
+      });
+
       try {
         await navigate(RouteConfig.applications.detail(applicationId));
 
@@ -510,6 +659,11 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
           return toolRefusal(refusal);
         }
 
+        // Point the pointer at the accept button (ringing it) while the dialog is up. Fire-and-forget:
+        // the confirm request is set synchronously below, so the button exists by the time it looks.
+        if (getWebMcpTimings().enabled) {
+          void pointAtConfirmButton(getWebMcpTimings().cursorMoveMs);
+        }
         const approved = await confirm({
           title: t('common:webmcp.configureLoginFlow.title', "Change this application's login flow?"),
           description: t(
@@ -537,6 +691,7 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
           return toolRefusal(refusal);
         }
 
+        announce({label: t('common:webmcp.spotlight.savingLoginFlow', 'Saving the login flow')});
         requestSubmit();
 
         const outcome = await pending;
@@ -614,6 +769,9 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
 
       const request = await buildTestLoginUrl({serverUrl: getServerUrl(), clientId: oauth2.clientId, redirectUri});
 
+      if (getWebMcpTimings().enabled) {
+        void pointAtConfirmButton(getWebMcpTimings().cursorMoveMs);
+      }
       const approved = await confirm({
         title: t('common:webmcp.testLogin.title', 'Start a test sign-in?'),
         description: t(
@@ -636,6 +794,8 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
         });
       }
 
+      announce({label: t('common:webmcp.spotlight.startingTestLogin', 'Starting a test sign-in')});
+      await sleep(getWebMcpTimings().preClickMs);
       window.open(request.url, '_blank', 'noopener,noreferrer');
 
       return toolSuccess({
@@ -753,6 +913,30 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
         execute: createApplication,
       },
       {
+        name: WebMcpTools.CREATE_LOGIN_FLOW,
+        description:
+          "Create an authentication (login) flow from a built-in template by driving the console's flow-creation " +
+          'wizard: it navigates there, selects the template and fills the name in, and waits for the admin to ' +
+          'confirm before creating. Returns the new flow id, which ' +
+          `${WebMcpTools.CONFIGURE_LOGIN_FLOW} can then attach to an application. Templates: ` +
+          `${authFlowTemplates.map((entry) => `${entry.type} (${entry.display.label})`).join(', ')}.`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: {type: 'string', minLength: 1, maxLength: 255},
+            template: {
+              type: 'string',
+              enum: authFlowTemplateTypes,
+              description: 'Which authentication template to create the flow from.',
+            },
+          },
+          required: ['name', 'template'],
+          additionalProperties: false,
+        },
+        annotations: {title: 'Create Login Flow', readOnlyHint: false},
+        execute: createLoginFlow,
+      },
+      {
         name: WebMcpTools.CONFIGURE_LOGIN_FLOW,
         description:
           'Attach an existing authentication flow to an existing application as its login flow, by opening the ' +
@@ -787,12 +971,15 @@ export default function useSsoJourneyTools({reads, confirmation}: UseSsoJourneyT
     ],
     [
       templateOptions,
+      authFlowTemplates,
+      authFlowTemplateTypes,
       listOrganizationUnits,
       searchApplications,
       getApplication,
       listLoginFlows,
       getLoginFlow,
       createApplication,
+      createLoginFlow,
       configureLoginFlow,
       runTestLogin,
     ],

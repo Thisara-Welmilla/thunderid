@@ -315,6 +315,65 @@ describe('create_application journey', () => {
   });
 });
 
+describe('create_login_flow', () => {
+  function firstTemplateType(tool: (name: string) => WebMcpToolDescriptor): string {
+    const schema = tool(WebMcpTools.CREATE_LOGIN_FLOW).inputSchema as {
+      properties: {template: {enum: string[]}};
+    };
+    return schema.properties.template.enum[0];
+  }
+
+  it('offers the authentication templates as an enum and excludes BLANK', () => {
+    const {tool} = renderTools();
+    const schema = tool(WebMcpTools.CREATE_LOGIN_FLOW).inputSchema as {properties: {template: {enum: string[]}}};
+
+    expect(schema.properties.template.enum.length).toBeGreaterThan(0);
+    expect(schema.properties.template.enum).not.toContain('BLANK');
+  });
+
+  it('refuses a template outside the authentication set', async () => {
+    const {tool} = renderTools();
+
+    const result = await tool(WebMcpTools.CREATE_LOGIN_FLOW).execute({name: 'My login', template: 'NOT_A_TEMPLATE'});
+
+    expect(result.isError).toBe(true);
+    expect(parse(result)).toMatchObject({code: WebMcpRefusalCodes.FLOW_TEMPLATE_NOT_ALLOWED});
+  });
+
+  it('refuses an empty name', async () => {
+    const {tool} = renderTools();
+
+    const result = await tool(WebMcpTools.CREATE_LOGIN_FLOW).execute({name: '   ', template: firstTemplateType(tool)});
+
+    expect(result.isError).toBe(true);
+    expect(parse(result)).toMatchObject({code: WebMcpRefusalCodes.INVALID_NAME});
+  });
+
+  it('drives the flow wizard and returns the created flow id', async () => {
+    confirmResult = true;
+    const {tool} = renderTools();
+    const template = firstTemplateType(tool);
+
+    const pending = tool(WebMcpTools.CREATE_LOGIN_FLOW).execute({name: 'Passwordless login', template});
+
+    await waitFor(() => {
+      expect(getSnapshot().phase).toBe(GuidedPhases.PREFILLING);
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('/flows/create');
+    markPrefilled();
+
+    await waitFor(() => {
+      expect(getSnapshot().phase).toBe(GuidedPhases.SUBMITTING);
+    });
+    settleSuccess({flowId: 'flow-9'});
+
+    const result = await pending;
+
+    expect(result.isError).toBeUndefined();
+    expect(parse(result)).toMatchObject({flowId: 'flow-9', name: 'Passwordless login', template});
+  });
+});
+
 describe('configure_login_flow preconditions', () => {
   it('refuses a read-only application', async () => {
     readHandler = () => Promise.resolve({...browserApplication, isReadOnly: true});
