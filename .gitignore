@@ -147,3 +147,7 @@ backend/cmd/server/bootstrap/03-dev-server-configurations.yaml
 
 # Development internals guide (not intended for commit)
 THUNDERID_INTERNALS_GUIDE.md
+
+# Rendered AWS deployment config (generated on the target instance)
+install/aws/rendered/
+install/aws/.env

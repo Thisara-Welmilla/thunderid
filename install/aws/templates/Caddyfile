@@ -1,0 +1,15 @@
+__DOMAIN__ {
+	encode zstd gzip
+
+	reverse_proxy https://thunderid:8090 {
+		# The ThunderID server terminates TLS with the self-signed certificate that setup.sh
+		# generates. Caddy holds the publicly trusted certificate; this hop stays inside the
+		# Compose network, so skipping upstream verification is safe here.
+		transport http {
+			tls
+			tls_insecure_skip_verify
+		}
+		header_up Host {upstream_hostport}
+		header_up X-Forwarded-Host {host}
+	}
+}
