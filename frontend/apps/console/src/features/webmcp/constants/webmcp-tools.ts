@@ -13,12 +13,15 @@
  * @public
  */
 const WebMcpTools = {
+  LIST_SECTIONS: 'thunderid_console_list_sections',
+  NAVIGATE: 'thunderid_console_navigate',
   LIST_ORGANIZATION_UNITS: 'thunderid_console_list_organization_units',
   SEARCH_APPLICATIONS: 'thunderid_console_search_applications',
   GET_APPLICATION: 'thunderid_console_get_application',
   LIST_LOGIN_FLOWS: 'thunderid_console_list_login_flows',
   GET_LOGIN_FLOW: 'thunderid_console_get_login_flow',
   CREATE_APPLICATION: 'thunderid_console_create_application',
+  CREATE_LOGIN_FLOW: 'thunderid_console_create_login_flow',
   CONFIGURE_LOGIN_FLOW: 'thunderid_console_configure_login_flow',
   RUN_TEST_LOGIN: 'thunderid_console_run_test_login',
 } as const;

@@ -1,7 +1,7 @@
 // Copyright 2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import {render} from '@thunderid/test-utils';
+import {act, render} from '@thunderid/test-utils';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import WebMcpTools from '../constants/webmcp-tools';
 import type {WebMcpToolDescriptor} from '../models/webmcp';
@@ -68,6 +68,7 @@ describe('WebMcpProvider', () => {
 
     expect(readOnlyNames).toEqual(
       [
+        WebMcpTools.LIST_SECTIONS,
         WebMcpTools.GET_APPLICATION,
         WebMcpTools.GET_LOGIN_FLOW,
         WebMcpTools.LIST_LOGIN_FLOWS,
@@ -76,7 +77,13 @@ describe('WebMcpProvider', () => {
       ].sort(),
     );
 
-    for (const name of [WebMcpTools.CREATE_APPLICATION, WebMcpTools.CONFIGURE_LOGIN_FLOW, WebMcpTools.RUN_TEST_LOGIN]) {
+    for (const name of [
+      WebMcpTools.NAVIGATE,
+      WebMcpTools.CREATE_APPLICATION,
+      WebMcpTools.CREATE_LOGIN_FLOW,
+      WebMcpTools.CONFIGURE_LOGIN_FLOW,
+      WebMcpTools.RUN_TEST_LOGIN,
+    ]) {
       expect(registered.find((tool) => tool.name === name)?.annotations?.readOnlyHint).toBe(false);
     }
   });
@@ -102,6 +109,57 @@ describe('WebMcpProvider', () => {
     expect(unregisterTool.mock.calls.map((call) => call[0] as string)).toEqual(
       expect.arrayContaining(Object.values(WebMcpTools)),
     );
+  });
+
+  it('publishes every tool through provideContext when registerTool is absent', () => {
+    const provideContext = vi.fn();
+    Object.defineProperty(document, 'modelContext', {
+      value: {provideContext},
+      configurable: true,
+      writable: true,
+    });
+
+    const {unmount} = render(<WebMcpProvider />);
+
+    expect(provideContext).toHaveBeenCalledTimes(1);
+    const published = (provideContext.mock.calls[0][0] as {tools: WebMcpToolDescriptor[]}).tools;
+    expect(published.map((tool) => tool.name)).toEqual(expect.arrayContaining(Object.values(WebMcpTools)));
+
+    unmount();
+    // Teardown publishes an empty set, the bulk-API equivalent of unregistering every tool.
+    expect(provideContext).toHaveBeenLastCalledWith({tools: []});
+  });
+
+  it('registers once a bridge injects modelContext after mount', () => {
+    vi.useFakeTimers();
+    try {
+      const registerTool = vi.fn();
+      render(<WebMcpProvider />);
+
+      // No WebMCP at mount: an extension bridge has not attached yet.
+      expect(registerTool).not.toHaveBeenCalled();
+
+      Object.defineProperty(document, 'modelContext', {
+        value: {registerTool},
+        configurable: true,
+        writable: true,
+      });
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      // Self-healing retries may re-publish, so assert on the distinct tool names rather than an
+      // exact call count.
+      const registeredNames = new Set(
+        registerTool.mock.calls.map((call) => (call[0] as WebMcpToolDescriptor).name),
+      );
+      for (const name of Object.values(WebMcpTools)) {
+        expect(registeredNames).toContain(name);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('drops a single tool rather than the provider when registration throws', () => {
