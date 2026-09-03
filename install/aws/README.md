@@ -1,8 +1,11 @@
 # ThunderID on AWS EC2
 
 Runs ThunderID on a single EC2 instance behind [Caddy](https://caddyserver.com/), which obtains and
-renews a Let's Encrypt certificate for your domain automatically. Images are built on your own
-machine and pushed to Amazon ECR, so the instance only ever pulls.
+renews a Let's Encrypt certificate for your domain automatically. Images are pushed to Amazon ECR,
+so the instance only ever pulls.
+
+This page covers first-time infrastructure setup. For the day-to-day loop of shipping a code
+change, and for when the public URL does and does not change, see [DEPLOYING.md](DEPLOYING.md).
 
 ## Layout
 
