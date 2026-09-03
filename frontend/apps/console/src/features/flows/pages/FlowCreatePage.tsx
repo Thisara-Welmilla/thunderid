@@ -9,6 +9,7 @@ import type {JSX} from 'react';
 import {useCallback, useMemo, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router';
+import useGuidedFlowDraft from '../../webmcp/hooks/useGuidedFlowDraft';
 import useCreateFlow from '../api/useCreateFlow';
 import ConfigureFlowName from '../components/create-flow/ConfigureFlowName';
 import type {ConfigureFlowNameValue} from '../components/create-flow/ConfigureFlowName';
@@ -76,6 +77,50 @@ export default function FlowCreatePage(): JSX.Element {
     }
   }, [createFlow]);
 
+  // Builds the create request from the current selections and submits it. Extracted so both the
+  // Create button and the WebMCP guided-flow hook create through exactly the same path.
+  const submitFlow = useCallback((): void => {
+    if (!selectedType || !selectedTemplate) return;
+    const flowRequest = {
+      name: nameValue.name,
+      handle: nameValue.handle,
+      flowType: selectedType,
+      nodes: selectedTemplate.config.nodes,
+    };
+    setError(null);
+    createFlow.mutate(flowRequest, {
+      onSuccess: (savedFlow) => {
+        (async () => {
+          await navigate(flowRoutes.flows.detail(savedFlow.id));
+        })().catch((_error: unknown) => {
+          logger.error('Failed to navigate to flow builder', {error: _error, flowId: savedFlow.id});
+        });
+      },
+      onError: (err) => {
+        setError(
+          getErrorMessage(err, tForErrors, 'create.error.createFailed', 'Failed to create flow. Please try again.'),
+        );
+      },
+    });
+  }, [selectedType, selectedTemplate, nameValue, createFlow, navigate, flowRoutes, logger, tForErrors]);
+
+  // Lets a WebMCP `create_login_flow` call drive this wizard. A no-op unless such a call is in flight.
+  useGuidedFlowDraft({
+    applyTemplate: (flowType, template) => {
+      clearCreateError();
+      setSelectedType(flowType);
+      setSelectedTemplate(template);
+    },
+    applyName: (name, handle) => {
+      setNameValue({name, handle});
+      setNameReady(true);
+    },
+    openConfigureStep: () => setCurrentStep(FlowCreateStep.CONFIGURE),
+    submit: submitFlow,
+    createdFlowId: createFlow.data?.id,
+    error,
+  });
+
   const handleNextStep = (): void => {
     if (currentStep === FlowCreateStep.TYPE) {
       setCurrentStep(FlowCreateStep.TEMPLATE);
@@ -86,28 +131,7 @@ export default function FlowCreatePage(): JSX.Element {
       return;
     }
     if (currentStep === FlowCreateStep.CONFIGURE) {
-      if (!selectedType || !selectedTemplate) return;
-      const flowRequest = {
-        name: nameValue.name,
-        handle: nameValue.handle,
-        flowType: selectedType,
-        nodes: selectedTemplate.config.nodes,
-      };
-      setError(null);
-      createFlow.mutate(flowRequest, {
-        onSuccess: (savedFlow) => {
-          (async () => {
-            await navigate(flowRoutes.flows.detail(savedFlow.id));
-          })().catch((_error: unknown) => {
-            logger.error('Failed to navigate to flow builder', {error: _error, flowId: savedFlow.id});
-          });
-        },
-        onError: (err) => {
-          setError(
-            getErrorMessage(err, tForErrors, 'create.error.createFailed', 'Failed to create flow. Please try again.'),
-          );
-        },
-      });
+      submitFlow();
     }
   };
 

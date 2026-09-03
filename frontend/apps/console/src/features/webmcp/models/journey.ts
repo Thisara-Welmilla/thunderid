@@ -48,10 +48,14 @@ export const WebMcpRefusalCodes = {
   FLOW_NOT_FOUND: 'FLOW_NOT_FOUND',
   /** The named flow is not an authentication flow. */
   FLOW_WRONG_TYPE: 'FLOW_WRONG_TYPE',
+  /** The requested flow template is not one this journey creates from. */
+  FLOW_TEMPLATE_NOT_ALLOWED: 'FLOW_TEMPLATE_NOT_ALLOWED',
   /** The admin declined the confirmation. */
   DECLINED: 'DECLINED',
   /** The console did not reach the expected page in time. */
   UI_NOT_READY: 'UI_NOT_READY',
+  /** The requested console section does not exist. */
+  SECTION_NOT_FOUND: 'SECTION_NOT_FOUND',
   /** The backend rejected the write. Carries the same message the console renders inline. */
   REQUEST_FAILED: 'REQUEST_FAILED',
 } as const;
@@ -118,6 +122,24 @@ export interface GuidedFlowUpdateDraft {
 }
 
 /**
+ * The login flow the guided journey is about to create from a template.
+ *
+ * @public
+ */
+export interface GuidedFlowDraft {
+  /** The flow's display name. */
+  name: string;
+  /** URL-friendly handle, derived from the name. */
+  handle: string;
+  /** The template's `type`, e.g. `CREDENTIALS_AUTH`, used to resolve the template in the wizard. */
+  templateType: string;
+  /** The template's display label, for the confirmation dialog. */
+  templateLabel: string;
+  /** The flow type. Always `AUTHENTICATION` for this journey. */
+  flowType: string;
+}
+
+/**
  * The outcome of a successful mutating tool call.
  *
  * @public
@@ -129,10 +151,20 @@ export interface GuidedApplicationResult {
 }
 
 /**
+ * The outcome of a successful guided flow creation.
+ *
+ * @public
+ */
+export interface GuidedFlowResult {
+  flowId: string;
+}
+
+/**
  * A guided operation the console UI has to carry out on a tool's behalf.
  *
  * @public
  */
 export type GuidedOperation =
   | {kind: 'createApplication'; draft: GuidedApplicationDraft}
-  | {kind: 'configureLoginFlow'; draft: GuidedFlowUpdateDraft};
+  | {kind: 'configureLoginFlow'; draft: GuidedFlowUpdateDraft}
+  | {kind: 'createLoginFlow'; draft: GuidedFlowDraft};

@@ -45,7 +45,14 @@ describe('getModelContext', () => {
     expect(getModelContext()).toBe(documentContext);
   });
 
-  it('returns null when the context cannot register tools', () => {
+  it('accepts a context that exposes only provideContext', () => {
+    const context = {provideContext: () => undefined};
+    setModelContext(navigator, context);
+
+    expect(getModelContext()).toBe(context);
+  });
+
+  it('returns null when the context can neither register nor provide tools', () => {
     setModelContext(document, {});
 
     expect(getModelContext()).toBeNull();

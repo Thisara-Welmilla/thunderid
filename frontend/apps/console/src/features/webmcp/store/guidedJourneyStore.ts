@@ -1,7 +1,7 @@
 // Copyright 2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import type {GuidedApplicationResult, GuidedOperation, WebMcpRefusal} from '../models/journey';
+import type {GuidedApplicationResult, GuidedFlowResult, GuidedOperation, WebMcpRefusal} from '../models/journey';
 
 /**
  * Where the in-flight guided operation has got to.
@@ -27,11 +27,11 @@ export const GuidedPhases = {
 export type GuidedPhase = (typeof GuidedPhases)[keyof typeof GuidedPhases];
 
 /**
- * How a guided operation ended: with the affected application, or with a refusal.
+ * How a guided operation ended: with the affected application, the created flow, or a refusal.
  *
  * @public
  */
-export type GuidedOutcome = GuidedApplicationResult | WebMcpRefusal;
+export type GuidedOutcome = GuidedApplicationResult | GuidedFlowResult | WebMcpRefusal;
 
 /**
  * Whether a settled outcome is a refusal rather than a result.
@@ -198,13 +198,13 @@ export function requestSubmit(): void {
 }
 
 /**
- * Settles the in-flight operation with the application it affected.
+ * Settles the in-flight operation with the application it affected, or the flow it created.
  *
- * @param result - The affected application's identifiers
+ * @param result - The affected application's identifiers, or the created flow's id
  *
  * @public
  */
-export function settleSuccess(result: GuidedApplicationResult): void {
+export function settleSuccess(result: GuidedApplicationResult | GuidedFlowResult): void {
   const settle = settleOutcome;
   clearPending();
   setState(IDLE_STATE);

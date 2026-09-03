@@ -183,6 +183,10 @@ const translations = {
     'webmcp.createApplication.description':
       'The wizard behind this dialog is filled in with the values below. Confirm to create the application.',
     'webmcp.createApplication.confirmLabel': 'Create application',
+    'webmcp.createLoginFlow.title': 'Create this login flow?',
+    'webmcp.createLoginFlow.description':
+      'The flow wizard behind this dialog is filled in with the values below. Confirm to create the login flow.',
+    'webmcp.createLoginFlow.confirmLabel': 'Create login flow',
     'webmcp.configureLoginFlow.title': "Change this application's login flow?",
     'webmcp.configureLoginFlow.description':
       'The change below is staged on the Flows tab behind this dialog. Confirm to save it.',
@@ -191,6 +195,16 @@ const translations = {
     'webmcp.testLogin.description':
       'This opens a new tab at the sign-in screen for this application. The authorization code is sent to its redirect URI, so that URL has to be running to complete the exchange.',
     'webmcp.testLogin.confirmLabel': 'Open sign-in',
+    'webmcp.spotlight.opening': 'Opening {{section}}',
+    'webmcp.spotlight.openingWizard': 'Opening the application wizard',
+    'webmcp.spotlight.creatingApplication': 'Creating the application',
+    'webmcp.spotlight.openingFlowWizard': 'Opening the login flow wizard',
+    'webmcp.spotlight.creatingLoginFlow': 'Creating the login flow',
+    'webmcp.spotlight.thinking': 'Thinking about the next step',
+    'webmcp.spotlight.openingFlows': "Opening the application's login flow settings",
+    'webmcp.spotlight.savingLoginFlow': 'Saving the login flow',
+    'webmcp.spotlight.startingTestLogin': 'Starting a test sign-in',
+    'webmcp.spotlight.agentLabel': 'AI agent',
     'webmcp.fields.name': 'Name',
     'webmcp.fields.template': 'Template',
     'webmcp.fields.organizationUnit': 'Organization unit',
