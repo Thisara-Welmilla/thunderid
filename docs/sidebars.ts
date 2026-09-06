@@ -885,6 +885,11 @@ const sidebars: SidebarsConfig = {
                       id: 'guides/protocols/oauth-oidc/token-introspection',
                       label: 'Token Introspection',
                     },
+                    {
+                      type: 'doc',
+                      id: 'guides/protocols/oauth-oidc/token-revocation',
+                      label: 'Token Revocation',
+                    },
                   ],
                 },
                 {
@@ -1175,7 +1180,8 @@ const sidebars: SidebarsConfig = {
       collapsible: false,
       items: [
         {type: 'doc', id: 'community/contributing/report-a-bug', label: 'Report a Bug'},
-        {type: 'doc', id: 'community/contributing/contribute-ideas', label: 'Contribute Ideas'},
+        {type: 'doc', id: 'community/contributing/propose-a-feature', label: 'Propose a Feature'},
+        {type: 'doc', id: 'community/contributing/propose-a-design', label: 'Propose a Design'},
         {
           type: 'category',
           label: 'Contribute Code',

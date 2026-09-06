@@ -17,6 +17,8 @@ Load only the guidance the task needs:
 | Documentation | [docs/AGENTS.md](docs/AGENTS.md) |
 | Database schema, queries, or stores | [.agent/skills/db/SKILL.md](.agent/skills/db/SKILL.md) |
 | Browser automation / Console UI verification | [.agent/skills/console/SKILL.md](.agent/skills/console/SKILL.md) |
+| Resolving a pnpm/npm security advisory | [.agent/skills/fix-npm-vulnerability/SKILL.md](.agent/skills/fix-npm-vulnerability/SKILL.md) |
+| Auditing or pruning existing pnpm overrides | [.agent/skills/prune-npm-overrides/SKILL.md](.agent/skills/prune-npm-overrides/SKILL.md) |
 
 The `.agent/skills/` entries above are internal guidance for **developing** ThunderID. Consumer-facing setup and framework-integration skills (`setup-thunderid`, `integrate-*`) live in the separate ThunderID Skills repository (installable via `/plugin marketplace add thunder-id/skills`) and are not used when working in this repo.
 
