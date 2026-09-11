@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notification Templates — List</title>
+<style>
+  :root{
+    --bg:#f6f7fb; --panel:#ffffff; --ink:#1b1f2a; --muted:#6b7280; --line:#e6e8ef;
+    --primary:#5a4bf2; --primary-weak:#eceafd; --sys:#2f6fed; --sys-weak:#e7f0ff;
+    --custom:#0a8a5a; --custom-weak:#e3f7ee; --warn:#b26a00; --warn-weak:#fbf0dd;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  .app{display:flex;min-height:640px}
+  .side{width:216px;background:#141726;color:#cfd3e1;padding:18px 14px;flex:0 0 216px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:700;color:#fff;font-size:15px;margin:2px 6px 20px}
+  .logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#8a7bff,#5a4bf2)}
+  .nav a{display:block;padding:8px 10px;border-radius:8px;color:#aab0c4;text-decoration:none;margin-bottom:2px}
+  .nav a.active{background:#232842;color:#fff}
+  .nav .grp{margin:16px 10px 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b7290}
+  .main{flex:1;display:flex;flex-direction:column}
+  .top{height:52px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px}
+  .ou{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+  .ou b{color:var(--ink)}
+  .chip{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--primary-weak);color:var(--primary);font-weight:600}
+  .body{padding:24px 26px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:13px}
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tab{padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--muted);font-weight:600;cursor:pointer}
+  .tab.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card .hd{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 12px;font-weight:600;cursor:pointer;color:var(--ink)}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  table{width:100%;border-collapse:collapse}
+  th{ text-align:left;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);padding:11px 16px;border-bottom:1px solid var(--line);font-weight:600}
+  td{padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .name{font-weight:600}
+  .name small{display:block;color:var(--muted);font-weight:400;font-size:12px}
+  .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px}
+  .tag.sys{background:var(--sys-weak);color:var(--sys)}
+  .tag.cus{background:var(--custom-weak);color:var(--custom)}
+  .loc{display:inline-block;font-size:12px;color:var(--muted);background:#f1f2f7;border-radius:6px;padding:1px 7px;margin-right:4px}
+  .src{font-size:12px;font-weight:600}
+  .src.inh{color:var(--muted)} .src.cus{color:var(--warn)} .src.own{color:var(--custom)}
+  .act{display:flex;gap:6px;justify-content:flex-end}
+  .link{color:var(--primary);font-weight:600;text-decoration:none;font-size:13px}
+  .link.mut{color:var(--muted)}
+  .note{margin-top:14px;font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:flex-start}
+  .note b{color:var(--ink)}
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand"><span class="logo"></span> ThunderID</div>
+      <nav class="nav">
+        <a href="#">Home</a>
+        <a href="#">Users</a>
+        <a href="#">Applications</a>
+        <a href="#">Flows</a>
+        <div class="grp">Customization</div>
+        <a href="#">Design &amp; Branding</a>
+        <a href="#" class="active">Notification Templates</a>
+        <a href="#">Organization Units</a>
+      </nav>
+    </aside>
+    <main class="main">
+      <div class="top">
+        <div class="ou">Organization unit: <b>Acme › Engineering</b> <span class="chip">content scope</span></div>
+        <div class="ou">admin@acme</div>
+      </div>
+      <div class="body">
+        <h1>Notification Templates</h1>
+        <p class="sub">Template types are global (referenced by flows); content is customized for this organization unit.</p>
+        <div class="tabs">
+          <div class="tab active">Email</div>
+          <div class="tab">SMS</div>
+        </div>
+        <div class="card">
+          <div class="hd">
+            <div style="font-weight:600">Email templates</div>
+            <button class="btn primary">+ Custom template</button>
+          </div>
+          <table>
+            <thead><tr><th>Template</th><th>Type</th><th>Locales</th><th>Content source</th><th></th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="name">OTP Verification <small>otp</small></td>
+                <td><span class="tag sys">System</span></td>
+                <td><span class="loc">en-US</span><span class="loc">fr-FR</span></td>
+                <td><span class="src inh">Inherited (system)</span></td>
+                <td class="act"><a class="link" href="#">Edit</a></td>
+              </tr>
+              <tr>
+                <td class="name">Password Recovery <small>password-recovery</small></td>
+                <td><span class="tag sys">System</span></td>
+                <td><span class="loc">en-US</span></td>
+                <td><span class="src cus">Customized · this OU</span></td>
+                <td class="act"><a class="link" href="#">Edit</a><a class="link mut" href="#">Revert</a></td>
+              </tr>
+              <tr>
+                <td class="name">Magic Link Sign-In <small>magic-link</small></td>
+                <td><span class="tag sys">System</span></td>
+                <td><span class="loc">en-US</span></td>
+                <td><span class="src inh">Inherited (root org)</span></td>
+                <td class="act"><a class="link" href="#">Edit</a></td>
+              </tr>
+              <tr>
+                <td class="name">Welcome Message <small>welcome-message</small></td>
+                <td><span class="tag cus">Custom</span></td>
+                <td><span class="loc">en-US</span><span class="loc">de-DE</span></td>
+                <td><span class="src own">Customized · this OU</span></td>
+                <td class="act"><a class="link" href="#">Edit</a><a class="link mut" href="#">Delete</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note"><b>Content source</b> shows where the effective content resolves from — the system default, an inherited root/ancestor override, or a customization made in this organization unit. Editing a row creates a copy against this OU (copy-on-write).</div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
