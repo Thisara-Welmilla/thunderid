@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notification Templates — Email editor</title>
+<style>
+  :root{
+    --bg:#060d1a; --panel:#0e1c33; --panel2:#0b1626; --line:rgba(255,255,255,.09);
+    --ink:#ffffff; --muted:rgba(255,255,255,.60);
+    --primary:#3688ff; --primary-weak:rgba(54,136,255,.16);
+    --success:#10b981; --warn:#f59e0b;
+    --grad:linear-gradient(90deg,#3688ff 0%,#1d5eb4 100%);
+    --tok:#f2b552;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  .top{height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 22px}
+  .crumb{font-size:13px;color:var(--muted)} .crumb b{color:var(--ink);font-size:15px}
+  .tools{display:flex;align-items:center;gap:10px}
+  .sel{border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--panel2);color:var(--ink);font-weight:600}
+  .btn{border:1px solid var(--line);background:transparent;border-radius:8px;padding:8px 14px;font-weight:600;color:var(--ink)}
+  .btn.primary{background:var(--grad);border:0;color:#fff}
+  .btn.ghost{color:var(--muted)}
+  .revert{position:relative}
+  .rmenu{position:absolute;top:40px;right:0;background:#0f1e37;border:1px solid var(--line);border-radius:9px;box-shadow:0 14px 34px rgba(0,0,0,.5);min-width:210px;overflow:hidden;z-index:5}
+  .rmenu div{padding:9px 13px;font-size:13px;color:var(--ink);border-bottom:1px solid var(--line);white-space:nowrap}
+  .rmenu div:last-child{border-bottom:none}
+  .rmenu .hd2{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;background:rgba(255,255,255,.03);font-weight:600}
+  .scope{display:flex;gap:12px;align-items:center;padding:8px 22px 16px;font-size:12px;color:var(--muted)}
+  .scard{display:flex;align-items:center;gap:9px;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+  .scard .dot{width:9px;height:9px;border-radius:50%}
+  .scard.c .dot{background:var(--primary);box-shadow:0 0 8px rgba(54,136,255,.7)}
+  .scard.br .dot{background:#8bd0e6;box-shadow:0 0 8px rgba(139,208,230,.6)}
+  .scard .k{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .scard .v{font-size:14px;font-weight:700;color:#fff}
+  .scope-desc{color:var(--muted)}
+  .wrap{display:flex;gap:18px;padding:18px 22px;align-items:flex-start}
+  .col{flex:1;min-width:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card .hd{padding:12px 14px;border-bottom:1px solid var(--line);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .card .hd small{color:var(--muted);font-weight:500}
+  .field{padding:14px}
+  label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
+  input.txt{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;background:var(--panel2);color:var(--ink)}
+  .editor{margin:0;border:0;border-top:1px solid var(--line);background:#070f1c;color:#cfe0ff;padding:14px;font:12.5px/1.6 "SF Mono",Menlo,Consolas,monospace;white-space:pre-wrap;min-height:250px}
+  .tok{color:var(--tok)}
+  /* preview email (delivered look) */
+  .previewframe{padding:18px;background:#0a1424}
+  .email{max-width:520px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+  .email .ehead{background:#3a2f8f;padding:18px 22px;display:flex;align-items:center;gap:10px}
+  .email .ehead .l{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#b3a7ff,#7b6bff)}
+  .email .ehead .n{color:#fff;font-weight:700;letter-spacing:.2px}
+  .email .ebody{padding:26px 24px;color:#20242e}
+  .email h2{margin:0 0 12px;font-size:19px}
+  .email p{margin:0 0 14px;color:#3b4150}
+  .code{font-size:26px;font-weight:800;letter-spacing:2px;color:#5a4bf2;background:#eceafd;border:1px solid #d6d0fb;border-radius:8px;padding:12px 18px;display:inline-block}
+  .email .efoot{border-top:1px solid #edeff5;padding:16px 24px;color:#8b90a0;font-size:12px}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="crumb">Notification Templates › Email › <b>Password Recovery</b></div>
+    <div class="tools">
+      <select class="sel"><option>Locale: en-US</option><option>fr-FR</option><option>+ Add locale</option></select>
+      <div class="revert">
+        <button class="btn ghost">Revert ▾</button>
+        <div class="rmenu">
+          <div class="hd2">Revert this locale to</div>
+          <div>Parent OU (or root org)</div>
+          <div>Default (shipped)</div>
+        </div>
+      </div>
+      <button class="btn primary">Save</button>
+    </div>
+  </div>
+  <div class="scope">
+    <div class="scard c"><span class="dot"></span><span class="k">Content</span><span class="v">Engineering OU</span></div>
+    <div class="scard br"><span class="dot"></span><span class="k">Branding</span><span class="v">Acme</span></div>
+    <span class="scope-desc">Preview shows the notification exactly as it will be delivered. Content resolved for this OU, branding composed on top, locale applied.</span>
+  </div>
+
+  <div class="wrap">
+    <div class="col">
+      <div class="card">
+        <div class="hd">Template content</div>
+        <div class="field">
+          <label>Subject</label>
+          <input class="txt" value="Reset your password">
+        </div>
+        <div style="padding:0 14px 4px"><label>Body (HTML)</label></div>
+<pre class="editor">&lt;h2&gt;Reset your password&lt;/h2&gt;
+&lt;p&gt;Hi <span class="tok">{{ctx(firstName)}}</span>, we received a request to
+reset the password for your account.&lt;/p&gt;
+&lt;p&gt;Use the code below. It expires in <span class="tok">{{ctx(expiryTime)}}</span>.&lt;/p&gt;
+&lt;div class="code"&gt;<span class="tok">{{ctx(otpCode)}}</span>&lt;/div&gt;
+&lt;p&gt;If you didn't request this, you can ignore this email.&lt;/p&gt;</pre>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card">
+        <div class="hd">Preview <small>as delivered</small></div>
+        <div class="previewframe">
+          <div class="email">
+            <div class="ehead"><span class="l"></span><span class="n">Acme</span></div>
+            <div class="ebody">
+              <h2>Reset your password</h2>
+              <p>Hi {{ctx(firstName)}}, we received a request to reset the password for your account.</p>
+              <p>Use the code below. It expires in {{ctx(expiryTime)}}.</p>
+              <div class="code">{{ctx(otpCode)}}</div>
+              <p>If you didn't request this, you can ignore this email.</p>
+            </div>
+            <div class="efoot">© 2026 Acme Inc. · Sent by ThunderID · support@acme.example</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
