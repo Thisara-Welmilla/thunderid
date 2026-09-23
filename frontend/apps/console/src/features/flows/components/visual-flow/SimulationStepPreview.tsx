@@ -4,7 +4,7 @@
 import {BuilderStaticPanel} from '@thunderid/components';
 import {useGetApplication, useGetApplications} from '@thunderid/configure-applications';
 import type {BasicApplication} from '@thunderid/configure-applications';
-import {GatePreview} from '@thunderid/configure-design';
+import {GatePreview, NotificationTemplatePreview, type NotificationChannel} from '@thunderid/configure-design';
 import {DefaultTheme, DesignResolveType, useGetDesignResolve, type Theme} from '@thunderid/design';
 import {useTemplateLiteralResolver} from '@thunderid/hooks';
 import type {EmbeddedFlowComponent} from '@thunderid/react';
@@ -49,6 +49,7 @@ import {
 } from '../../constants/simulationPreviewConstants';
 import type {FlowSimulation} from '../../hooks/useFlowSimulation';
 import {ElementTypes} from '../../models/elements';
+import {ExecutionTypes} from '../../models/steps';
 import type {StepData} from '../../models/steps';
 import {
   resolveApplicationMeta,
@@ -395,6 +396,34 @@ export default function SimulationStepPreview({node, simulation}: SimulationStep
     backgroundStepData?.display?.label ??
     backgroundStepData?.action?.executor?.name ??
     (nodeType === 'CALL' ? t('flows:core.simulation.preview.callStepLabel', 'Calls another flow') : undefined);
+  // Notification executor steps (Send Email / Send SMS) render the notification template
+  // as a screen instead of the generic background-step card.
+  const notificationExecutorName = backgroundStepData?.action?.executor?.name;
+  const notificationChannel: NotificationChannel | undefined =
+    notificationExecutorName === ExecutionTypes.EmailExecutor
+      ? 'email'
+      : notificationExecutorName === ExecutionTypes.SMSExecutor
+        ? 'sms'
+        : undefined;
+
+  // TODO: replace with the node's configured template (by handle) from the API. Placeholder
+  // content uses the notification grammar ({{ctx(...)}} left as-is until send).
+  const notificationSample: {subject?: string; body: string} =
+    notificationChannel === 'sms'
+      ? {
+          body: 'Your verification code is {{ctx(otpCode)}}. It expires in {{ctx(expiryTime)}}.',
+        }
+      : {
+          subject: 'Your verification code',
+          body:
+            '<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">' +
+            '<h2>Your verification code</h2>' +
+            '<p>Use the following code to continue:</p>' +
+            '<p style="font-size: 28px; font-weight: bold; letter-spacing: 6px;">{{ctx(otpCode)}}</p>' +
+            '<p>This code expires in {{ctx(expiryTime)}}.</p>' +
+            '</div>',
+        };
+
   const isThemedPreview = Boolean(effectiveAppId && selectedApplication && hasScreen);
 
   const isComplete = simulation.options.length === 0;
@@ -504,9 +533,23 @@ export default function SimulationStepPreview({node, simulation}: SimulationStep
         sx={{flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column'}}
       >
         {!hasScreen && (
-          <Stack spacing={0.5} sx={{pt: 0.5}}>
+          <Stack
+            spacing={0.5}
+            sx={{pt: 0.5, ...(notificationChannel ? {flex: 1, minHeight: 0} : {})}}
+          >
             <SimulationOptionsFooter {...footerProps} placement="top" rootRef={footerRef} />
-            {showBackgroundStepCard && (
+            {notificationChannel ? (
+              <Box data-testid="simulation-notification-preview" sx={{flex: 1, minHeight: 0, overflow: 'auto'}}>
+                <NotificationTemplatePreview
+                  channel={notificationChannel}
+                  subject={notificationSample.subject}
+                  body={notificationSample.body}
+                  theme={theme}
+                  colorScheme={previewColorScheme}
+                />
+              </Box>
+            ) : (
+              showBackgroundStepCard && (
               <Stack
                 direction="row"
                 spacing={1.25}
@@ -543,6 +586,7 @@ export default function SimulationStepPreview({node, simulation}: SimulationStep
                   </Typography>
                 </Box>
               </Stack>
+              )
             )}
           </Stack>
         )}

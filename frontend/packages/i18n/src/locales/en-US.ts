@@ -4339,6 +4339,14 @@ const translations = {
   design: {
     'page.title': 'Design',
     'page.subtitle': 'Create, customize, and manage visual themes & layouts for your applications.',
+    'notificationTemplatePreview.warnings.unsupported':
+      '"{{token}}" is not a supported token and will cause the template to fail to send.',
+    'notificationTemplatePreview.warnings.designNotAllowed':
+      'Design token "{{token}}" is only allowed in the email body, not here.',
+    'notificationTemplatePreview.warnings.designPreviewUnsupported':
+      'Design token "{{token}}" is resolved from the theme when sent; it is shown as-is in this preview.',
+    'notificationTemplatePreview.warnings.missingTranslation':
+      'No translation for "{{token}}" in the selected language; it is shown as-is and may not render.',
     'themes.section.title': 'Themes',
     'themes.actions.add.label': 'Add Theme',
     'themes.empty_state.message': 'No themes yet',
