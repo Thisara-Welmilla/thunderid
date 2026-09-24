@@ -22,6 +22,49 @@ The Notification Templates module manages templates and coordinates rendering. I
 
 Templates required by flows created at bootstrap are imported through the existing bootstrap path. After import, they are ordinary editable templates. A feature installed or enabled later creates any additional template it requires.
 
+```mermaid
+flowchart TB
+    subgraph clients [Clients]
+        Console["ThunderID Console<br/>template editor + preview"]
+        ApiClient["API consumers<br/>SDKs / GitOps"]
+    end
+
+    subgraph nt [Notification Templates module]
+        API["Notification Templates API"]
+        MgmtSvc["Template management<br/>+ rendering coordination"]
+        Renderer["Renderer<br/>substitutes {{ctx(...)}} placeholders"]
+        Store[("Template store<br/>DB, mutable, language-neutral content")]
+    end
+
+    subgraph install [Install-time]
+        Bootstrap[("Bootstrap bundle")]
+        Importer["Import service"]
+    end
+
+    subgraph reused [Reused features]
+        Translation["Translation feature<br/>resolve translation keys for locale"]
+        Design["Design feature<br/>color theme / branding (email only)"]
+    end
+
+    subgraph consumers [Runtime consumers unchanged]
+        Flow["Flow email/SMS executors"]
+        Sender["Notification senders"]
+    end
+    Recipient["Recipient"]
+
+    Console --> API
+    ApiClient --> API
+    API -->|manage / preview| MgmtSvc
+    Flow -->|resolve + render| MgmtSvc
+    MgmtSvc --> Store
+    Bootstrap -->|seed templates at install| Importer --> Store
+    MgmtSvc -->|resolve keys for locale| Translation
+    MgmtSvc -->|apply design to email| Design
+    MgmtSvc -->|substitute placeholders| Renderer
+    MgmtSvc -. rendered notification .-> Flow
+    Flow -->|deliver| Sender --> Recipient
+```
+
 | Component | Responsibility |
 |---|---|
 | Notification Templates module | Manage templates and coordinate rendering |
