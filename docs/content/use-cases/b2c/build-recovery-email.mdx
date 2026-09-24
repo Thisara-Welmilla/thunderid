@@ -1,0 +1,74 @@
+---
+title: Customize the Recovery Email
+docType: use-case
+sidebar_position: 6
+description: Customize the content, branding, and languages of Wayfinder's password recovery email, then verify the delivered message.
+---
+
+# Customize the Recovery Email
+
+[Register the Application](../build-application) pointed Wayfinder at the recovery flow you built. That flow's
+**Send Email** step sends a password recovery email, and the message it sends is a **notification template** you own,
+not fixed text baked into the flow.
+
+A template keeps three concerns separate, and <ProductName /> composes them at send time:
+
+- **Content** — the subject and body, authored as plain text with `{{ctx(...)}}` placeholders and no branding markup.
+- **Branding** — the logo and colors, applied automatically from Design & Branding so every template matches the
+  application without you styling each one.
+- **Language** — a separate content variant per locale, so each customer is emailed in their own language.
+
+Content is managed globally and referenced by the flow's Send Email step, branding is resolved per application, and the
+recipient's locale selects the language variant, falling back to the default locale. The steps below customize
+Wayfinder's password recovery email and verify the result.
+
+<Stepper stepNode="h2" as="h2">
+
+## Open the Password Recovery template
+
+Navigate to **Notification Templates** in the Console and stay on the **Email** channel. Select **Edit** on the
+**Password Recovery** (`password-recovery`) template. This is the same template the recovery flow's **Send Email** step
+sends, so your edits apply to the flow you built.
+
+## Edit the subject and message
+
+Edit the template's **subject** and **body**. Write plain content only, and leave the logo and colors to branding.
+
+To insert a runtime value, use a `{{ctx(...)}}` placeholder. The editor lists the variables available for this
+template, such as the application name and the password-reset link, and each is substituted at send time. An unknown
+placeholder is delivered literally, so use only the variables the editor lists.
+
+Select **Save changes**.
+
+## Apply the application's theme
+
+The email's appearance comes from the application's theme in **Design & Branding**, not from the template, so the
+template carries no styling. In the **Preview** panel, set **Branding** to the Wayfinder application to see your content
+wrapped in that application's logo and colors, exactly as it will be delivered.
+
+To change how the email looks, edit the application's theme rather than the template. See
+[Themes](../../../guides/design/themes).
+
+## Add a translation
+
+A template holds one content variant per language. In the editor, open the **LANGUAGE** selector, choose
+**Add language**, pick the recipient locale, and provide the translated **subject** and **body** for that language. The
+selector marks each language as the default, edited, or not yet translated.
+
+At send time <ProductName /> picks the variant for the recipient's locale and falls back to the default locale when a
+language has no variant. See [Manage Translations](../../../guides/i18n/manage-translations).
+
+## Preview it in another language
+
+The **Preview** panel renders the message **as delivered**: resolved content, application branding, and the selected
+language together, with `{{ctx(...)}}` shown as-is. Switch the preview's language to the locale you translated to, and
+confirm the translated subject and body render correctly inside the branded message.
+
+## Run account recovery to verify
+
+Trigger the real email and confirm your changes landed. Run the recovery walkthrough end to end, see
+[Account Recovery](../try-it-out/account-recovery), using a customer whose locale matches the language you translated.
+Check the delivered email: the subject and body are your edited content, the styling is the application's branding, and
+the text is in the recipient's language.
+
+</Stepper>

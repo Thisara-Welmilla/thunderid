@@ -77,6 +77,26 @@ Coming soon. See the [App-native pattern](../../integration-patterns#app-native)
 </Pattern>
 </PatternPicker>
 
+## About the Recovery Email
+
+The email John receives is produced from a **notification template**, not fixed text baked into the recovery flow. The
+template holds the subject and message content; its appearance follows the application's theme from Design & Branding;
+and its text can be translated so each customer is emailed in their own language. <ProductName /> composes the three at
+send time: it resolves the content for the recipient's locale, wraps it in the application's branding, and substitutes
+runtime values such as the application name and the recovery link.
+
+In the configured sample you can inspect all three without changing anything:
+
+- Open **Notification Templates** in the Console, stay on the **Email** channel, and select **Edit** on the
+  **Password Recovery** template. The editor shows the subject and body as plain content, and the **Preview** panel
+  renders the message **as delivered**, wrapped in the sample's branding.
+- Switch the **LANGUAGE** selector in the editor, or the language in the preview, to see the same email in another
+  translated language.
+- Compare the preview with the recovery email John received in the walkthrough above; it is the same message.
+
+To customize any of this yourself, see [Customize the Recovery Email](../../build-recovery-email) in the Build It
+tutorial.
+
 ## Going Deeper
 
 - Want to understand the steps the recovery flow takes? See [Flows](../../build-flows#flows) in the Build It tutorial.
