@@ -1,14 +1,14 @@
 # Notification Templates Specification
 
 - **Status:** Draft
-- **Version:** 0.1
+- **Version:** 0.2
 - **Related documents:** [Feature issue #5337](https://github.com/thunder-id/thunderid/issues/5337), [design discussion #5388](https://github.com/thunder-id/thunderid/discussions/5388)
 
 ## Summary
 
 ThunderID ships fixed email and SMS templates. Changing their content requires editing server files and restarting the service. Administrators cannot manage or preview templates through the Console or an API. This specification adds runtime template management and live previews.
 
-Each template has one content definition rather than separate content for each language. Its content can reference translation keys, while the Design feature supplies the applicable design when an email is rendered. The template stores a color theme selection but does not embed application branding.
+Each template is language-neutral: its subject and body reference translation keys rather than storing separate content for each language. The Design feature supplies the applicable design when an email is rendered. The template stores a color theme selection but does not embed application branding.
 
 A flow node selects the template to send. During execution, ThunderID resolves its translation keys for the recipient’s language, substitutes values from the flow context, applies the applicable design, and sends the notification.
 
@@ -16,7 +16,7 @@ A flow node selects the template to send. During execution, ThunderID resolves i
 
 A template belongs to a notification channel, currently email or SMS. An administrator selects a template for a flow’s notification node, and the corresponding channel executor uses it. An email executor cannot use an SMS template, or vice versa.
 
-Template content is global and independent of language and application design. It can contain authored text, translation keys, and `{{ctx(...)}}` placeholders. The template stores the selected color theme for email; the Design feature supplies the applicable application or organization unit design when the notification is rendered or previewed.
+Template content is global and independent of language and application design. Its subject and body reference translation keys; the resolved translation text, which can contain `{{ctx(...)}}` placeholders, is produced by the Translation feature at render time. The template stores the selected color theme for email; the Design feature supplies the applicable application or organization unit design when the notification is rendered or previewed.
 
 The Notification Templates module manages templates and coordinates rendering. It uses the Translation feature to resolve localized text and the Design feature to apply the relevant design. Flow executors provide the selected template and execution context, and the existing notification senders deliver the result.
 
@@ -45,11 +45,11 @@ The creation wizard offers sample templates, including samples for templates ini
 
 ### Content and localization
 
-An email template has a subject and body. An SMS template has a body only. Each field can contain authored text, one translation key representing the entire field, or multiple translation keys combined with authored text. The Translation feature resolves the keys for the recipient’s language.
+An email template has a subject and body. An SMS template has a body only. Each field references a single translation key, and the Translation feature resolves it to localized text for the recipient’s language.
 
-Content can also contain `{{ctx(...)}}` placeholders for values supplied during flow execution. These placeholders are resolved when the notification is sent. They remain visible in previews because a preview has no execution context.
+The resolved translation text can contain `{{ctx(...)}}` placeholders for values supplied during flow execution. These placeholders are substituted when the notification is sent. They remain visible in previews because a preview has no execution context.
 
-Email bodies can be HTML or plain text. SMS bodies are plain text. Notification layouts are outside the scope of this phase; an email author provides the full body content.
+Email bodies can be HTML or plain text. SMS bodies are plain text. Notification layouts are outside the scope of this phase; the resolved body provides the full content.
 
 ### Preview
 
@@ -68,7 +68,7 @@ If the template, a required translation, or a required context value cannot be r
 
 ### Data model
 
-Templates are global resources identified by a channel and a server-assigned UUID. Each template stores a display name, an optional description, and one channel-specific content definition.
+Templates are global resources identified by a channel and a server-assigned UUID. Each template stores a name, an optional description, and one channel-specific content definition.
 
 | Channel | Content | Design |
 |---|---|---|
@@ -79,28 +79,29 @@ The database-backed store replaces the current read-only template file store. In
 
 ### API
 
-The Notification Templates API manages templates by channel. The `channel` path parameter accepts `email` or `sms`, and `templateId` is a UUID assigned by the server. Management operations require the OAuth2 `system` scope.
+The Notification Templates API manages templates by channel. The `channel` path parameter accepts `email` or `sms`, and `id` is a UUID assigned by the server. Management operations require the OAuth2 `system` scope.
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/notification-templates/{channel}/templates` | List template summaries for the channel. |
 | `POST` | `/notification-templates/{channel}/templates` | Create a template with its content. |
-| `GET` | `/notification-templates/{channel}/templates/{templateId}` | Get a template. |
-| `PUT` | `/notification-templates/{channel}/templates/{templateId}` | Update a template. |
-| `DELETE` | `/notification-templates/{channel}/templates/{templateId}` | Delete a template if no flow references it. |
+| `GET` | `/notification-templates/{channel}/templates/{id}` | Get a template. |
+| `PUT` | `/notification-templates/{channel}/templates/{id}` | Update a template. |
+| `DELETE` | `/notification-templates/{channel}/templates/{id}` | Delete a template if no flow references it. |
+| `POST` | `/notification-templates/{channel}/templates/{id}/preview` | Render a locale- and design-applied preview without sending. |
 
-A template has a display name, an optional description, and channel-specific content. Email content has `subject` and `body`, may specify `contentType` as `text/html` or `text/plain`, and may select a `light` or `dark` color theme. SMS content has `body` and no subject or design configuration. The subject and body may contain authored content and translation references.
+A template has a `name`, an optional `description`, and channel-specific content. Email content has `subject` and `body`, may specify `contentType` as `text/html` or `text/plain`, and may select a `light` or `dark` `colorScheme`. SMS content has `body` only (plain text) and no subject or design configuration. The subject and body each reference a single translation key.
 
 An email template response using a translation key for each content field:
 
 ```json
 {
-  "templateId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "displayName": "OTP Verification",
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "name": "OTP Verification",
   "description": "One-time passcode sent to verify a user's email address.",
   "self": "/notification-templates/email/templates/3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "design": {
-    "colorTheme": "light"
+    "colorScheme": "light"
   },
   "content": {
     "contentType": "text/html",
@@ -114,8 +115,8 @@ An SMS template response:
 
 ```json
 {
-  "templateId": "ca28e8df-d561-40d5-93fd-ce97e8f7e81b",
-  "displayName": "OTP Verification",
+  "id": "ca28e8df-d561-40d5-93fd-ce97e8f7e81b",
+  "name": "OTP Verification",
   "description": "One-time passcode sent to verify a user's phone number.",
   "self": "/notification-templates/sms/templates/ca28e8df-d561-40d5-93fd-ce97e8f7e81b",
   "content": {
@@ -126,7 +127,7 @@ An SMS template response:
 
 Invalid requests return `400`, unauthorized requests `401`, forbidden requests `403`, and missing templates `404`. Creating a conflicting template or deleting one referenced by a flow returns `409`. Errors use the shared `Error` response shape; template-specific error codes use the `NTM-XXXX` prefix.
 
-The current API definition does not include a preview endpoint. Its `subjectKey` and `bodyKey` fields also support only one translation key per field. The API schema must be updated to match the `subject` and `body` content model described here before implementation.
+A preview is served by `POST /notification-templates/{channel}/templates/{id}/preview`. It renders the locale- and design-applied notification, leaving `{{ctx(...)}}` placeholders visible, and never sends. Draft content may be supplied in the request body to preview unsaved edits without persisting them.
 
 ### UI
 
@@ -138,10 +139,8 @@ The flow editor lists templates for the selected notification node’s channel. 
 
 ## Open questions
 
-1. What syntax identifies a translation key within authored subject or body content, including content that combines several keys?
-2. What API operation will serve previews in the template editor and flow preview?
-3. How does Design combine a template’s selected color theme with the applicable application or organization unit design?
-4. What fallback does Translation use when a key has no value for the recipient’s language?
+1. How does Design combine a template’s selected color theme with the applicable application or organization unit design?
+2. What fallback does Translation use when a key has no value for the recipient’s language?
 
 ## Requirements
 
@@ -162,9 +161,8 @@ The flow editor lists templates for the selected notification node’s channel. 
 
 **Acceptance criteria:**
 
-- **AC2.1:** Given a template containing several translation keys, when it is rendered for a language with corresponding translations, then the output contains the resolved text without changing the stored template.
-- **AC2.2:** Given a template with no translation keys, when it is rendered, then its authored content is used.
-- **AC2.3:** Given a required translation or context value that cannot be resolved, when rendering runs, then the notification is not sent and the error is surfaced.
+- **AC2.1:** Given a template whose subject and body reference translation keys, when it is rendered for a language with corresponding translations, then the output contains the resolved text without changing the stored template.
+- **AC2.2:** Given a required translation or context value that cannot be resolved, when rendering runs, then the notification is not sent and the error is surfaced.
 
 ### R3. Apply design at send time
 
@@ -200,3 +198,4 @@ The flow editor lists templates for the selected notification node’s channel. 
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-24 | Initial specification based on the notification templates design discussion. |
+| 0.2 | 2026-09-24 | Aligned field names (`id`, `name`, `colorScheme`), the preview endpoint, and the single-translation-key content model with the API definition. |
