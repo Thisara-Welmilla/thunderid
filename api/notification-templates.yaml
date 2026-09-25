@@ -324,7 +324,7 @@ components:
         code:
           type: string
           description: "Error code. NTM-XXXX for template-specific errors; shared errors keep their own prefix (AUTH-, SSE-)."
-          example: "NTM-1003"
+          example: "NTM-1001"
         message:
           $ref: '#/components/schemas/I18nMessage'
         description:
@@ -402,19 +402,34 @@ components:
               key: "error.notificationtemplateservice.not_found_description"
               defaultValue: "The requested notification template does not exist"
     Conflict:
-      description: Conflict
+      description: |
+        Conflict. Returned on create/update when the name already exists in the channel (NTM-1011),
+        and on delete when a flow still references the template (NTM-1009).
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-          example:
-            code: "NTM-1011"
-            message:
-              key: "error.notificationtemplateservice.name_conflict"
-              defaultValue: "Template name already exists"
-            description:
-              key: "error.notificationtemplateservice.name_conflict_description"
-              defaultValue: "A template with the same name already exists in this channel"
+          examples:
+            nameConflict:
+              summary: Name already exists in the channel (create/update)
+              value:
+                code: "NTM-1011"
+                message:
+                  key: "error.notificationtemplateservice.name_conflict"
+                  defaultValue: "Template name already exists"
+                description:
+                  key: "error.notificationtemplateservice.name_conflict_description"
+                  defaultValue: "A template with the same name already exists in this channel"
+            templateInUse:
+              summary: Template referenced by a flow (delete)
+              value:
+                code: "NTM-1009"
+                message:
+                  key: "error.notificationtemplateservice.conflict"
+                  defaultValue: "Template conflict"
+                description:
+                  key: "error.notificationtemplateservice.conflict_description"
+                  defaultValue: "The template is referenced by a flow and cannot be deleted"
     InternalServerError:
       description: Internal server error
       content:

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
@@ -132,6 +133,9 @@ func (ts *notificationTemplateService) GetTemplate(ctx context.Context, channel,
 // transaction.
 func (ts *notificationTemplateService) UpdateTemplate(ctx context.Context, channel, id string,
 	request UpdateTemplateRequest) (*Template, *tidcommon.ServiceError) {
+	if svcErr := validateChannel(channel); svcErr != nil {
+		return nil, svcErr
+	}
 	if id == "" {
 		return nil, &ErrorInvalidTemplateID
 	}
@@ -229,6 +233,12 @@ func (ts *notificationTemplateService) persistUnique(ctx context.Context, channe
 		if nameConflict {
 			return &ErrorTemplateNameConflict
 		}
+		// Race backstop: two concurrent creates can both pass the read pre-check; the loser's INSERT
+		// then trips the UNIQUE (DEPLOYMENT_ID, CHANNEL, NAME) constraint. Map that to the documented
+		// conflict instead of a 500.
+		if isUniqueViolation(txErr) {
+			return &ErrorTemplateNameConflict
+		}
 		if errors.Is(txErr, errTemplateNotFound) {
 			// Surfaced to the caller, which translates it to a 404.
 			return &tidcommon.InternalServerError
@@ -251,8 +261,11 @@ func (ts *notificationTemplateService) toValidatedDAO(channel, id, name, descrip
 	if name == "" {
 		return templateDAO{}, &ErrorMissingName
 	}
-	if len(name) > maxNameLength {
+	if utf8.RuneCountInString(name) > maxNameLength {
 		return templateDAO{}, &ErrorNameTooLong
+	}
+	if utf8.RuneCountInString(description) > maxDescriptionLength {
+		return templateDAO{}, &ErrorDescriptionTooLong
 	}
 	if content.Body == "" {
 		return templateDAO{}, &ErrorMissingBodyKey

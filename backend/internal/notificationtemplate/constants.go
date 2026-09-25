@@ -21,7 +21,8 @@ const (
 	ColorSchemeDark  = "dark"
 )
 
-// Field length limits, aligned with the NOTIFICATION_TEMPLATE column definitions.
+// Field length limits (in characters), aligned with the NOTIFICATION_TEMPLATE column definitions.
 const (
-	maxNameLength = 255
+	maxNameLength        = 255
+	maxDescriptionLength = 512
 )

@@ -180,4 +180,18 @@ var (
 			DefaultValue: "The template name exceeds the maximum allowed length",
 		},
 	}
+
+	// ErrorDescriptionTooLong is returned when the template description exceeds the maximum length.
+	ErrorDescriptionTooLong = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "NTM-1015",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.description_too_long",
+			DefaultValue: "Description too long",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.description_too_long_description",
+			DefaultValue: "The template description exceeds the maximum allowed length",
+		},
+	}
 )

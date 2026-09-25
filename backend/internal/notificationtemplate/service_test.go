@@ -5,6 +5,9 @@ package notificationtemplate
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,11 +19,17 @@ import (
 // memStore is an in-memory notificationTemplateStoreInterface for service tests.
 type memStore struct {
 	templates map[string]templateDAO
+	// createErr, when set, is returned by CreateTemplate to simulate a store failure (e.g. a DB
+	// unique-constraint violation from a concurrent insert).
+	createErr error
 }
 
 func newMemStore() *memStore { return &memStore{templates: map[string]templateDAO{}} }
 
 func (m *memStore) CreateTemplate(_ context.Context, t templateDAO) error {
+	if m.createErr != nil {
+		return m.createErr
+	}
 	m.templates[t.ID] = t
 	return nil
 }
@@ -167,6 +176,40 @@ func TestCreateTemplate_Validation(t *testing.T) {
 
 	_, err = svc.CreateTemplate(ctx, ChannelEmail, CreateTemplateRequest{Name: "n"})
 	require.Equal(t, ErrorMissingBodyKey.Code, err.Code)
+}
+
+func TestCreateTemplate_DescriptionTooLong(t *testing.T) {
+	svc, _ := newService()
+	longDesc := strings.Repeat("d", maxDescriptionLength+1)
+
+	_, err := svc.CreateTemplate(context.Background(), ChannelEmail, CreateTemplateRequest{
+		Name:        "OK",
+		Description: longDesc,
+		Content:     TemplateContent{Body: "b"},
+	})
+	require.Equal(t, ErrorDescriptionTooLong.Code, err.Code)
+}
+
+// TestCreateTemplate_ConcurrentUniqueViolation simulates the race where the name pre-check passes but
+// the INSERT trips the DB UNIQUE constraint; the driver error must map to the 409 conflict, not a 500.
+func TestCreateTemplate_ConcurrentUniqueViolation(t *testing.T) {
+	svc, store := newService()
+	store.createErr = errors.New("pq: duplicate key value violates unique constraint \"notification_template_deployment_id_channel_name_key\"")
+
+	_, err := svc.CreateTemplate(context.Background(), ChannelEmail, CreateTemplateRequest{
+		Name:    "Fresh",
+		Content: TemplateContent{Body: "b"},
+	})
+	require.NotNil(t, err)
+	require.Equal(t, ErrorTemplateNameConflict.Code, err.Code)
+}
+
+func TestIsUniqueViolation(t *testing.T) {
+	require.False(t, isUniqueViolation(nil))
+	require.False(t, isUniqueViolation(errors.New("some other error")))
+	require.True(t, isUniqueViolation(errors.New("UNIQUE constraint failed: NOTIFICATION_TEMPLATE.NAME")))
+	require.True(t, isUniqueViolation(fmt.Errorf("wrapped: %w",
+		errors.New("pq: duplicate key value violates unique constraint"))))
 }
 
 func TestCreateTemplate_NameConflictPerChannel(t *testing.T) {

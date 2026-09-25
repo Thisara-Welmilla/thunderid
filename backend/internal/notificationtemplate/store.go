@@ -6,7 +6,11 @@ package notificationtemplate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/lib/pq"
 
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/database/provider"
@@ -133,14 +137,13 @@ func (s *notificationTemplateStore) UpdateTemplate(ctx context.Context, t templa
 
 // DeleteTemplate deletes a template and its design row. Atomicity is provided by the transaction the
 // service wraps this call in.
+// DeleteTemplate deletes a template row. The companion design row is removed automatically by the
+// NOTIFICATION_TEMPLATE_DESIGN foreign key's ON DELETE CASCADE (foreign keys are enforced on both
+// Postgres and SQLite), so a single statement is atomic and no explicit design delete is needed.
 func (s *notificationTemplateStore) DeleteTemplate(ctx context.Context, channel, id string) error {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
 		return err
-	}
-
-	if _, err := dbClient.ExecuteContext(ctx, queryDeleteTemplateDesign, id, s.deploymentID); err != nil {
-		return fmt.Errorf("failed to delete template design: %w", err)
 	}
 
 	if _, err := dbClient.ExecuteContext(ctx, queryDeleteTemplate, id, channel, s.deploymentID); err != nil {
@@ -230,6 +233,21 @@ func buildTemplateFromRow(row map[string]interface{}) (templateDAO, error) {
 	}
 
 	return dao, nil
+}
+
+// isUniqueViolation reports whether err is a UNIQUE-constraint violation, across both supported
+// drivers: PostgreSQL (lib/pq, SQLSTATE 23505) and SQLite (modernc, whose message contains
+// "UNIQUE constraint failed"). Store errors are wrapped with %w, so errors.As unwraps the pq error.
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23505"
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") || strings.Contains(msg, "duplicate key")
 }
 
 // stringOrEmpty returns the string value of a (possibly NULL) column or "".
