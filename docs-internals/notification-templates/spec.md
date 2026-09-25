@@ -29,16 +29,19 @@ flowchart TB
         ApiClient["API consumers<br/>SDKs / GitOps"]
     end
 
-    subgraph nt [Notification Templates module]
-        API["Notification Templates API"]
-        MgmtSvc["Template management<br/>+ rendering coordination"]
-        Renderer["Renderer<br/>substitutes {{ctx(...)}} placeholders"]
-        Store[("Template store<br/>DB, mutable, language-neutral content")]
-    end
+    subgraph core [ ]
+        direction LR
+        subgraph nt [Notification Templates module]
+            API["Notification Templates API"]
+            MgmtSvc["Template management<br/>+ rendering coordination"]
+            Renderer["Renderer<br/>substitutes {{ctx(...)}} placeholders"]
+            Store[("Template store<br/>DB, mutable, language-neutral content")]
+        end
 
-    subgraph install [Install-time]
-        Bootstrap[("Bootstrap bundle")]
-        Importer["Import service"]
+        subgraph install [Install-time]
+            Bootstrap[("Bootstrap bundle")]
+            Importer["Import service"]
+        end
     end
 
     subgraph reused [Reused features]
@@ -55,7 +58,6 @@ flowchart TB
     Console --> API
     ApiClient --> API
     API -->|manage / preview| MgmtSvc
-    Flow -->|resolve + render| MgmtSvc
     MgmtSvc --> Store
     Bootstrap -->|seed templates at install| Importer --> Store
     MgmtSvc -->|resolve keys for locale| Translation
@@ -63,6 +65,10 @@ flowchart TB
     MgmtSvc -->|substitute placeholders| Renderer
     MgmtSvc -. rendered notification .-> Flow
     Flow -->|deliver| Sender --> Recipient
+
+    Store ~~~ Translation
+    Renderer ~~~ Design
+    nt ~~~ reused
 ```
 
 | Component | Responsibility |
@@ -71,7 +77,7 @@ flowchart TB
 | Template store | Persist global templates and their content |
 | Bootstrap and import | Create templates required by bootstrapped flows |
 | Translation feature | Resolve translation keys for the recipient’s language |
-| Design feature | Supply the applicable design for email |
+| Design feature | Apply the applicable design based on given themes, color schemes |
 | Flow executors | Select a template and provide application, language, and flow context |
 | Notification senders | Deliver rendered email or SMS |
 | Console | Manage templates and show template and flow previews |
@@ -111,12 +117,27 @@ If the template, a required translation, or a required context value cannot be r
 
 ### Data model
 
-Templates are global resources identified by a channel and a server-assigned UUID. Each template stores a name, an optional description, and one channel-specific content definition.
+Templates are global resources identified by a server-assigned UUID. Each template stores a channel, a name, an optional description, and one channel-specific content definition. A single flat entity holds a template and its content; content is language-neutral, so there are no per-locale rows.
+
+| Field | Description |
+|---|---|
+| `id` | Server-assigned UUID. The sole identity; flows reference a template by this value. |
+| `channel` | `email` or `sms`. Fixed at creation. |
+| `name` | Display name. Unique per channel. |
+| `description` | Optional description. |
+| `content.contentType` | `text/html` or `text/plain`. |
+| `content.subject` | Translation key for the subject (email only). |
+| `content.body` | Translation key for the body. |
+| `design.colorScheme` | `light` or `dark` (email only). |
 
 | Channel | Content | Design |
 |---|---|---|
 | Email | Subject and body; body content type is `text/html` or `text/plain` | Optional light or dark color theme selection |
 | SMS | Plain-text body | None |
+
+Templates are scoped to the deployment (global), so no application or organization unit dimension exists in this phase. `name` is unique per channel: creating a second template with an existing name in the same channel returns `409`.
+
+Flows reference a template by its UUID. Templates seeded at bootstrap use fixed UUIDs so that the flow references created in the same bootstrap remain valid across installations.
 
 The database-backed store replaces the current read-only template file store. Installation imports the templates required by bootstrapped flows. Migration must preserve existing shipped templates and valid flow references.
 
@@ -168,22 +189,17 @@ An SMS template response:
 }
 ```
 
-Invalid requests return `400`, unauthorized requests `401`, forbidden requests `403`, and missing templates `404`. Creating a conflicting template or deleting one referenced by a flow returns `409`. Errors use the shared `Error` response shape; template-specific error codes use the `NTM-XXXX` prefix.
+Invalid requests return `400`, unauthorized requests `401`, forbidden requests `403`, and missing templates `404`. Creating a template whose name already exists in the channel, or deleting one referenced by a flow, returns `409`. Errors use the shared `Error` response shape; template-specific error codes use the `NTM-XXXX` prefix.
 
 A preview is served by `POST /notification-templates/{channel}/templates/{id}/preview`. It renders the locale- and design-applied notification, leaving `{{ctx(...)}}` placeholders visible, and never sends. Draft content may be supplied in the request body to preview unsaved edits without persisting them.
 
 ### UI
 
-The Console adds a Notification Templates section alongside Design & Branding. The list shows templates by channel and provides actions to create, open, and delete them. The creation wizard presents **Custom template** separately from sample templates.
+The Console adds a Notification Templates section alongside Design & Branding. The list shows templates by channel and provides actions to create, open, and delete them. The creation wizard presents **Custom template** and sample templates, from the bootstrap resources.
 
-The editor provides content controls appropriate to the channel, available translation keys and context placeholders, an email color theme selection, and a live preview with language and design theme selection. If deletion is blocked because a flow references the template, the Console shows the conflict and keeps the template available.
+The editor provides content controls appropriate to the channel, available translation and desig keys and context placeholders, and a live preview with language and design theme selection. If deletion is blocked because a flow references the template, the Console shows the conflict and keeps the template available.
 
-The flow editor lists templates for the selected notification node’s channel. Flow preview shows the selected template with the chosen language and applicable design. The template picker does not filter by which context placeholders are available in a particular flow.
-
-## Open questions
-
-1. How does Design combine a template’s selected color theme with the applicable application or organization unit design?
-2. What fallback does Translation use when a key has no value for the recipient’s language?
+The flow editor lists templates for the selected notification node’s channel. Flow preview shows the selected template with the chosen language and applicable design.
 
 ## Requirements
 
@@ -209,17 +225,17 @@ The flow editor lists templates for the selected notification node’s channel. 
 
 ### R3. Apply design at send time
 
-**Requirement:** Email notifications use the applicable design without embedding application branding in template content.
+**Requirement:** Notifications use the applicable design through tokens in the template content, without embedding application branding directly.
 
 **Acceptance criteria:**
 
 - **AC3.1:** Given a template used by two applications with different designs, when each sends an email, then each email uses its application’s applicable design.
 - **AC3.2:** Given an application’s design changes, when a later email is rendered, then it reflects that change without updating the template.
-- **AC3.3:** Given an SMS template, when it is rendered, then its output is plain text without email design markup.
+- **AC3.3:** Given an SMS template, when it is rendered, then its output is plain text without design markup.
 
 ### R4. Preview notifications
 
-**Requirement:** Administrators can inspect notifications in the template editor and flow preview without sending them.
+**Requirement:** Administrators can inspect notifications in the template editor and flow preview.
 
 **Acceptance criteria:**
 
