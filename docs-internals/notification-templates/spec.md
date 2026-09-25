@@ -119,22 +119,6 @@ If the template, a required translation, or a required context value cannot be r
 
 Templates are global resources identified by a server-assigned UUID. Each template stores a channel, a name, an optional description, and one channel-specific content definition. A single flat entity holds a template and its content; content is language-neutral, so there are no per-locale rows.
 
-| Field | Description |
-|---|---|
-| `id` | Server-assigned UUID. The sole identity; flows reference a template by this value. |
-| `channel` | `email` or `sms`. Fixed at creation. |
-| `name` | Display name. Unique per channel. |
-| `description` | Optional description. |
-| `content.contentType` | `text/html` or `text/plain`. |
-| `content.subject` | Translation key for the subject (email only). |
-| `content.body` | Translation key for the body. |
-| `design.colorScheme` | `light` or `dark` (email only). |
-
-| Channel | Content | Design |
-|---|---|---|
-| Email | Subject and body; body content type is `text/html` or `text/plain` | Optional light or dark color theme selection |
-| SMS | Plain-text body | None |
-
 Templates are scoped to the deployment (global), so no application or organization unit dimension exists in this phase. `name` is unique per channel: creating a second template with an existing name in the same channel returns `409`.
 
 Flows reference a template by its UUID. Templates seeded at bootstrap use fixed UUIDs so that the flow references created in the same bootstrap remain valid across installations.
