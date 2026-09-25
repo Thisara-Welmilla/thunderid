@@ -254,6 +254,9 @@ func (ts *notificationTemplateService) toValidatedDAO(channel, id, name, descrip
 	if name == "" {
 		return templateDAO{}, &ErrorMissingName
 	}
+	if len(name) > maxNameLength {
+		return templateDAO{}, &ErrorNameTooLong
+	}
 	if content.Body == "" {
 		return templateDAO{}, &ErrorMissingBodyKey
 	}

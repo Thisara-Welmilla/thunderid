@@ -97,20 +97,6 @@ var (
 		},
 	}
 
-	// ErrorInvalidContentType is returned when the content type is not a supported media type.
-	ErrorInvalidContentType = tidcommon.ServiceError{
-		Type: tidcommon.ClientErrorType,
-		Code: "NTM-1008",
-		Error: tidcommon.I18nMessage{
-			Key:          "error.notificationtemplateservice.invalid_content_type",
-			DefaultValue: "Invalid content type",
-		},
-		ErrorDescription: tidcommon.I18nMessage{
-			Key:          "error.notificationtemplateservice.invalid_content_type_description",
-			DefaultValue: "Content type must be text/html or text/plain",
-		},
-	}
-
 	// ErrorInvalidColorScheme is returned when the design color scheme is not light or dark.
 	ErrorInvalidColorScheme = tidcommon.ServiceError{
 		Type: tidcommon.ClientErrorType,
@@ -150,6 +136,48 @@ var (
 		ErrorDescription: tidcommon.I18nMessage{
 			Key:          "error.notificationtemplateservice.name_conflict_description",
 			DefaultValue: "A template with the same name already exists in this channel",
+		},
+	}
+
+	// ErrorSubjectNotAllowed is returned when a subject is supplied for a channel that has no subject.
+	ErrorSubjectNotAllowed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "NTM-1012",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.subject_not_allowed",
+			DefaultValue: "Subject not allowed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.subject_not_allowed_description",
+			DefaultValue: "A subject cannot be set for this channel",
+		},
+	}
+
+	// ErrorDesignNotAllowed is returned when a design is supplied for a channel that has no design.
+	ErrorDesignNotAllowed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "NTM-1013",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.design_not_allowed",
+			DefaultValue: "Design not allowed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.design_not_allowed_description",
+			DefaultValue: "A design cannot be set for this channel",
+		},
+	}
+
+	// ErrorNameTooLong is returned when the template name exceeds the maximum length.
+	ErrorNameTooLong = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "NTM-1014",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.name_too_long",
+			DefaultValue: "Name too long",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.name_too_long_description",
+			DefaultValue: "The template name exceeds the maximum allowed length",
 		},
 	}
 )

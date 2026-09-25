@@ -39,12 +39,9 @@ func TestEmailHandlerValidate(t *testing.T) {
 	h := emailHandler{}
 
 	require.Nil(t, h.validate(TemplateContent{Body: "b"}, nil))
-	require.Nil(t, h.validate(TemplateContent{ContentType: ContentTypeHTML, Body: "b"}, nil))
-	require.Nil(t, h.validate(TemplateContent{ContentType: ContentTypePlain, Body: "b"}, nil))
 	require.Nil(t, h.validate(TemplateContent{Body: "b"}, &TemplateDesign{ColorScheme: ColorSchemeDark}))
 
-	require.Equal(t, ErrorInvalidContentType.Code,
-		h.validate(TemplateContent{ContentType: "application/pdf", Body: "b"}, nil).Code)
+	// Color scheme is the only design value validated.
 	require.Equal(t, ErrorInvalidColorScheme.Code,
 		h.validate(TemplateContent{Body: "b"}, &TemplateDesign{ColorScheme: "teal"}).Code)
 }
@@ -52,36 +49,38 @@ func TestEmailHandlerValidate(t *testing.T) {
 func TestEmailHandlerNormalize(t *testing.T) {
 	h := emailHandler{}
 
-	// Missing content type defaults to HTML.
-	content, design := h.normalize(TemplateContent{Body: "b"}, nil)
+	// Content type is always forced to HTML, even if the request said otherwise.
+	content, design := h.normalize(TemplateContent{ContentType: ContentTypePlain, Body: "b"}, nil)
 	require.Equal(t, ContentTypeHTML, content.ContentType)
 	require.Nil(t, design)
 
-	// A design with no color scheme is treated as absent.
+	// A design with no color scheme is treated as absent (default applied later at resolution).
 	_, design = h.normalize(TemplateContent{Body: "b"}, &TemplateDesign{})
 	require.Nil(t, design)
 
-	// A real color scheme is preserved and subject is kept for email.
+	// A real color scheme is preserved and the subject is kept for email.
 	content, design = h.normalize(
-		TemplateContent{ContentType: ContentTypePlain, Subject: "s", Body: "b"},
-		&TemplateDesign{ColorScheme: ColorSchemeLight})
-	require.Equal(t, ContentTypePlain, content.ContentType)
+		TemplateContent{Subject: "s", Body: "b"}, &TemplateDesign{ColorScheme: ColorSchemeLight})
+	require.Equal(t, ContentTypeHTML, content.ContentType)
 	require.Equal(t, "s", content.Subject)
 	require.NotNil(t, design)
 	require.Equal(t, ColorSchemeLight, design.ColorScheme)
 }
 
-func TestSMSHandlerLenient(t *testing.T) {
+func TestSMSHandlerStrict(t *testing.T) {
 	h := smsHandler{}
 
-	// SMS never rejects channel-mismatched fields.
-	require.Nil(t, h.validate(TemplateContent{ContentType: ContentTypeHTML, Subject: "s", Body: "b"},
-		&TemplateDesign{ColorScheme: "nonsense"}))
+	// A plain-text body only is valid.
+	require.Nil(t, h.validate(TemplateContent{Body: "b"}, nil))
 
-	// It coerces to plain text and drops subject and design.
-	content, design := h.normalize(
-		TemplateContent{ContentType: ContentTypeHTML, Subject: "s", Body: "b"},
-		&TemplateDesign{ColorScheme: ColorSchemeDark})
+	// A subject or a design is rejected, not silently dropped.
+	require.Equal(t, ErrorSubjectNotAllowed.Code,
+		h.validate(TemplateContent{Subject: "s", Body: "b"}, nil).Code)
+	require.Equal(t, ErrorDesignNotAllowed.Code,
+		h.validate(TemplateContent{Body: "b"}, &TemplateDesign{ColorScheme: ColorSchemeDark}).Code)
+
+	// Normalize forces plain text.
+	content, design := h.normalize(TemplateContent{Body: "b"}, nil)
 	require.Equal(t, ContentTypePlain, content.ContentType)
 	require.Empty(t, content.Subject)
 	require.Equal(t, "b", content.Body)

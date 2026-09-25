@@ -69,7 +69,7 @@ paths:
                     subject: notification.otp.email.subject
                     body: notification.otp.email.body
               sms:
-                summary: SMS template (plain text; design and subject are ignored)
+                summary: SMS template (plain text; subject and design are not allowed)
                 value:
                   name: OTP Verification
                   description: One-time passcode sent to verify a user's phone number.
@@ -273,7 +273,7 @@ components:
         design:
           allOf:
             - $ref: '#/components/schemas/TemplateDesign'
-          description: Optional design references. Ignored for the SMS channel.
+          description: Optional design references (email only). Not allowed for SMS; supplying one is rejected with 400.
         content:
           allOf:
             - $ref: '#/components/schemas/TemplateContent'
@@ -297,21 +297,21 @@ components:
         design:
           allOf:
             - $ref: '#/components/schemas/TemplateDesign'
-          description: Design references to apply. Ignored for the SMS channel.
+          description: Design references to apply (email only). Not allowed for SMS; supplying one is rejected with 400.
 
     TemplateContent:
       type: object
       required: [body]
-      description: Language-neutral template content. The subject and body reference translation keys in ThunderID's translation resources; the localized text is resolved for the recipient's locale at render time. For the SMS channel, contentType is text/plain and subject is ignored.
+      description: Language-neutral template content. The subject and body reference translation keys in ThunderID's translation resources; the localized text is resolved for the recipient's locale at render time. contentType is server-derived (email is always text/html, SMS is always text/plain) and any supplied value is overridden. For the SMS channel, a subject is not allowed and the request is rejected with 400 if one is supplied.
       properties:
         contentType:
           type: string
-          description: Media type of the resolved body. The subject is always plain text.
+          description: Media type of the resolved body. Read-only and server-derived — text/html for email, text/plain for SMS. Any value supplied on a request is ignored.
           enum: [text/html, text/plain]
           example: text/html
         subject:
           type: string
-          description: Translation key for the subject line (email only). The subject is always plain text.
+          description: Translation key for the subject line (email only). Not allowed for SMS. The subject is always plain text.
           example: notification.otp.email.subject
         body:
           type: string

@@ -112,11 +112,13 @@ at the cost of drift with the single Go struct. The YAML is descriptive; **Go en
 
 ## Resolved decisions
 
-### O1 — Strict vs lenient for channel-mismatched fields → **lenient**
-When a request sends fields that don't apply to the channel (e.g. `subject`/`design` on SMS,
-`contentType: text/html` on SMS), the channel handler silently coerces/drops them (SMS is forced to
-`text/plain` with no subject and no design). This is stated in the OpenAPI field descriptions.
-Implemented in `smsHandler.normalize` (channel.go).
+### O1 — Strict vs lenient for channel-mismatched fields → **strict**
+When a request sends fields that don't apply to the channel, the channel handler **rejects** the
+request rather than silently dropping, so persisted objects are always valid for their channel at
+runtime: `subject` on SMS → `400 NTM-1012`, `design` on SMS → `400 NTM-1013`. `contentType` is the
+exception — it is server-derived (email always `text/html`, SMS always `text/plain`), so any supplied
+value is overridden, not rejected. Implemented in `smsHandler.validate` / `emailHandler.normalize`
+(channel.go).
 
 ### O2 — Where name-uniqueness is enforced → **both**
 A service-level pre-check inside the write transaction (`IsNameExists`) returns a friendly `409`

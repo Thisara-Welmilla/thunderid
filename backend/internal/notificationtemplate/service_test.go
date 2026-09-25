@@ -115,18 +115,49 @@ func TestCreateTemplate_Email(t *testing.T) {
 	require.Len(t, store.templates, 1)
 }
 
-func TestCreateTemplate_SMSDropsEmailOnlyFields(t *testing.T) {
+func TestCreateTemplate_SMSPlainBodySucceeds(t *testing.T) {
 	svc, _ := newService()
 
 	tmpl, err := svc.CreateTemplate(context.Background(), ChannelSMS, CreateTemplateRequest{
 		Name:    "OTP Verification",
-		Content: TemplateContent{ContentType: ContentTypeHTML, Subject: "s.key", Body: "b.key"},
-		Design:  &TemplateDesign{ColorScheme: ColorSchemeDark},
+		Content: TemplateContent{Body: "b.key"},
 	})
 	require.Nil(t, err)
 	require.Equal(t, ContentTypePlain, tmpl.Content.ContentType)
 	require.Empty(t, tmpl.Content.Subject)
 	require.Nil(t, tmpl.Design)
+}
+
+func TestCreateTemplate_SMSRejectsEmailOnlyFields(t *testing.T) {
+	svc, _ := newService()
+	ctx := context.Background()
+
+	_, err := svc.CreateTemplate(ctx, ChannelSMS, CreateTemplateRequest{
+		Name:    "OTP",
+		Content: TemplateContent{Subject: "s.key", Body: "b.key"},
+	})
+	require.Equal(t, ErrorSubjectNotAllowed.Code, err.Code)
+
+	_, err = svc.CreateTemplate(ctx, ChannelSMS, CreateTemplateRequest{
+		Name:    "OTP",
+		Content: TemplateContent{Body: "b.key"},
+		Design:  &TemplateDesign{ColorScheme: ColorSchemeDark},
+	})
+	require.Equal(t, ErrorDesignNotAllowed.Code, err.Code)
+}
+
+func TestCreateTemplate_NameTooLong(t *testing.T) {
+	svc, _ := newService()
+	longName := make([]byte, maxNameLength+1)
+	for i := range longName {
+		longName[i] = 'a'
+	}
+
+	_, err := svc.CreateTemplate(context.Background(), ChannelEmail, CreateTemplateRequest{
+		Name:    string(longName),
+		Content: TemplateContent{Body: "b"},
+	})
+	require.Equal(t, ErrorNameTooLong.Code, err.Code)
 }
 
 func TestCreateTemplate_Validation(t *testing.T) {

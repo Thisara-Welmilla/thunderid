@@ -5,21 +5,16 @@ package notificationtemplate
 
 import tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 
-// channelHandler encapsulates the per-channel behavior of a template. Everything that differs
-// between channels — which content fields are valid, whether a design applies, what the canonical
-// stored shape is — lives behind this interface. The rest of the module (service, store, handler,
-// schema) is channel-agnostic.
-//
-// A new channel is added by implementing this interface and registering it in handlerFor; no other
-// file changes.
+// channelHandler encapsulates the per-channel behavior of a template: which content fields are valid,
+// whether a design applies, and the canonical stored shape. Everything else in the module is
+// channel-agnostic. A new channel is added by implementing this and registering it in handlerFor.
 type channelHandler interface {
 	// validate checks the channel-specific constraints of a create/update request. Channel-agnostic
 	// checks (name and body required) are done by the service before this is called.
 	validate(content TemplateContent, design *TemplateDesign) *tidcommon.ServiceError
 
-	// normalize returns the canonical content and design to persist for this channel, coercing or
-	// dropping fields that do not apply (for example forcing SMS to text/plain and discarding its
-	// subject and design). Returning a nil design means no design row is stored.
+	// normalize returns the canonical content and design to persist for this channel. A nil design
+	// means no design row is stored.
 	normalize(content TemplateContent, design *TemplateDesign) (TemplateContent, *TemplateDesign)
 }
 
@@ -36,22 +31,18 @@ func handlerFor(channel string) (channelHandler, *tidcommon.ServiceError) {
 	}
 }
 
-// validateChannel reports whether the channel is supported, reusing the single switch in handlerFor
-// for entry points that carry no content (list, get, delete).
+// validateChannel reports whether the channel is supported, reusing handlerFor's single switch for
+// entry points that carry no content (list, get, delete).
 func validateChannel(channel string) *tidcommon.ServiceError {
 	_, svcErr := handlerFor(channel)
 	return svcErr
 }
 
-// emailHandler handles the email channel: HTML or plain body, an optional subject, and an optional
-// light/dark color scheme.
+// emailHandler handles the email channel: an HTML body, an optional subject, and an optional
+// light/dark color scheme. The content type is always text/html internally.
 type emailHandler struct{}
 
-func (emailHandler) validate(content TemplateContent, design *TemplateDesign) *tidcommon.ServiceError {
-	if content.ContentType != "" &&
-		content.ContentType != ContentTypeHTML && content.ContentType != ContentTypePlain {
-		return &ErrorInvalidContentType
-	}
+func (emailHandler) validate(_ TemplateContent, design *TemplateDesign) *tidcommon.ServiceError {
 	if design != nil && design.ColorScheme != "" &&
 		design.ColorScheme != ColorSchemeLight && design.ColorScheme != ColorSchemeDark {
 		return &ErrorInvalidColorScheme
@@ -61,28 +52,31 @@ func (emailHandler) validate(content TemplateContent, design *TemplateDesign) *t
 
 func (emailHandler) normalize(content TemplateContent, design *TemplateDesign) (
 	TemplateContent, *TemplateDesign) {
-	if content.ContentType == "" {
-		content.ContentType = ContentTypeHTML
-	}
-	// A design with no color scheme carries nothing to store; treat it as absent.
+	// Email is always rendered as HTML; the content type is server-derived, not client-chosen.
+	content.ContentType = ContentTypeHTML
+	// A design with no color scheme carries nothing to store; treat it as absent. The default color
+	// scheme is applied later at resolution time, not persisted here.
 	if design != nil && design.ColorScheme == "" {
 		design = nil
 	}
 	return content, design
 }
 
-// smsHandler handles the SMS channel: plain-text body only. Subject, content type, and design do not
-// apply and are silently dropped (the lenient behavior documented in the API contract).
+// smsHandler handles the SMS channel: a plain-text body only. Subject and design do not apply and are
+// rejected so persisted objects are always valid for their channel at runtime.
 type smsHandler struct{}
 
-func (smsHandler) validate(_ TemplateContent, _ *TemplateDesign) *tidcommon.ServiceError {
+func (smsHandler) validate(content TemplateContent, design *TemplateDesign) *tidcommon.ServiceError {
+	if content.Subject != "" {
+		return &ErrorSubjectNotAllowed
+	}
+	if design != nil {
+		return &ErrorDesignNotAllowed
+	}
 	return nil
 }
 
 func (smsHandler) normalize(content TemplateContent, _ *TemplateDesign) (
 	TemplateContent, *TemplateDesign) {
-	return TemplateContent{
-		ContentType: ContentTypePlain,
-		Body:        content.Body,
-	}, nil
+	return TemplateContent{ContentType: ContentTypePlain, Body: content.Body}, nil
 }
