@@ -17,12 +17,12 @@ type channelHandler interface {
 	// means no design row is stored.
 	normalize(content TemplateContent, design *TemplateDesign) (TemplateContent, *TemplateDesign)
 
-	// resolve produces the fully rendered content for this channel: it resolves the applicable
-	// translation keys via translate, substitutes {{ctx(...)}} from in.Data, and (for channels with a
-	// design) substitutes {{design(...)}} from the passed-in branding. It reports whether branding was
-	// applied.
+	// resolve produces the fully rendered content for this channel. The per-channel differences live in
+	// the implementations: emailHandler resolves subject+body and substitutes {{design(...)}} from the
+	// passed-in design; smsHandler resolves the body only, plain text, with no subject and no design.
+	// Both resolve translation keys via translate and substitute {{ctx(...)}} from in.Data.
 	resolve(content TemplateContent, design *TemplateDesign, in RenderInput, translate translateFunc) (
-		ResolvedContent, bool, *tidcommon.ServiceError)
+		ResolvedContent, *tidcommon.ServiceError)
 }
 
 // handlerFor returns the handler for a channel. It is the single switch over channels in the module;
@@ -70,34 +70,32 @@ func (emailHandler) normalize(content TemplateContent, design *TemplateDesign) (
 }
 
 func (emailHandler) resolve(content TemplateContent, design *TemplateDesign, in RenderInput,
-	translate translateFunc) (ResolvedContent, bool, *tidcommon.ServiceError) {
+	translate translateFunc) (ResolvedContent, *tidcommon.ServiceError) {
 	subject, svcErr := translate(content.Subject)
 	if svcErr != nil {
-		return ResolvedContent{}, false, svcErr
+		return ResolvedContent{}, svcErr
 	}
 	body, svcErr := translate(content.Body)
 	if svcErr != nil {
-		return ResolvedContent{}, false, svcErr
+		return ResolvedContent{}, svcErr
 	}
 
 	// Subject is plain text; body is HTML, so escape substituted values there.
 	subject = substituteCtx(subject, in.Data, false)
 	body = substituteCtx(body, in.Data, true)
 
-	brandingApplied := false
-	if in.Branding != nil && len(in.Branding.Theme) > 0 {
+	if in.Design != nil && len(in.Design.Theme) > 0 {
 		scheme := ""
 		if design != nil {
 			scheme = design.ColorScheme
 		}
-		if tokens := flattenTheme(in.Branding.Theme, scheme); len(tokens) > 0 {
+		if tokens := flattenTheme(in.Design.Theme, scheme); len(tokens) > 0 {
 			subject = substituteDesign(subject, tokens, false)
 			body = substituteDesign(body, tokens, true)
-			brandingApplied = true
 		}
 	}
 
-	return ResolvedContent{ContentType: ContentTypeHTML, Subject: subject, Body: body}, brandingApplied, nil
+	return ResolvedContent{ContentType: ContentTypeHTML, Subject: subject, Body: body}, nil
 }
 
 // smsHandler handles the SMS channel: a plain-text body only. Subject and design do not apply and are
@@ -120,12 +118,12 @@ func (smsHandler) normalize(content TemplateContent, _ *TemplateDesign) (
 }
 
 func (smsHandler) resolve(content TemplateContent, _ *TemplateDesign, in RenderInput,
-	translate translateFunc) (ResolvedContent, bool, *tidcommon.ServiceError) {
+	translate translateFunc) (ResolvedContent, *tidcommon.ServiceError) {
 	body, svcErr := translate(content.Body)
 	if svcErr != nil {
-		return ResolvedContent{}, false, svcErr
+		return ResolvedContent{}, svcErr
 	}
-	// Plain text: no HTML escaping and no branding.
+	// Plain text: no HTML escaping and no design.
 	body = substituteCtx(body, in.Data, false)
-	return ResolvedContent{ContentType: ContentTypePlain, Body: body}, false, nil
+	return ResolvedContent{ContentType: ContentTypePlain, Body: body}, nil
 }

@@ -25,11 +25,11 @@ type translationResolver interface {
 		*i18n.TranslationResponse, *tidcommon.ServiceError)
 }
 
-// TemplateProvider is the narrow runtime surface consumed by flow executors: it returns a fully
-// resolved, ready-to-send notification (translation keys resolved, {{ctx(...)}} and {{design(...)}}
+// TemplateProvider is the narrow runtime surface consumed by flow executors: it returns the fully
+// resolved, ready-to-send content (translation keys resolved, {{ctx(...)}} and {{design(...)}}
 // substituted). It intentionally exposes no CRUD — that is the management service's job.
 type TemplateProvider interface {
-	Resolve(ctx context.Context, channel, id string, in RenderInput) (*ResolvedNotification, *tidcommon.ServiceError)
+	Resolve(ctx context.Context, channel, id string, in RenderInput) (*ResolvedContent, *tidcommon.ServiceError)
 }
 
 // templateProvider is the default implementation.
@@ -49,7 +49,7 @@ func newTemplateProvider(store notificationTemplateStoreInterface, resolver tran
 // the channel handler to substitute {{ctx(...)}} and {{design(...)}} and produce the final content.
 // If a required translation cannot be resolved, no notification is produced and the error is returned.
 func (p *templateProvider) Resolve(ctx context.Context, channel, id string, in RenderInput) (
-	*ResolvedNotification, *tidcommon.ServiceError) {
+	*ResolvedContent, *tidcommon.ServiceError) {
 	handler, svcErr := handlerFor(channel)
 	if svcErr != nil {
 		return nil, svcErr
@@ -85,16 +85,9 @@ func (p *templateProvider) Resolve(ctx context.Context, channel, id string, in R
 		return resp.Value, nil
 	}
 
-	content, brandingApplied, svcErr := handler.resolve(dao.Content, dao.Design, in, translate)
+	content, svcErr := handler.resolve(dao.Content, dao.Design, in, translate)
 	if svcErr != nil {
 		return nil, svcErr
 	}
-
-	return &ResolvedNotification{
-		Channel:         channel,
-		ID:              id,
-		ResolvedLocale:  locale,
-		BrandingApplied: brandingApplied,
-		Content:         content,
-	}, nil
+	return &content, nil
 }

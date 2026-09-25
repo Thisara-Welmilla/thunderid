@@ -41,18 +41,15 @@ func TestProviderResolve_Email(t *testing.T) {
 	p := newTemplateProvider(store, tr)
 
 	theme := json.RawMessage(`{"colorSchemes":{"dark":{"palette":{"primary":{"main":"#111"}}}}}`)
-	rn, err := p.Resolve(context.Background(), ChannelEmail, "t1", RenderInput{
-		Locale:   "en-US",
-		Data:     map[string]string{"otpCode": "123"},
-		Branding: &ResolvedBranding{Theme: theme},
+	rc, err := p.Resolve(context.Background(), ChannelEmail, "t1", RenderInput{
+		Locale: "en-US",
+		Data:   map[string]string{"otpCode": "123"},
+		Design: &ResolvedDesign{Theme: theme},
 	})
 	require.Nil(t, err)
-	require.Equal(t, ChannelEmail, rn.Channel)
-	require.Equal(t, "en-US", rn.ResolvedLocale)
-	require.True(t, rn.BrandingApplied)
-	require.Equal(t, ContentTypeHTML, rn.Content.ContentType)
-	require.Equal(t, "Your verification code", rn.Content.Subject)
-	require.Equal(t, "Code <b>123</b> color #111", rn.Content.Body)
+	require.Equal(t, ContentTypeHTML, rc.ContentType)
+	require.Equal(t, "Your verification code", rc.Subject)
+	require.Equal(t, "Code <b>123</b> color #111", rc.Body)
 }
 
 func TestProviderResolve_SMS(t *testing.T) {
@@ -66,15 +63,13 @@ func TestProviderResolve_SMS(t *testing.T) {
 	tr := stubTranslator{vals: map[string]string{"sms.body.key": "Code {{ctx(otpCode)}}"}}
 	p := newTemplateProvider(store, tr)
 
-	rn, err := p.Resolve(context.Background(), ChannelSMS, "s1", RenderInput{
+	rc, err := p.Resolve(context.Background(), ChannelSMS, "s1", RenderInput{
 		Data: map[string]string{"otpCode": "123"},
 	})
 	require.Nil(t, err)
-	require.False(t, rn.BrandingApplied)
-	require.Equal(t, ContentTypePlain, rn.Content.ContentType)
-	require.Empty(t, rn.Content.Subject)
-	require.Equal(t, "Code 123", rn.Content.Body)
-	require.Equal(t, i18n.SystemLanguage, rn.ResolvedLocale) // defaulted from empty locale
+	require.Equal(t, ContentTypePlain, rc.ContentType)
+	require.Empty(t, rc.Subject)
+	require.Equal(t, "Code 123", rc.Body)
 }
 
 func TestProviderResolve_MissingTranslation(t *testing.T) {
