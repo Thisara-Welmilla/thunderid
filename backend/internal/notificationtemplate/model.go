@@ -62,37 +62,28 @@ type TemplateListResponse struct {
 	Templates []TemplateSummary `json:"templates"`
 }
 
-// ResolvedBranding is the design the caller has already resolved (e.g. via the Design service) and
+// ResolvedDesign is the design the caller has already resolved (e.g. via the Design service) and
 // passes into rendering. This module composes it; it does not resolve app-to-design itself. Email only.
-type ResolvedBranding struct {
-	Theme  json.RawMessage
-	Layout json.RawMessage
+// Only the theme is carried — layouts are page-scoped and not applied to notifications in this phase.
+type ResolvedDesign struct {
+	Theme json.RawMessage
 }
 
 // RenderInput carries the per-send inputs for producing a ready-to-send notification: the recipient
-// locale (for translation resolution), the caller-resolved branding, and the flow context values that
+// locale (for translation resolution), the caller-resolved design, and the flow context values that
 // fill {{ctx(...)}} placeholders.
 type RenderInput struct {
-	Locale   string
-	Branding *ResolvedBranding
-	Data     map[string]string
+	Locale string
+	Design *ResolvedDesign
+	Data   map[string]string
 }
 
-// ResolvedContent is the fully rendered content of a notification: translation keys resolved to text,
+// ResolvedContent is the fully rendered, ready-to-send content: translation keys resolved to text,
 // with {{ctx(...)}} and {{design(...)}} substituted.
 type ResolvedContent struct {
 	ContentType string
 	Subject     string
 	Body        string
-}
-
-// ResolvedNotification is a fully resolved, ready-to-send notification.
-type ResolvedNotification struct {
-	Channel         string
-	ID              string
-	ResolvedLocale  string
-	BrandingApplied bool
-	Content         ResolvedContent
 }
 
 // templateDAO is the store-level representation of a template: content is stored as a single JSON
