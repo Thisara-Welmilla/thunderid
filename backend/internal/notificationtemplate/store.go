@@ -21,7 +21,6 @@ type notificationTemplateStoreInterface interface {
 	ListTemplates(ctx context.Context, channel string) ([]templateDAO, error)
 	UpdateTemplate(ctx context.Context, template templateDAO) error
 	DeleteTemplate(ctx context.Context, channel, id string) error
-	IsTemplateExist(ctx context.Context, channel, id string) (bool, error)
 	IsNameExists(ctx context.Context, channel, name, excludeID string) (bool, error)
 }
 
@@ -149,26 +148,6 @@ func (s *notificationTemplateStore) DeleteTemplate(ctx context.Context, channel,
 	}
 
 	return nil
-}
-
-// IsTemplateExist checks whether a template exists by channel and id.
-func (s *notificationTemplateStore) IsTemplateExist(ctx context.Context, channel, id string) (bool, error) {
-	dbClient, err := s.getConfigDBClient()
-	if err != nil {
-		return false, err
-	}
-
-	results, err := dbClient.QueryContext(ctx, queryCheckTemplateExists, id, channel, s.deploymentID)
-	if err != nil {
-		return false, fmt.Errorf("failed to check template existence: %w", err)
-	}
-
-	count, err := parseCountResult(results)
-	if err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
 }
 
 // IsNameExists checks whether another template in the channel already uses the given name. excludeID

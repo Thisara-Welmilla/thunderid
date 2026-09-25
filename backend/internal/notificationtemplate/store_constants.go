@@ -67,13 +67,6 @@ var (
 		Query: `DELETE FROM "NOTIFICATION_TEMPLATE" WHERE ID = $1 AND CHANNEL = $2 AND DEPLOYMENT_ID = $3`,
 	}
 
-	// queryCheckTemplateExists checks whether a template exists by channel and id.
-	queryCheckTemplateExists = dbmodel.DBQuery{
-		ID: "NTQ-NOTIF_TMPL-08",
-		Query: `SELECT COUNT(*) as total FROM "NOTIFICATION_TEMPLATE" ` +
-			`WHERE ID = $1 AND CHANNEL = $2 AND DEPLOYMENT_ID = $3`,
-	}
-
 	// queryCheckNameExists checks whether another template in the channel already uses a name.
 	queryCheckNameExists = dbmodel.DBQuery{
 		ID: "NTQ-NOTIF_TMPL-09",

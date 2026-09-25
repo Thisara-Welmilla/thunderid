@@ -55,11 +55,6 @@ func (m *memStore) DeleteTemplate(_ context.Context, channel, id string) error {
 	return nil
 }
 
-func (m *memStore) IsTemplateExist(_ context.Context, channel, id string) (bool, error) {
-	t, ok := m.templates[id]
-	return ok && t.Channel == channel, nil
-}
-
 func (m *memStore) IsNameExists(_ context.Context, channel, name, excludeID string) (bool, error) {
 	for id, t := range m.templates {
 		if t.Channel == channel && t.Name == name && id != excludeID {

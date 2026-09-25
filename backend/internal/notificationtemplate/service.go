@@ -144,13 +144,11 @@ func (ts *notificationTemplateService) UpdateTemplate(ctx context.Context, chann
 
 	var notFound bool
 	if svcErr := ts.persistUnique(ctx, channel, dao.Name, id, func(txCtx context.Context) error {
-		exists, err := ts.store.IsTemplateExist(txCtx, channel, id)
-		if err != nil {
+		if _, err := ts.store.GetTemplate(txCtx, channel, id); err != nil {
+			if errors.Is(err, errTemplateNotFound) {
+				notFound = true
+			}
 			return err
-		}
-		if !exists {
-			notFound = true
-			return errTemplateNotFound
 		}
 		return ts.store.UpdateTemplate(txCtx, dao)
 	}); svcErr != nil {
@@ -173,14 +171,13 @@ func (ts *notificationTemplateService) DeleteTemplate(ctx context.Context, chann
 		return &ErrorInvalidTemplateID
 	}
 
-	exists, err := ts.store.IsTemplateExist(ctx, channel, id)
-	if err != nil {
+	if _, err := ts.store.GetTemplate(ctx, channel, id); err != nil {
+		if errors.Is(err, errTemplateNotFound) {
+			// Idempotent delete: absent template is treated as already deleted.
+			return nil
+		}
 		ts.logger.Error(ctx, "Failed to check template existence", log.String("id", id), log.Error(err))
 		return &tidcommon.InternalServerError
-	}
-	if !exists {
-		// Idempotent delete: absent template is treated as already deleted.
-		return nil
 	}
 
 	// A template referenced by a flow cannot be deleted (see the notification templates design).
