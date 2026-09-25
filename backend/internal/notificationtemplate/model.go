@@ -8,6 +8,8 @@
 // channelHandler (see channel.go).
 package notificationtemplate
 
+import "encoding/json"
+
 // TemplateContent is the language-neutral content of a template, one common shape for every channel.
 // Subject and body are template strings that may embed zero or more placeholders resolved at render
 // time: {{i18n(key)}} (localized text), {{ctx(var)}} (flow-context values), and {{design(token)}}
@@ -63,6 +65,39 @@ type UpdateTemplateRequest struct {
 // TemplateListResponse is the response for listing templates of a channel.
 type TemplateListResponse struct {
 	Templates []TemplateSummary `json:"templates"`
+}
+
+// ResolvedBranding is the design the caller has already resolved (e.g. via the Design service) and
+// passes into rendering. This module composes it; it does not resolve app-to-design itself. Email only.
+type ResolvedBranding struct {
+	Theme  json.RawMessage
+	Layout json.RawMessage
+}
+
+// RenderInput carries the per-send inputs for producing a ready-to-send notification: the recipient
+// locale (for translation resolution), the caller-resolved branding, and the flow context values that
+// fill {{ctx(...)}} placeholders.
+type RenderInput struct {
+	Locale   string
+	Branding *ResolvedBranding
+	Data     map[string]string
+}
+
+// ResolvedContent is the fully rendered content of a notification: translation keys resolved to text,
+// with {{ctx(...)}} and {{design(...)}} substituted.
+type ResolvedContent struct {
+	ContentType string
+	Subject     string
+	Body        string
+}
+
+// ResolvedNotification is a fully resolved, ready-to-send notification.
+type ResolvedNotification struct {
+	Channel         string
+	ID              string
+	ResolvedLocale  string
+	BrandingApplied bool
+	Content         ResolvedContent
 }
 
 // templateDAO is the store-level representation of a template: content is stored as a single JSON
