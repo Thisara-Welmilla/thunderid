@@ -3,7 +3,12 @@
 
 package notificationtemplate
 
-import tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
+import (
+	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
+
+	designtokens "github.com/thunder-id/thunderid/internal/design/tokens"
+	systemplate "github.com/thunder-id/thunderid/internal/system/template"
+)
 
 // channelHandler encapsulates the per-channel behavior of a template: which content fields are valid,
 // whether a design applies, and the canonical stored shape. Everything else in the module is
@@ -80,19 +85,18 @@ func (emailHandler) resolve(content TemplateContent, design *TemplateDesign, in 
 		return ResolvedContent{}, svcErr
 	}
 
-	// Subject is plain text; body is HTML, so escape substituted values there.
-	subject = substituteCtx(subject, in.Data, false)
-	body = substituteCtx(body, in.Data, true)
+	// Subject is plain text; body is HTML, so escape substituted values there. {{ctx}} substitution is
+	// shared with system/template; {{design}} substitution is owned by the design feature.
+	subject = systemplate.SubstituteCtx(subject, in.Data, false)
+	body = systemplate.SubstituteCtx(body, in.Data, true)
 
-	if in.Design != nil && len(in.Design.Theme) > 0 {
+	if in.Design != nil {
 		scheme := ""
 		if design != nil {
 			scheme = design.ColorScheme
 		}
-		if tokens := flattenTheme(in.Design.Theme, scheme); len(tokens) > 0 {
-			subject = substituteDesign(subject, tokens, false)
-			body = substituteDesign(body, tokens, true)
-		}
+		subject = designtokens.Substitute(subject, in.Design.Theme, scheme, false)
+		body = designtokens.Substitute(body, in.Design.Theme, scheme, true)
 	}
 
 	return ResolvedContent{ContentType: ContentTypeHTML, Subject: subject, Body: body}, nil
@@ -124,6 +128,6 @@ func (smsHandler) resolve(content TemplateContent, _ *TemplateDesign, in RenderI
 		return ResolvedContent{}, svcErr
 	}
 	// Plain text: no HTML escaping and no design.
-	body = substituteCtx(body, in.Data, false)
+	body = systemplate.SubstituteCtx(body, in.Data, false)
 	return ResolvedContent{ContentType: ContentTypePlain, Body: body}, nil
 }
