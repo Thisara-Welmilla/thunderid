@@ -16,6 +16,25 @@ import (
 
 var ctxPlaceholderRegex = regexp.MustCompile(`\{\{ctx\((\w+)\)}}`)
 
+// SubstituteCtx replaces {{ctx(key)}} placeholders in s with the matching value from data, HTML-escaping
+// the substituted value when escapeHTML is set. Unknown keys are left literal. This is the single
+// implementation of the {{ctx(...)}} substitution shared across features that render templated content.
+func SubstituteCtx(s string, data TemplateData, escapeHTML bool) string {
+	return ctxPlaceholderRegex.ReplaceAllStringFunc(s, func(match string) string {
+		submatches := ctxPlaceholderRegex.FindStringSubmatch(match)
+		if len(submatches) < 2 {
+			return match
+		}
+		if val, ok := data[submatches[1]]; ok {
+			if escapeHTML {
+				return html.EscapeString(val)
+			}
+			return val
+		}
+		return match
+	})
+}
+
 // templateService implements TemplateServiceInterface using a templateStoreInterface.
 type templateService struct {
 	store  templateStoreInterface
@@ -68,28 +87,9 @@ func (s *templateService) Render(
 
 	isHTML := tmpl.ContentType == "text/html"
 
-	replacePlaceholders := func(s string, escapeHTML bool) string {
-		return ctxPlaceholderRegex.ReplaceAllStringFunc(s, func(match string) string {
-			// Extract the key from {{ctx(key)}}
-			submatches := ctxPlaceholderRegex.FindStringSubmatch(match)
-			if len(submatches) < 2 {
-				return match
-			}
-			key := submatches[1]
-			if val, ok := data[key]; ok {
-				if escapeHTML {
-					return html.EscapeString(val)
-				}
-				return val
-			}
-			return match
-		})
-	}
-
 	rendered := &RenderedTemplate{
-
-		Subject: replacePlaceholders(tmpl.Subject, false),
-		Body:    replacePlaceholders(tmpl.Body, isHTML),
+		Subject: SubstituteCtx(tmpl.Subject, data, false),
+		Body:    SubstituteCtx(tmpl.Body, data, isHTML),
 		IsHTML:  isHTML,
 	}
 
