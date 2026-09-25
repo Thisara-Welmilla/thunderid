@@ -98,7 +98,7 @@ An email template has a subject and body. An SMS template has a body only. Each 
 
 The resolved translation text can contain `{{ctx(...)}}` placeholders for values supplied during flow execution. These placeholders are substituted when the notification is sent. They remain visible in previews because a preview has no execution context.
 
-Email bodies can be HTML or plain text. SMS bodies are plain text. Notification layouts are outside the scope of this phase; the resolved body provides the full content.
+Email bodies are HTML (contentType is always text/html). SMS bodies are plain text. Notification layouts are outside the scope of this phase; the resolved body provides the full content.
 
 ### Preview
 
@@ -138,7 +138,7 @@ The Notification Templates API manages templates by channel. The `channel` path 
 | `DELETE` | `/notification-templates/{channel}/templates/{id}` | Delete a template if no flow references it. |
 | `POST` | `/notification-templates/{channel}/templates/{id}/preview` | Render a locale- and design-applied preview without sending. |
 
-A template has a `name`, an optional `description`, and channel-specific content. Email content has `subject` and `body`, may specify `contentType` as `text/html` or `text/plain`, and may select a `light` or `dark` `colorScheme`. SMS content has `body` only (plain text) and no subject or design configuration. The subject and body each reference a single translation key.
+A template has a `name`, an optional `description`, and channel-specific content. Email content has `subject` and `body` (contentType is always `text/html`, server-derived) and may select a `light` or `dark` `colorScheme`. SMS content has `body` only (plain text); supplying a subject or design is rejected with `400`. The subject and body each reference a single translation key.
 
 An email template response using a translation key for each content field:
 
