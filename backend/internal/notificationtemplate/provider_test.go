@@ -82,7 +82,8 @@ func TestProviderResolve_MissingTranslation(t *testing.T) {
 
 	_, err := p.Resolve(context.Background(), ChannelSMS, "t1", RenderInput{})
 	require.NotNil(t, err)
-	require.Equal(t, tidcommon.InternalServerError.Code, err.Code)
+	// A missing translation is surfaced as the distinct, legible NTM-1016, not a generic 500.
+	require.Equal(t, ErrorTranslationNotResolved.Code, err.Code)
 }
 
 func TestProviderResolve_Errors(t *testing.T) {

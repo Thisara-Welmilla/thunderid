@@ -194,4 +194,20 @@ var (
 			DefaultValue: "The template description exceeds the maximum allowed length",
 		},
 	}
+
+	// ErrorTranslationNotResolved is returned at render time when a template's subject or body
+	// translation key has no value for the requested (or default) locale, so the notification cannot be
+	// produced. It is fail-closed: no notification is sent, and the cause is distinct from a generic 500.
+	ErrorTranslationNotResolved = tidcommon.ServiceError{
+		Type: tidcommon.ServerErrorType,
+		Code: "NTM-1016",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.translation_not_resolved",
+			DefaultValue: "Template translation not resolved",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.translation_not_resolved_description",
+			DefaultValue: "A translation key referenced by the template has no value for the locale",
+		},
+	}
 )

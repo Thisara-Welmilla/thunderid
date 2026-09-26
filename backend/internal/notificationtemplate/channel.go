@@ -85,11 +85,11 @@ func (emailHandler) resolve(content TemplateContent, design *TemplateDesign, in 
 		return ResolvedContent{}, svcErr
 	}
 
-	// Subject is plain text; body is HTML, so escape substituted values there. {{ctx}} substitution is
-	// shared with system/template; {{design}} substitution is owned by the design feature.
-	subject = systemplate.SubstituteCtx(subject, in.Data, false)
-	body = systemplate.SubstituteCtx(body, in.Data, true)
-
+	// Design tokens are substituted before ctx values so that a ctx value which happens to contain a
+	// {{design(...)}} token is not re-interpreted by the design pass (design tokens come from the theme;
+	// ctx values come from the flow context). {{design}} substitution is owned by the design feature;
+	// {{ctx}} substitution is shared with system/template. Subject is plain text; body is HTML, so
+	// substituted values are HTML-escaped there.
 	if in.Design != nil {
 		scheme := ""
 		if design != nil {
@@ -98,6 +98,9 @@ func (emailHandler) resolve(content TemplateContent, design *TemplateDesign, in 
 		subject = designtokens.Substitute(subject, in.Design.Theme, scheme, false)
 		body = designtokens.Substitute(body, in.Design.Theme, scheme, true)
 	}
+
+	subject = systemplate.SubstituteCtx(subject, in.Data, false)
+	body = systemplate.SubstituteCtx(body, in.Data, true)
 
 	return ResolvedContent{ContentType: ContentTypeHTML, Subject: subject, Body: body}, nil
 }
