@@ -6,6 +6,7 @@ package notificationtemplate
 import (
 	"context"
 	"errors"
+	"strings"
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 
@@ -78,6 +79,13 @@ func (p *templateProvider) Resolve(ctx context.Context, channel, id string, in R
 		}
 		resp, tErr := p.i18n.ResolveTranslationsForKey(ctx, locale, i18n.SystemNamespace, key)
 		if tErr != nil {
+			// A missing translation is a template/config problem, not an internal fault: fail closed
+			// with a distinct, legible error instead of collapsing every i18n error to a 500.
+			if tErr.Code == i18n.ErrorTranslationNotFound.Code {
+				p.logger.Warn(ctx, "Template translation key has no value for locale",
+					log.String("key", key), log.String("locale", locale))
+				return "", &ErrorTranslationNotResolved
+			}
 			p.logger.Error(ctx, "Failed to resolve translation key", log.String("key", key),
 				log.String("locale", locale), log.String("errorCode", tErr.Code))
 			return "", &tidcommon.InternalServerError
@@ -89,5 +97,22 @@ func (p *templateProvider) Resolve(ctx context.Context, channel, id string, in R
 	if svcErr != nil {
 		return nil, svcErr
 	}
+
+	// Graceful degradation leaves unresolved placeholders literal; surface a signal so a misconfigured
+	// template (missing ctx value or absent design) does not ship broken content silently.
+	p.warnUnresolvedPlaceholders(ctx, id, content)
+
 	return &content, nil
+}
+
+// warnUnresolvedPlaceholders logs when {{ctx(...)}} or {{design(...)}} tokens survive substitution,
+// which means a runtime value or design token was missing for this render.
+func (p *templateProvider) warnUnresolvedPlaceholders(ctx context.Context, id string, content ResolvedContent) {
+	for _, part := range []string{content.Subject, content.Body} {
+		if strings.Contains(part, "{{ctx(") || strings.Contains(part, "{{design(") {
+			p.logger.Warn(ctx, "Notification content has unresolved placeholders after rendering",
+				log.String("id", id))
+			return
+		}
+	}
 }

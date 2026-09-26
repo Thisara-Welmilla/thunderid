@@ -14,8 +14,12 @@ const cacheBackedStoreLoggerComponentName = "CacheBackedNotificationTemplateStor
 
 // cacheBackedStore wraps a notificationTemplateStoreInterface with an in-memory cache for single
 // template reads (the hot path for the runtime provider). Only GetTemplate is cached; list and the
-// name-uniqueness check always hit the inner store, and writes invalidate the affected entry. Resolved
-// output is never cached — translations and branding vary per locale/app and are resolved per send.
+// name-uniqueness check always hit the inner store. Resolved output is never cached — translations and
+// branding vary per locale/app and are resolved per send.
+//
+// Writes deliberately do NOT populate the cache: the service calls them inside a DB transaction, so
+// caching there would publish uncommitted (and possibly rolled-back) rows. Instead the service calls
+// invalidate() after the transaction commits, so a rollback simply leaves a reloadable miss.
 type cacheBackedStore struct {
 	byID  cache.CacheInterface[templateDAO]
 	inner notificationTemplateStoreInterface
@@ -33,13 +37,9 @@ func cacheKey(channel, id string) cache.CacheKey {
 	return cache.CacheKey{Key: channel + ":" + id}
 }
 
-// CreateTemplate delegates then caches the created template.
+// CreateTemplate delegates without caching (see the type doc: writes run in a transaction).
 func (s *cacheBackedStore) CreateTemplate(ctx context.Context, t templateDAO) error {
-	if err := s.inner.CreateTemplate(ctx, t); err != nil {
-		return err
-	}
-	s.set(ctx, t)
-	return nil
+	return s.inner.CreateTemplate(ctx, t)
 }
 
 // GetTemplate serves from cache on a hit, otherwise loads from the inner store and caches the result.
@@ -60,29 +60,27 @@ func (s *cacheBackedStore) ListTemplates(ctx context.Context, channel string) ([
 	return s.inner.ListTemplates(ctx, channel)
 }
 
-// UpdateTemplate delegates then refreshes the cached entry.
+// UpdateTemplate delegates without caching; the service invalidates after commit.
 func (s *cacheBackedStore) UpdateTemplate(ctx context.Context, t templateDAO) error {
-	if err := s.inner.UpdateTemplate(ctx, t); err != nil {
-		return err
-	}
-	s.set(ctx, t)
-	return nil
+	return s.inner.UpdateTemplate(ctx, t)
 }
 
-// DeleteTemplate delegates then invalidates the cached entry.
+// DeleteTemplate delegates without caching; the service invalidates after commit.
 func (s *cacheBackedStore) DeleteTemplate(ctx context.Context, channel, id string) error {
-	if err := s.inner.DeleteTemplate(ctx, channel, id); err != nil {
-		return err
-	}
-	if err := s.byID.Delete(ctx, cacheKey(channel, id)); err != nil {
-		s.logger().Error(ctx, "Failed to invalidate template cache", log.String("id", id), log.Error(err))
-	}
-	return nil
+	return s.inner.DeleteTemplate(ctx, channel, id)
 }
 
 // IsNameExists always delegates; uniqueness must be checked against the source of truth.
 func (s *cacheBackedStore) IsNameExists(ctx context.Context, channel, name, excludeID string) (bool, error) {
 	return s.inner.IsNameExists(ctx, channel, name, excludeID)
+}
+
+// invalidate removes a template's cache entry. It is called by the service after a write commits, so a
+// stale or rolled-back entry is never served. Implements the cacheInvalidator interface.
+func (s *cacheBackedStore) invalidate(ctx context.Context, channel, id string) {
+	if err := s.byID.Delete(ctx, cacheKey(channel, id)); err != nil {
+		s.logger().Error(ctx, "Failed to invalidate template cache", log.String("id", id), log.Error(err))
+	}
 }
 
 // set caches a template by its (channel, id), logging on failure without failing the operation.
