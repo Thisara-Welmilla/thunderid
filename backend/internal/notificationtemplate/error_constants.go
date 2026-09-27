@@ -210,4 +210,20 @@ var (
 			DefaultValue: "A translation key referenced by the template has no value for the locale",
 		},
 	}
+
+	// ErrorContextNotResolved is returned at render time when a required {{ctx(...)}} placeholder was not
+	// supplied a value, so the rendered notification would still contain an unsubstituted token. It is
+	// fail-closed: the notification is not sent rather than shipping a broken message to the recipient.
+	ErrorContextNotResolved = tidcommon.ServiceError{
+		Type: tidcommon.ServerErrorType,
+		Code: "NTM-1017",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.context_not_resolved",
+			DefaultValue: "Notification context not resolved",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.context_not_resolved_description",
+			DefaultValue: "A required context placeholder had no value at render time",
+		},
+	}
 )

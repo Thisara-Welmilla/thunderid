@@ -86,6 +86,21 @@ func TestProviderResolve_MissingTranslation(t *testing.T) {
 	require.Equal(t, ErrorTranslationNotResolved.Code, err.Code)
 }
 
+func TestProviderResolve_UnresolvedCtxFails(t *testing.T) {
+	store := newMemStore()
+	store.templates["s1"] = templateDAO{
+		ID: "s1", Channel: ChannelSMS, Name: "OTP",
+		Content: TemplateContent{ContentType: ContentTypePlain, Body: "sms.body.key"},
+	}
+	tr := stubTranslator{vals: map[string]string{"sms.body.key": "Code {{ctx(otpCode)}}"}}
+	p := newTemplateProvider(store, tr)
+
+	// No Data supplied, so {{ctx(otpCode)}} cannot be resolved -> fail closed, do not ship the token.
+	_, err := p.Resolve(context.Background(), ChannelSMS, "s1", RenderInput{})
+	require.NotNil(t, err)
+	require.Equal(t, ErrorContextNotResolved.Code, err.Code)
+}
+
 func TestProviderResolve_Errors(t *testing.T) {
 	p := newTemplateProvider(newMemStore(), stubTranslator{})
 

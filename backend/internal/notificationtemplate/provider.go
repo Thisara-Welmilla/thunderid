@@ -10,8 +10,10 @@ import (
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 
+	designtokens "github.com/thunder-id/thunderid/internal/design/tokens"
 	i18n "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 	"github.com/thunder-id/thunderid/internal/system/log"
+	systemplate "github.com/thunder-id/thunderid/internal/system/template"
 )
 
 const providerLoggerComponentName = "NotificationTemplateProvider"
@@ -51,8 +53,7 @@ func newTemplateProvider(store notificationTemplateStoreInterface, resolver tran
 // If a required translation cannot be resolved, no notification is produced and the error is returned.
 func (p *templateProvider) Resolve(ctx context.Context, channel, id string, in RenderInput) (
 	*ResolvedContent, *tidcommon.ServiceError) {
-	handler, svcErr := handlerFor(channel)
-	if svcErr != nil {
+	if svcErr := validateChannel(channel); svcErr != nil {
 		return nil, svcErr
 	}
 	if id == "" {
@@ -93,26 +94,75 @@ func (p *templateProvider) Resolve(ctx context.Context, channel, id string, in R
 		return resp.Value, nil
 	}
 
-	content, svcErr := handler.resolve(dao.Content, dao.Design, in, translate)
+	content, svcErr := resolveContent(dao.Content, dao.Design, in, translate)
 	if svcErr != nil {
 		return nil, svcErr
 	}
 
-	// Graceful degradation leaves unresolved placeholders literal; surface a signal so a misconfigured
-	// template (missing ctx value or absent design) does not ship broken content silently.
-	p.warnUnresolvedPlaceholders(ctx, id, content)
+	if svcErr := p.checkResolved(ctx, id, content); svcErr != nil {
+		return nil, svcErr
+	}
 
 	return &content, nil
 }
 
-// warnUnresolvedPlaceholders logs when {{ctx(...)}} or {{design(...)}} tokens survive substitution,
-// which means a runtime value or design token was missing for this render.
-func (p *templateProvider) warnUnresolvedPlaceholders(ctx context.Context, id string, content ResolvedContent) {
+// checkResolved fails closed when a required {{ctx(...)}} value was not supplied (an unsubstituted
+// runtime token must never ship to a recipient). An unresolved {{design(...)}} token only degrades the
+// look, so it is logged rather than treated as fatal.
+func (p *templateProvider) checkResolved(ctx context.Context, id string, content ResolvedContent) *tidcommon.ServiceError {
 	for _, part := range []string{content.Subject, content.Body} {
-		if strings.Contains(part, "{{ctx(") || strings.Contains(part, "{{design(") {
-			p.logger.Warn(ctx, "Notification content has unresolved placeholders after rendering",
+		if strings.Contains(part, "{{ctx(") {
+			p.logger.Error(ctx, "Notification has unresolved context placeholders after rendering",
 				log.String("id", id))
-			return
+			return &ErrorContextNotResolved
 		}
 	}
+	for _, part := range []string{content.Subject, content.Body} {
+		if strings.Contains(part, "{{design(") {
+			p.logger.Warn(ctx, "Notification has unresolved design tokens after rendering",
+				log.String("id", id))
+			return nil
+		}
+	}
+	return nil
+}
+
+// resolveContent renders a template's content channel-agnostically: the only per-channel differences —
+// whether a subject exists and whether the body is HTML (so its substituted values are escaped) — are
+// already encoded in the stored content (contentType, empty subject) and the passed-in design (nil when
+// the channel has none). Substitution is pure token replacement, identical for every channel.
+func resolveContent(content TemplateContent, design *TemplateDesign, in RenderInput,
+	translate translateFunc) (ResolvedContent, *tidcommon.ServiceError) {
+	// The subject is always plain text; the body is escaped only when the content type is HTML.
+	subject, svcErr := renderField(content.Subject, design, in, translate, false)
+	if svcErr != nil {
+		return ResolvedContent{}, svcErr
+	}
+	body, svcErr := renderField(content.Body, design, in, translate, content.ContentType == ContentTypeHTML)
+	if svcErr != nil {
+		return ResolvedContent{}, svcErr
+	}
+	return ResolvedContent{ContentType: content.ContentType, Subject: subject, Body: body}, nil
+}
+
+// renderField resolves one content field: translation key -> text, then design tokens, then ctx values.
+// Design is substituted before ctx so a ctx value that happens to contain a {{design(...)}} token is not
+// reinterpreted by the design pass. An empty key (e.g. a channel with no subject) yields "".
+func renderField(key string, design *TemplateDesign, in RenderInput, translate translateFunc,
+	escapeHTML bool) (string, *tidcommon.ServiceError) {
+	if key == "" {
+		return "", nil
+	}
+	text, svcErr := translate(key)
+	if svcErr != nil {
+		return "", svcErr
+	}
+	if in.Design != nil {
+		scheme := ""
+		if design != nil {
+			scheme = design.ColorScheme
+		}
+		text = designtokens.Substitute(text, in.Design.Theme, scheme, escapeHTML)
+	}
+	return systemplate.SubstituteCtx(text, in.Data, escapeHTML), nil
 }
