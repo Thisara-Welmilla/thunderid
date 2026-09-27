@@ -10,16 +10,15 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
-const cacheBackedStoreLoggerComponentName = "CacheBackedNotificationTemplateStore"
-
 // cacheBackedStore wraps a notificationTemplateStoreInterface with an in-memory cache for single
 // template reads (the hot path for the runtime provider). Only GetTemplate is cached; list and the
 // name-uniqueness check always hit the inner store. Resolved output is never cached — translations and
 // branding vary per locale/app and are resolved per send.
 //
-// Writes deliberately do NOT populate the cache: the service calls them inside a DB transaction, so
-// caching there would publish uncommitted (and possibly rolled-back) rows. Instead the service calls
-// invalidate() after the transaction commits, so a rollback simply leaves a reloadable miss.
+// Writes invalidate (never re-cache) the affected entry, mirroring the idp cache-backed store: caching a
+// value written inside the service's transaction could publish an uncommitted, possibly rolled-back row,
+// so a rollback simply leaves a reloadable miss. Invalidation lives here in the store, not in the
+// service, so cache coherence is fully owned by the decorator.
 type cacheBackedStore struct {
 	byID  cache.CacheInterface[templateDAO]
 	inner notificationTemplateStoreInterface
@@ -37,7 +36,8 @@ func cacheKey(channel, id string) cache.CacheKey {
 	return cache.CacheKey{Key: channel + ":" + id}
 }
 
-// CreateTemplate delegates without caching (see the type doc: writes run in a transaction).
+// CreateTemplate delegates to the inner store. Nothing is cached: reads populate the cache lazily, and
+// a new id has no stale entry to clear.
 func (s *cacheBackedStore) CreateTemplate(ctx context.Context, t templateDAO) error {
 	return s.inner.CreateTemplate(ctx, t)
 }
@@ -60,14 +60,23 @@ func (s *cacheBackedStore) ListTemplates(ctx context.Context, channel string) ([
 	return s.inner.ListTemplates(ctx, channel)
 }
 
-// UpdateTemplate delegates without caching; the service invalidates after commit.
+// UpdateTemplate delegates then invalidates the cached entry (invalidate, not re-cache: the write runs
+// inside the service's transaction, so caching the new value here could publish an uncommitted row).
 func (s *cacheBackedStore) UpdateTemplate(ctx context.Context, t templateDAO) error {
-	return s.inner.UpdateTemplate(ctx, t)
+	if err := s.inner.UpdateTemplate(ctx, t); err != nil {
+		return err
+	}
+	s.invalidate(ctx, t.Channel, t.ID)
+	return nil
 }
 
-// DeleteTemplate delegates without caching; the service invalidates after commit.
+// DeleteTemplate delegates then invalidates the cached entry.
 func (s *cacheBackedStore) DeleteTemplate(ctx context.Context, channel, id string) error {
-	return s.inner.DeleteTemplate(ctx, channel, id)
+	if err := s.inner.DeleteTemplate(ctx, channel, id); err != nil {
+		return err
+	}
+	s.invalidate(ctx, channel, id)
+	return nil
 }
 
 // IsNameExists always delegates; uniqueness must be checked against the source of truth.
@@ -75,8 +84,7 @@ func (s *cacheBackedStore) IsNameExists(ctx context.Context, channel, name, excl
 	return s.inner.IsNameExists(ctx, channel, name, excludeID)
 }
 
-// invalidate removes a template's cache entry. It is called by the service after a write commits, so a
-// stale or rolled-back entry is never served. Implements the cacheInvalidator interface.
+// invalidate removes a template's cache entry, logging on failure without failing the operation.
 func (s *cacheBackedStore) invalidate(ctx context.Context, channel, id string) {
 	if err := s.byID.Delete(ctx, cacheKey(channel, id)); err != nil {
 		s.logger().Error(ctx, "Failed to invalidate template cache", log.String("id", id), log.Error(err))
@@ -94,5 +102,5 @@ func (s *cacheBackedStore) set(ctx context.Context, t templateDAO) {
 }
 
 func (s *cacheBackedStore) logger() *log.Logger {
-	return log.GetLogger().With(log.String(log.LoggerKeyComponentName, cacheBackedStoreLoggerComponentName))
+	return log.GetLogger().With(log.String(log.LoggerKeyComponentName, "CacheBackedNotificationTemplateStore"))
 }

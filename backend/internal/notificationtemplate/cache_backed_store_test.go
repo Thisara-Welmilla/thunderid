@@ -74,7 +74,7 @@ func TestCacheBackedStore_WritesDoNotCache(t *testing.T) {
 	require.NotContains(t, fc.m, "email:t1")
 }
 
-func TestCacheBackedStore_Invalidate(t *testing.T) {
+func TestCacheBackedStore_WritesInvalidate(t *testing.T) {
 	inner := newMemStore()
 	inner.templates["t1"] = emailDAO("t1", "A")
 	fc := newFakeCache()
@@ -86,8 +86,15 @@ func TestCacheBackedStore_Invalidate(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, fc.m, "email:t1")
 
-	// invalidate() drops the entry.
-	store.(cacheInvalidator).invalidate(ctx, ChannelEmail, "t1")
+	// An update invalidates the cached entry (store-owned invalidation).
+	require.NoError(t, store.UpdateTemplate(ctx, emailDAO("t1", "B")))
+	require.NotContains(t, fc.m, "email:t1")
+
+	// Re-warm, then a delete invalidates it too.
+	_, err = store.GetTemplate(ctx, ChannelEmail, "t1")
+	require.NoError(t, err)
+	require.Contains(t, fc.m, "email:t1")
+	require.NoError(t, store.DeleteTemplate(ctx, ChannelEmail, "t1"))
 	require.NotContains(t, fc.m, "email:t1")
 }
 

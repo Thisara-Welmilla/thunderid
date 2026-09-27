@@ -17,8 +17,6 @@ import (
 	systemplate "github.com/thunder-id/thunderid/internal/system/template"
 )
 
-const providerLoggerComponentName = "NotificationTemplateProvider"
-
 // i18nPlaceholderRegex matches {{i18n(key)}} translation-key references embedded in a template field.
 // A field may hold zero, one, or many; keys may contain dots and hyphens (e.g. notification.otp.body).
 var i18nPlaceholderRegex = regexp.MustCompile(`\{\{i18n\(([\w.-]+)\)\}\}`)
@@ -46,7 +44,7 @@ type templateProvider struct {
 
 // newTemplateProvider creates a provider over the given store and translation resolver.
 func newTemplateProvider(store notificationTemplateStoreInterface, resolver translationResolver) TemplateProvider {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, providerLoggerComponentName))
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "NotificationTemplateProvider"))
 	return &templateProvider{store: store, i18n: resolver, logger: logger}
 }
 

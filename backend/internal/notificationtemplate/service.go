@@ -17,8 +17,6 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
-const loggerComponentName = "NotificationTemplateService"
-
 // errNameConflict is an internal sentinel used to roll back a transaction when a name already exists;
 // the caller surfaces ErrorTemplateNameConflict.
 var errNameConflict = errors.New("template name already exists")
@@ -46,7 +44,7 @@ type notificationTemplateService struct {
 // newNotificationTemplateService creates a new service with the given store and transactioner.
 func newNotificationTemplateService(store notificationTemplateStoreInterface,
 	transactioner providers.Transactioner) NotificationTemplateServiceInterface {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "NotificationTemplateService"))
 	return &notificationTemplateService{
 		store:         store,
 		transactioner: transactioner,
@@ -162,8 +160,6 @@ func (ts *notificationTemplateService) UpdateTemplate(ctx context.Context, chann
 		return nil, svcErr
 	}
 
-	// Invalidate after the write has committed so a concurrent reader cannot repopulate stale content.
-	ts.invalidateCache(ctx, channel, id)
 	ts.logger.Debug(ctx, "Successfully updated notification template", log.String("id", id))
 	return daoToTemplate(channel, dao), nil
 }
@@ -204,8 +200,6 @@ func (ts *notificationTemplateService) DeleteTemplate(ctx context.Context, chann
 		return &tidcommon.InternalServerError
 	}
 
-	// Invalidate after the delete has committed.
-	ts.invalidateCache(ctx, channel, id)
 	ts.logger.Debug(ctx, "Successfully deleted notification template", log.String("id", id))
 	return nil
 }
@@ -214,20 +208,6 @@ func (ts *notificationTemplateService) DeleteTemplate(ctx context.Context, chann
 // provider services are initialized to avoid a cyclic import.
 func (ts *notificationTemplateService) SetDependencyRegistry(r resourcedependency.Registry) {
 	ts.dependencyRegistry = r
-}
-
-// cacheInvalidator is implemented by a read-caching store decorator. The service invalidates through it
-// after a write commits, so a rolled-back or stale entry is never served. A plain (uncached) store does
-// not implement it, so the type assertion in invalidateCache is a no-op there.
-type cacheInvalidator interface {
-	invalidate(ctx context.Context, channel, id string)
-}
-
-// invalidateCache drops the template's cache entry when the store is cache-backed.
-func (ts *notificationTemplateService) invalidateCache(ctx context.Context, channel, id string) {
-	if inv, ok := ts.store.(cacheInvalidator); ok {
-		inv.invalidate(ctx, channel, id)
-	}
 }
 
 // persistUnique runs write inside a transaction after checking that name is free in the channel

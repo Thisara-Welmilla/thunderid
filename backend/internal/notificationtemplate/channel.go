@@ -5,11 +5,9 @@ package notificationtemplate
 
 import tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 
-// channelHandler encapsulates the per-channel behavior of a template at write time: which content
-// fields are valid, and the canonical stored shape. Rendering (resolve) is NOT here — token
-// substitution is channel-agnostic (see provider.go resolveContent); the only channel differences at
-// render time (escaping, whether a subject/design exists) are already encoded in the stored content by
-// normalize. A new channel is added by implementing this and registering it in handlerFor.
+// channelHandler encapsulates the per-channel behavior of a template: which content fields are valid,
+// whether a design applies, and the canonical stored shape. Everything else in the module is
+// channel-agnostic. A new channel is added by implementing this and registering it in handlerFor.
 type channelHandler interface {
 	// validate checks the channel-specific constraints of a create/update request. Channel-agnostic
 	// checks (name and body required) are done by the service before this is called.
