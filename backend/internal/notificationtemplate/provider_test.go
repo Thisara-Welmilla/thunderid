@@ -31,12 +31,16 @@ func TestProviderResolve_Email(t *testing.T) {
 		ID:      "t1",
 		Channel: ChannelEmail,
 		Name:    "OTP",
-		Content: TemplateContent{ContentType: ContentTypeHTML, Subject: "sub.key", Body: "body.key"},
-		Design:  &TemplateDesign{ColorScheme: ColorSchemeDark},
+		Content: TemplateContent{
+			ContentType: ContentTypeHTML,
+			Subject:     "{{i18n(otp.subject)}}",
+			Body:        "<b>{{i18n(otp.body)}}</b> {{ctx(otpCode)}} {{design(palette.primary.main)}}",
+		},
+		Design: &TemplateDesign{ColorScheme: ColorSchemeDark},
 	}
 	tr := stubTranslator{vals: map[string]string{
-		"sub.key":  "Your verification code",
-		"body.key": "Code <b>{{ctx(otpCode)}}</b> color {{design(palette.primary.main)}}",
+		"otp.subject": "Your verification code",
+		"otp.body":    "Code",
 	}}
 	p := newTemplateProvider(store, tr)
 
@@ -49,7 +53,22 @@ func TestProviderResolve_Email(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, ContentTypeHTML, rc.ContentType)
 	require.Equal(t, "Your verification code", rc.Subject)
-	require.Equal(t, "Code <b>123</b> color #111", rc.Body)
+	require.Equal(t, "<b>Code</b> 123 #111", rc.Body)
+}
+
+// TestProviderResolve_MultipleAndNoKeys covers a field with several {{i18n}} keys and a field with none.
+func TestProviderResolve_MultipleAndNoKeys(t *testing.T) {
+	store := newMemStore()
+	store.templates["t1"] = templateDAO{
+		ID: "t1", Channel: ChannelSMS, Name: "OTP",
+		Content: TemplateContent{ContentType: ContentTypePlain, Body: "{{i18n(greeting)}}, {{i18n(closing)}} — static tail"},
+	}
+	tr := stubTranslator{vals: map[string]string{"greeting": "Hello", "closing": "bye"}}
+	p := newTemplateProvider(store, tr)
+
+	rc, err := p.Resolve(context.Background(), ChannelSMS, "t1", RenderInput{})
+	require.Nil(t, err)
+	require.Equal(t, "Hello, bye — static tail", rc.Body)
 }
 
 func TestProviderResolve_SMS(t *testing.T) {
@@ -58,9 +77,9 @@ func TestProviderResolve_SMS(t *testing.T) {
 		ID:      "s1",
 		Channel: ChannelSMS,
 		Name:    "OTP",
-		Content: TemplateContent{ContentType: ContentTypePlain, Body: "sms.body.key"},
+		Content: TemplateContent{ContentType: ContentTypePlain, Body: "{{i18n(sms.body)}}"},
 	}
-	tr := stubTranslator{vals: map[string]string{"sms.body.key": "Code {{ctx(otpCode)}}"}}
+	tr := stubTranslator{vals: map[string]string{"sms.body": "Code {{ctx(otpCode)}}"}}
 	p := newTemplateProvider(store, tr)
 
 	rc, err := p.Resolve(context.Background(), ChannelSMS, "s1", RenderInput{
@@ -76,7 +95,7 @@ func TestProviderResolve_MissingTranslation(t *testing.T) {
 	store := newMemStore()
 	store.templates["t1"] = templateDAO{
 		ID: "t1", Channel: ChannelSMS, Name: "OTP",
-		Content: TemplateContent{ContentType: ContentTypePlain, Body: "absent.key"},
+		Content: TemplateContent{ContentType: ContentTypePlain, Body: "{{i18n(absent.key)}}"},
 	}
 	p := newTemplateProvider(store, stubTranslator{vals: map[string]string{}})
 
@@ -90,9 +109,9 @@ func TestProviderResolve_UnresolvedCtxFails(t *testing.T) {
 	store := newMemStore()
 	store.templates["s1"] = templateDAO{
 		ID: "s1", Channel: ChannelSMS, Name: "OTP",
-		Content: TemplateContent{ContentType: ContentTypePlain, Body: "sms.body.key"},
+		Content: TemplateContent{ContentType: ContentTypePlain, Body: "{{i18n(sms.body)}}"},
 	}
-	tr := stubTranslator{vals: map[string]string{"sms.body.key": "Code {{ctx(otpCode)}}"}}
+	tr := stubTranslator{vals: map[string]string{"sms.body": "Code {{ctx(otpCode)}}"}}
 	p := newTemplateProvider(store, tr)
 
 	// No Data supplied, so {{ctx(otpCode)}} cannot be resolved -> fail closed, do not ship the token.

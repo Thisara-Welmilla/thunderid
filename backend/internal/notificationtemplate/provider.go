@@ -6,6 +6,7 @@ package notificationtemplate
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
@@ -17,6 +18,10 @@ import (
 )
 
 const providerLoggerComponentName = "NotificationTemplateProvider"
+
+// i18nPlaceholderRegex matches {{i18n(key)}} translation-key references embedded in a template field.
+// A field may hold zero, one, or many; keys may contain dots and hyphens (e.g. notification.otp.body).
+var i18nPlaceholderRegex = regexp.MustCompile(`\{\{i18n\(([\w.-]+)\)\}\}`)
 
 // translationResolver is the narrow slice of the i18n service this module needs. The full
 // i18n.I18nServiceInterface satisfies it.
@@ -66,12 +71,7 @@ func (p *templateProvider) Resolve(ctx context.Context, channel, id string, in R
 		return nil, &tidcommon.InternalServerError
 	}
 
-	locale := in.Locale
-	if locale == "" {
-		locale = i18n.SystemLanguage
-	}
-
-	content, svcErr := p.resolveContent(ctx, locale, dao.Content, dao.Design, in)
+	content, svcErr := p.resolveContent(ctx, in.Locale, dao.Content, dao.Design, in)
 	if svcErr != nil {
 		return nil, svcErr
 	}
@@ -99,11 +99,12 @@ func (p *templateProvider) resolveContent(ctx context.Context, locale string, co
 
 // renderField is a thin orchestrator: it runs the three resolvers for one field in order (translation,
 // design, context) and returns the first error. Each resolver owns its own logic and validation; this
-// method only chains them. Design is applied before context so a context value that happens to contain a
-// {{design(...)}} token is not reinterpreted by the design pass.
-func (p *templateProvider) renderField(ctx context.Context, locale, key string, design *TemplateDesign,
+// method only chains them. Order matters: translations first (a translated string may itself contain
+// {{design(...)}}/{{ctx(...)}} placeholders), then design, then context last so a context value is never
+// reinterpreted by a later pass. `template` is the stored field value (subject or body).
+func (p *templateProvider) renderField(ctx context.Context, locale, template string, design *TemplateDesign,
 	in RenderInput, escapeHTML bool) (string, *tidcommon.ServiceError) {
-	text, svcErr := p.resolveTranslation(ctx, locale, key)
+	text, svcErr := p.applyTranslations(ctx, locale, template)
 	if svcErr != nil {
 		return "", svcErr
 	}
@@ -114,26 +115,42 @@ func (p *templateProvider) renderField(ctx context.Context, locale, key string, 
 	return p.applyContextValues(ctx, text, in, escapeHTML)
 }
 
-// resolveTranslation resolves a single translation key to its localized text for the render locale. It
-// owns the empty-key case (a channel with no subject yields "") and its own error handling: a missing
-// translation fails closed with a distinct, legible error rather than a generic internal error.
-func (p *templateProvider) resolveTranslation(ctx context.Context, locale, key string) (
+// applyTranslations substitutes every {{i18n(key)}} placeholder in text with its localized value for the
+// render locale — a field may contain zero, one, or many keys interleaved with markup. It owns locale
+// defaulting and its own validation: a key with no value fails closed with a distinct, legible error.
+// Translated values are content (they may legitimately contain markup or further {{ctx}}/{{design}}
+// placeholders), so they are not HTML-escaped here; escaping applies only to design/context values.
+func (p *templateProvider) applyTranslations(ctx context.Context, locale, text string) (
 	string, *tidcommon.ServiceError) {
-	if key == "" {
-		return "", nil
+	if locale == "" {
+		locale = i18n.SystemLanguage
 	}
-	resp, tErr := p.i18n.ResolveTranslationsForKey(ctx, locale, i18n.SystemNamespace, key)
-	if tErr != nil {
-		if tErr.Code == i18n.ErrorTranslationNotFound.Code {
-			p.logger.Warn(ctx, "Template translation key has no value for locale",
-				log.String("key", key), log.String("locale", locale))
-			return "", &ErrorTranslationNotResolved
+
+	var svcErr *tidcommon.ServiceError
+	out := i18nPlaceholderRegex.ReplaceAllStringFunc(text, func(match string) string {
+		if svcErr != nil {
+			return match
 		}
-		p.logger.Error(ctx, "Failed to resolve translation key", log.String("key", key),
-			log.String("locale", locale), log.String("errorCode", tErr.Code))
-		return "", &tidcommon.InternalServerError
+		key := i18nPlaceholderRegex.FindStringSubmatch(match)[1]
+		resp, tErr := p.i18n.ResolveTranslationsForKey(ctx, locale, i18n.SystemNamespace, key)
+		if tErr != nil {
+			if tErr.Code == i18n.ErrorTranslationNotFound.Code {
+				p.logger.Warn(ctx, "Template translation key has no value for locale",
+					log.String("key", key), log.String("locale", locale))
+				svcErr = &ErrorTranslationNotResolved
+			} else {
+				p.logger.Error(ctx, "Failed to resolve translation key", log.String("key", key),
+					log.String("locale", locale), log.String("errorCode", tErr.Code))
+				svcErr = &tidcommon.InternalServerError
+			}
+			return match
+		}
+		return resp.Value
+	})
+	if svcErr != nil {
+		return "", svcErr
 	}
-	return resp.Value, nil
+	return out, nil
 }
 
 // applyDesignTokens substitutes {{design(...)}} tokens from the caller-resolved theme (the design feature
