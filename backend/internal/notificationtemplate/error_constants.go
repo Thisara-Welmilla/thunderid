@@ -226,4 +226,20 @@ var (
 			DefaultValue: "A required context placeholder had no value at render time",
 		},
 	}
+
+	// ErrorDesignNotResolved is returned at render time when a {{design(...)}} token survived
+	// substitution (the theme lacked it, or no design was supplied). Fail-closed: a not-fully-resolved
+	// notification is not sent.
+	ErrorDesignNotResolved = tidcommon.ServiceError{
+		Type: tidcommon.ServerErrorType,
+		Code: "NTM-1018",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.design_not_resolved",
+			DefaultValue: "Notification design not resolved",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.design_not_resolved_description",
+			DefaultValue: "A design token referenced by the template had no value at render time",
+		},
+	}
 )
