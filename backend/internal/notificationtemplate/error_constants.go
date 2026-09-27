@@ -69,17 +69,17 @@ var (
 		},
 	}
 
-	// ErrorMissingBodyKey is returned when the content body key is not provided.
+	// ErrorMissingBodyKey is returned when the content body is not provided.
 	ErrorMissingBodyKey = tidcommon.ServiceError{
 		Type: tidcommon.ClientErrorType,
 		Code: "NTM-1006",
 		Error: tidcommon.I18nMessage{
 			Key:          "error.notificationtemplateservice.missing_body_key",
-			DefaultValue: "Missing body key",
+			DefaultValue: "Missing body",
 		},
 		ErrorDescription: tidcommon.I18nMessage{
 			Key:          "error.notificationtemplateservice.missing_body_key_description",
-			DefaultValue: "The content body key (translation key) is required",
+			DefaultValue: "The content body is required",
 		},
 	}
 

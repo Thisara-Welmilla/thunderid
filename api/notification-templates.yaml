@@ -66,8 +66,8 @@ paths:
                     colorScheme: light
                   content:
                     contentType: text/html
-                    subject: notification.otp.email.subject
-                    body: notification.otp.email.body
+                    subject: "{{i18n(notification.otp.email.subject)}}"
+                    body: "<p>{{i18n(notification.otp.email.body)}} <b>{{ctx(otpCode)}}</b></p>"
               sms:
                 summary: SMS template (plain text; subject and design are not allowed)
                 value:
@@ -75,7 +75,7 @@ paths:
                   description: One-time passcode sent to verify a user's phone number.
                   content:
                     contentType: text/plain
-                    body: notification.otp.sms.body
+                    body: "{{i18n(notification.otp.sms.body)}} {{ctx(otpCode)}}"
       responses:
         "201":
           description: Template created
@@ -124,7 +124,7 @@ paths:
       tags:
         - Templates
       summary: Update a template
-      description: Updates the template's name, description, content (translation key references), and design configuration (color theme).
+      description: Updates the template's name, description, content (template strings with placeholders), and design configuration (color theme).
       parameters:
         - $ref: '#/components/parameters/channelPathParam'
         - $ref: '#/components/parameters/templatePathParam'
@@ -249,7 +249,7 @@ components:
             content:
               allOf:
                 - $ref: '#/components/schemas/TemplateContent'
-              description: The language-neutral content (translation key references) for this template.
+              description: The language-neutral content (template strings with placeholders) for this template.
 
     TemplateListResponse:
       type: object
@@ -277,7 +277,7 @@ components:
         content:
           allOf:
             - $ref: '#/components/schemas/TemplateContent'
-          description: The template's content (translation key references), so the template is never created empty.
+          description: The template's content (template strings with placeholders), so the template is never created empty.
 
     UpdateTemplateRequest:
       type: object
@@ -293,7 +293,7 @@ components:
         content:
           allOf:
             - $ref: '#/components/schemas/TemplateContent'
-          description: The template's content (translation key references) to apply.
+          description: The template's content (template strings with placeholders) to apply.
         design:
           allOf:
             - $ref: '#/components/schemas/TemplateDesign'
@@ -302,7 +302,13 @@ components:
     TemplateContent:
       type: object
       required: [body]
-      description: Language-neutral template content. The subject and body reference translation keys in ThunderID's translation resources; the localized text is resolved for the recipient's locale at render time. contentType is server-derived (email is always text/html, SMS is always text/plain) and any supplied value is overridden. For the SMS channel, a subject is not allowed and the request is rejected with 400 if one is supplied.
+      description: >
+        Language-neutral template content. Subject and body are template strings that may embed zero or
+        more placeholders resolved at render time: {{i18n(key)}} for localized text (from ThunderID's
+        translation resources, for the recipient's locale), {{ctx(var)}} for flow-context values, and
+        {{design(token)}} for design tokens (body only). contentType is server-derived (email is always
+        text/html, SMS is always text/plain) and any supplied value is overridden. For the SMS channel a
+        subject is not allowed and the request is rejected with 400 if one is supplied.
       properties:
         contentType:
           type: string
@@ -311,12 +317,12 @@ components:
           example: text/html
         subject:
           type: string
-          description: Translation key for the subject line (email only). Not allowed for SMS. The subject is always plain text.
-          example: notification.otp.email.subject
+          description: Subject template (email only; not allowed for SMS). May embed {{i18n(key)}} and {{ctx(var)}} placeholders. Always resolved to plain text.
+          example: "{{i18n(notification.otp.email.subject)}}"
         body:
           type: string
-          description: Translation key for the body. The resolved translation value, in the format given by contentType, supplies the ctx substitution variables.
-          example: notification.otp.email.body
+          description: Body template. May embed {{i18n(key)}} (localized text), {{ctx(var)}} (context values), and {{design(token)}} (design tokens) placeholders, interleaved with markup.
+          example: "<p>{{i18n(notification.otp.email.body)}} <b>{{ctx(otpCode)}}</b></p>"
 
     Error:
       type: object

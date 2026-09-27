@@ -74,10 +74,18 @@ per channel at best, never value *correctness*.
 holds translation *keys*; `ResolvedContent` holds rendered *text* (with `{{ctx(...)}}` left literal).
 Distinct types prevent confusing a key for a value.
 
-### D7 — Content is language-neutral (translation keys)
-`subject`/`body` are single translation-key references; localized text (which may contain
-`{{ctx(...)}}`) is resolved from the Translation feature at render time. `contentType` is
-`text/html`|`text/plain`; SMS is forced to `text/plain`, with no subject and no design.
+### D7 — Content is language-neutral (embedded placeholders, multiple keys)
+`subject`/`body` are **template strings** that may embed zero, one, or many placeholders resolved at
+render time, interleaved with markup: `{{i18n(key)}}` for localized text (from the Translation
+feature, for the recipient's locale), `{{ctx(var)}}` for flow-context values, and `{{design(token)}}`
+for design tokens (body only). A field is **not** a single translation-key reference — it can carry
+several translatable strings plus static structure. `contentType` is `text/html`|`text/plain`; SMS is
+forced to `text/plain`, with no subject and no design.
+
+Superseded the earlier "single translation key per field" model: a real HTML body mixes static
+structure with multiple translatable strings, so each field is a template with embedded `{{i18n(...)}}`
+references rather than one key resolving to the whole field. Resolution is uniform placeholder
+substitution across all three token types (see `provider.go`).
 
 ### D8 — Identity & uniqueness
 Server-assigned **UUID is the sole identity**; flows reference a template by UUID, and

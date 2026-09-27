@@ -2,12 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package notificationtemplate manages the email and SMS notification templates ThunderID sends.
-// A template is language-neutral: its subject and body reference translation keys resolved at render
-// time. The module is channel-generic; per-channel rules live behind a channelHandler (see channel.go).
+// A template is language-neutral: its subject and body are template strings that embed placeholders
+// resolved at render time — {{i18n(key)}} for localized text, {{ctx(var)}} for flow-context values, and
+// {{design(token)}} for design tokens. The module is channel-generic; per-channel rules live behind a
+// channelHandler (see channel.go).
 package notificationtemplate
 
 // TemplateContent is the language-neutral content of a template, one common shape for every channel.
-// Fields that do not apply to a channel are left empty. It is persisted as the CONTENT JSON column.
+// Subject and body are template strings that may embed zero or more placeholders resolved at render
+// time: {{i18n(key)}} (localized text), {{ctx(var)}} (flow-context values), and {{design(token)}}
+// (design tokens, body only). Fields that do not apply to a channel are left empty. Persisted as the
+// CONTENT JSON column.
 type TemplateContent struct {
 	ContentType string `json:"contentType,omitempty"`
 	Subject     string `json:"subject,omitempty"`
