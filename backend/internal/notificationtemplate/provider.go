@@ -76,10 +76,6 @@ func (p *templateProvider) Resolve(ctx context.Context, channel, id string, in R
 		return nil, svcErr
 	}
 
-	if svcErr := p.assertFullyResolved(ctx, id, content); svcErr != nil {
-		return nil, svcErr
-	}
-
 	return &content, nil
 }
 
@@ -101,27 +97,31 @@ func (p *templateProvider) resolveContent(ctx context.Context, locale string, co
 	return ResolvedContent{ContentType: content.ContentType, Subject: subject, Body: body}, nil
 }
 
-// renderField runs the three resolution steps for one field, in order: translation, design, context.
-// Design is applied before context so a context value that happens to contain a {{design(...)}} token is
-// not reinterpreted by the design pass. An empty key (e.g. a channel with no subject) yields "".
+// renderField is a thin orchestrator: it runs the three resolvers for one field in order (translation,
+// design, context) and returns the first error. Each resolver owns its own logic and validation; this
+// method only chains them. Design is applied before context so a context value that happens to contain a
+// {{design(...)}} token is not reinterpreted by the design pass.
 func (p *templateProvider) renderField(ctx context.Context, locale, key string, design *TemplateDesign,
 	in RenderInput, escapeHTML bool) (string, *tidcommon.ServiceError) {
-	if key == "" {
-		return "", nil
-	}
 	text, svcErr := p.resolveTranslation(ctx, locale, key)
 	if svcErr != nil {
 		return "", svcErr
 	}
-	text = applyDesignTokens(text, design, in, escapeHTML)
-	text = applyContextValues(text, in, escapeHTML)
-	return text, nil
+	text, svcErr = p.applyDesignTokens(ctx, text, design, in, escapeHTML)
+	if svcErr != nil {
+		return "", svcErr
+	}
+	return p.applyContextValues(ctx, text, in, escapeHTML)
 }
 
-// resolveTranslation resolves a single translation key to its localized text for the render locale. A
-// missing translation fails closed with a distinct, legible error rather than a generic internal error.
+// resolveTranslation resolves a single translation key to its localized text for the render locale. It
+// owns the empty-key case (a channel with no subject yields "") and its own error handling: a missing
+// translation fails closed with a distinct, legible error rather than a generic internal error.
 func (p *templateProvider) resolveTranslation(ctx context.Context, locale, key string) (
 	string, *tidcommon.ServiceError) {
+	if key == "" {
+		return "", nil
+	}
 	resp, tErr := p.i18n.ResolveTranslationsForKey(ctx, locale, i18n.SystemNamespace, key)
 	if tErr != nil {
 		if tErr.Code == i18n.ErrorTranslationNotFound.Code {
@@ -137,38 +137,33 @@ func (p *templateProvider) resolveTranslation(ctx context.Context, locale, key s
 }
 
 // applyDesignTokens substitutes {{design(...)}} tokens from the caller-resolved theme (the design feature
-// owns the token grammar). It is a no-op when no design was supplied for this render.
-func applyDesignTokens(text string, design *TemplateDesign, in RenderInput, escapeHTML bool) string {
-	if in.Design == nil {
-		return text
+// owns the token grammar) and validates its own output: a token left unresolved fails closed, so a
+// partially-branded notification is never sent. A no-op when no design was supplied for this render.
+func (p *templateProvider) applyDesignTokens(ctx context.Context, text string, design *TemplateDesign,
+	in RenderInput, escapeHTML bool) (string, *tidcommon.ServiceError) {
+	if in.Design != nil {
+		scheme := ""
+		if design != nil {
+			scheme = design.ColorScheme
+		}
+		text = designtokens.Substitute(text, in.Design.Theme, scheme, escapeHTML)
 	}
-	scheme := ""
-	if design != nil {
-		scheme = design.ColorScheme
+	if strings.Contains(text, "{{design(") {
+		p.logger.Error(ctx, "Unresolved design token after substitution")
+		return "", &ErrorDesignNotResolved
 	}
-	return designtokens.Substitute(text, in.Design.Theme, scheme, escapeHTML)
+	return text, nil
 }
 
 // applyContextValues substitutes {{ctx(...)}} placeholders from the flow context (system/template owns
-// the shared implementation).
-func applyContextValues(text string, in RenderInput, escapeHTML bool) string {
-	return systemplate.SubstituteCtx(text, in.Data, escapeHTML)
-}
-
-// assertFullyResolved fails closed when any {{ctx(...)}} or {{design(...)}} placeholder survived
-// substitution: a not-fully-resolved notification must never be sent to a recipient.
-func (p *templateProvider) assertFullyResolved(ctx context.Context, id string, content ResolvedContent) *tidcommon.ServiceError {
-	for _, part := range []string{content.Subject, content.Body} {
-		if strings.Contains(part, "{{ctx(") {
-			p.logger.Error(ctx, "Notification has unresolved context placeholders after rendering",
-				log.String("id", id))
-			return &ErrorContextNotResolved
-		}
-		if strings.Contains(part, "{{design(") {
-			p.logger.Error(ctx, "Notification has unresolved design tokens after rendering",
-				log.String("id", id))
-			return &ErrorDesignNotResolved
-		}
+// the shared implementation) and validates its own output: a placeholder left unresolved fails closed,
+// so a token is never shipped to a recipient.
+func (p *templateProvider) applyContextValues(ctx context.Context, text string, in RenderInput,
+	escapeHTML bool) (string, *tidcommon.ServiceError) {
+	text = systemplate.SubstituteCtx(text, in.Data, escapeHTML)
+	if strings.Contains(text, "{{ctx(") {
+		p.logger.Error(ctx, "Unresolved context placeholder after substitution")
+		return "", &ErrorContextNotResolved
 	}
-	return nil
+	return text, nil
 }
