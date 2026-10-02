@@ -16,16 +16,20 @@ import (
 
 var ctxPlaceholderRegex = regexp.MustCompile(`\{\{ctx\((\w+)\)}}`)
 
-// SubstituteCtx replaces {{ctx(key)}} placeholders in s with the matching value from data, HTML-escaping
-// the substituted value when escapeHTML is set. Unknown keys are left literal. This is the single
-// implementation of the {{ctx(...)}} substitution shared across features that render templated content.
-func SubstituteCtx(s string, data TemplateData, escapeHTML bool) string {
-	return ctxPlaceholderRegex.ReplaceAllStringFunc(s, func(match string) string {
-		submatches := ctxPlaceholderRegex.FindStringSubmatch(match)
+// Substitute replaces every {{fn(arg)}} placeholder matched by pattern in content with the value
+// resolve returns for the placeholder's captured argument, HTML-escaping that value when escapeHTML is
+// set. pattern must have a single capturing group (the argument). When resolve reports ok=false the
+// placeholder is left literal so rendering degrades gracefully. This is the shared mechanism behind the
+// {{fn(arg)}} substitutions (for example {{ctx(key)}}); callers that add a new placeholder function
+// supply their own pattern and resolver rather than re-implementing the replace loop.
+func Substitute(content string, pattern *regexp.Regexp,
+	resolve func(arg string) (string, bool), escapeHTML bool) string {
+	return pattern.ReplaceAllStringFunc(content, func(match string) string {
+		submatches := pattern.FindStringSubmatch(match)
 		if len(submatches) < 2 {
 			return match
 		}
-		if val, ok := data[submatches[1]]; ok {
+		if val, ok := resolve(submatches[1]); ok {
 			if escapeHTML {
 				return html.EscapeString(val)
 			}
@@ -33,6 +37,16 @@ func SubstituteCtx(s string, data TemplateData, escapeHTML bool) string {
 		}
 		return match
 	})
+}
+
+// SubstituteCtx replaces {{ctx(key)}} placeholders in s with the matching value from data, HTML-escaping
+// the substituted value when escapeHTML is set. Unknown keys are left literal. This is the single
+// implementation of the {{ctx(...)}} substitution shared across features that render templated content.
+func SubstituteCtx(s string, data TemplateData, escapeHTML bool) string {
+	return Substitute(s, ctxPlaceholderRegex, func(key string) (string, bool) {
+		val, ok := data[key]
+		return val, ok
+	}, escapeHTML)
 }
 
 // templateService implements TemplateServiceInterface using a templateStoreInterface.
