@@ -200,7 +200,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	notifSenderMgtSvc, _, _, err := notification.Initialize(jwtService)
 	fatalOnError(ctx, logger, err, "Failed to initialize NotificationService")
 
-	notifTemplateSvc, err := notificationtemplate.Initialize(mux)
+	notifTemplateSvc, _, err := notificationtemplate.Initialize(mux, i18nService, cacheManager)
 	fatalOnError(ctx, logger, err, "Failed to initialize NotificationTemplateService")
 
 	// Register the /connections API as a thin layer over the identity-provider and

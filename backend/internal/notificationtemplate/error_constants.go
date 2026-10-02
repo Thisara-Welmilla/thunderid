@@ -194,4 +194,52 @@ var (
 			DefaultValue: "The template description exceeds the maximum allowed length",
 		},
 	}
+
+	// ErrorTranslationNotResolved is returned at render time when a template's subject or body
+	// translation key has no value for the requested (or default) locale, so the notification cannot be
+	// produced. It is fail-closed: no notification is sent, and the cause is distinct from a generic 500.
+	ErrorTranslationNotResolved = tidcommon.ServiceError{
+		Type: tidcommon.ServerErrorType,
+		Code: "NTM-1016",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.translation_not_resolved",
+			DefaultValue: "Template translation not resolved",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.translation_not_resolved_description",
+			DefaultValue: "A translation key referenced by the template has no value for the locale",
+		},
+	}
+
+	// ErrorContextNotResolved is returned at render time when a required {{ctx(...)}} placeholder was not
+	// supplied a value, so the rendered notification would still contain an unsubstituted token. It is
+	// fail-closed: the notification is not sent rather than shipping a broken message to the recipient.
+	ErrorContextNotResolved = tidcommon.ServiceError{
+		Type: tidcommon.ServerErrorType,
+		Code: "NTM-1017",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.context_not_resolved",
+			DefaultValue: "Notification context not resolved",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.context_not_resolved_description",
+			DefaultValue: "A required context placeholder had no value at render time",
+		},
+	}
+
+	// ErrorDesignNotResolved is returned at render time when a {{design(...)}} token survived
+	// substitution (the theme lacked it, or no design was supplied). Fail-closed: a not-fully-resolved
+	// notification is not sent.
+	ErrorDesignNotResolved = tidcommon.ServiceError{
+		Type: tidcommon.ServerErrorType,
+		Code: "NTM-1018",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.design_not_resolved",
+			DefaultValue: "Notification design not resolved",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.notificationtemplateservice.design_not_resolved_description",
+			DefaultValue: "A design token referenced by the template had no value at render time",
+		},
+	}
 )

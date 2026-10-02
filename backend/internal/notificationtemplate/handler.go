@@ -14,8 +14,6 @@ import (
 	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
-const handlerLoggerComponentName = "NotificationTemplateHandler"
-
 // notificationTemplateHandler is the HTTP handler for notification template operations.
 type notificationTemplateHandler struct {
 	service NotificationTemplateServiceInterface
@@ -25,7 +23,7 @@ type notificationTemplateHandler struct {
 // newNotificationTemplateHandler creates a new handler instance.
 func newNotificationTemplateHandler(
 	service NotificationTemplateServiceInterface) *notificationTemplateHandler {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, handlerLoggerComponentName))
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "NotificationTemplateHandler"))
 	return &notificationTemplateHandler{
 		service: service,
 		logger:  logger,

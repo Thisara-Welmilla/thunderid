@@ -17,8 +17,6 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
-const loggerComponentName = "NotificationTemplateService"
-
 // errNameConflict is an internal sentinel used to roll back a transaction when a name already exists;
 // the caller surfaces ErrorTemplateNameConflict.
 var errNameConflict = errors.New("template name already exists")
@@ -46,7 +44,7 @@ type notificationTemplateService struct {
 // newNotificationTemplateService creates a new service with the given store and transactioner.
 func newNotificationTemplateService(store notificationTemplateStoreInterface,
 	transactioner providers.Transactioner) NotificationTemplateServiceInterface {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "NotificationTemplateService"))
 	return &notificationTemplateService{
 		store:         store,
 		transactioner: transactioner,
