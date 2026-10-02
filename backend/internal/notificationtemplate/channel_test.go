@@ -19,12 +19,12 @@ func TestChannelTestSuite(t *testing.T) {
 
 func (s *ChannelTestSuite) TestRulesFor() {
 	s.Run("email", func() {
-		h, err := rulesFor(channelEmail)
+		h, err := rulesFor(ChannelTypeEmail)
 		s.Require().Nil(err)
 		s.Require().IsType(emailRules{}, h)
 	})
 	s.Run("sms", func() {
-		h, err := rulesFor(channelSMS)
+		h, err := rulesFor(ChannelTypeSMS)
 		s.Require().Nil(err)
 		s.Require().IsType(smsRules{}, h)
 	})
@@ -37,8 +37,8 @@ func (s *ChannelTestSuite) TestRulesFor() {
 }
 
 func (s *ChannelTestSuite) TestValidateChannel() {
-	s.Require().Nil(validateChannel(channelEmail))
-	s.Require().Nil(validateChannel(channelSMS))
+	s.Require().Nil(validateChannel(ChannelTypeEmail))
+	s.Require().Nil(validateChannel(ChannelTypeSMS))
 	s.Require().NotNil(validateChannel(""))
 	s.Require().Equal(ErrorInvalidChannel.Code, validateChannel("carrier-pigeon").Code)
 }

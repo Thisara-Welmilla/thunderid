@@ -15,7 +15,7 @@ type TemplateContent struct {
 	Body    string `json:"body"`
 }
 
-// TemplateDesign holds a template's design references (email only). Persisted in the COLOR_SCHEME
+// TemplateDesign holds a template's design references (email only). Persisted in the DESIGN JSON
 // column of NOTIFICATION_TEMPLATE; nil for channels without a design.
 type TemplateDesign struct {
 	ColorScheme string `json:"colorScheme,omitempty"`
@@ -27,7 +27,6 @@ type Template struct {
 	Handle      string          `json:"handle"`
 	DisplayName string          `json:"displayName"`
 	Description string          `json:"description,omitempty"`
-	Self        string          `json:"self"`
 	Design      *TemplateDesign `json:"design,omitempty"`
 	Content     TemplateContent `json:"content"`
 }
@@ -70,10 +69,10 @@ type TemplateListResponse struct {
 }
 
 // templateDAO is the store-level representation of a template: content is stored as a single JSON
-// column (CONTENT), and the design (when present) in the COLOR_SCHEME column.
+// column (CONTENT), and the design (when present) as a single JSON column (DESIGN).
 type templateDAO struct {
 	ID          string
-	Channel     string
+	Channel     ChannelType
 	Handle      string
 	DisplayName string
 	Description string

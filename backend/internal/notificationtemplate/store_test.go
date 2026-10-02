@@ -9,30 +9,30 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-type StoreHelpersTestSuite struct {
+type StoreTestSuite struct {
 	suite.Suite
 }
 
-func TestStoreHelpersTestSuite(t *testing.T) {
-	suite.Run(t, new(StoreHelpersTestSuite))
+func TestStoreTestSuite(t *testing.T) {
+	suite.Run(t, new(StoreTestSuite))
 }
 
-func (s *StoreHelpersTestSuite) TestBuildTemplateFromRow_EmailWithDesign() {
-	// Happy path: a full email row (string CONTENT, as returned by SQLite) with a joined design.
+func (s *StoreTestSuite) TestBuildTemplateFromRow_EmailWithDesign() {
+	// Happy path: a full email row (string CONTENT, as returned by SQLite) with a design JSON document.
 	row := map[string]interface{}{
 		"id":           "1",
-		"channel":      channelEmail,
+		"channel":      string(ChannelTypeEmail),
 		"handle":       "otp-verification",
 		"display_name": "OTP Verification",
 		"description":  "desc",
 		"content":      `{"subject":"s.key","body":"<p>{{ctx(otp)}}</p>"}`,
-		"color_scheme": colorSchemeDark,
+		"design":       `{"colorScheme":"dark"}`,
 	}
 
 	dao, err := buildTemplateFromRow(row)
 	s.Require().NoError(err)
 	s.Require().Equal("1", dao.ID)
-	s.Require().Equal(channelEmail, dao.Channel)
+	s.Require().Equal(ChannelTypeEmail, dao.Channel)
 	s.Require().Equal("otp-verification", dao.Handle)
 	s.Require().Equal("OTP Verification", dao.DisplayName)
 	s.Require().Equal("desc", dao.Description)
@@ -42,16 +42,16 @@ func (s *StoreHelpersTestSuite) TestBuildTemplateFromRow_EmailWithDesign() {
 	s.Require().Equal(colorSchemeDark, dao.Design.ColorScheme)
 }
 
-func (s *StoreHelpersTestSuite) TestBuildTemplateFromRow_NoDesign_ByteContent() {
-	// Happy path: an SMS row with []byte CONTENT (as returned by PostgreSQL) and a NULL color scheme.
+func (s *StoreTestSuite) TestBuildTemplateFromRow_NoDesign_ByteContent() {
+	// Happy path: an SMS row with []byte CONTENT (as returned by PostgreSQL) and an empty ({}) design.
 	row := map[string]interface{}{
 		"id":           "2",
-		"channel":      channelSMS,
+		"channel":      string(ChannelTypeSMS),
 		"handle":       "otp",
 		"display_name": "OTP",
 		"description":  nil,
 		"content":      []byte(`{"body":"{{ctx(otp)}}"}`),
-		"color_scheme": nil,
+		"design":       `{}`,
 	}
 
 	dao, err := buildTemplateFromRow(row)
@@ -62,11 +62,11 @@ func (s *StoreHelpersTestSuite) TestBuildTemplateFromRow_NoDesign_ByteContent() 
 	s.Require().Nil(dao.Design)
 }
 
-func (s *StoreHelpersTestSuite) TestBuildTemplateFromRow_Errors() {
+func (s *StoreTestSuite) TestBuildTemplateFromRow_Errors() {
 	base := func() map[string]interface{} {
 		return map[string]interface{}{
 			"id":           "1",
-			"channel":      channelEmail,
+			"channel":      string(ChannelTypeEmail),
 			"handle":       "h",
 			"display_name": "D",
 			"content":      `{"body":"b"}`,
@@ -92,7 +92,7 @@ func (s *StoreHelpersTestSuite) TestBuildTemplateFromRow_Errors() {
 	}
 }
 
-func (s *StoreHelpersTestSuite) TestParseCountResult() {
+func (s *StoreTestSuite) TestParseCountResult() {
 	// Happy: the "total" alias across the driver numeric types.
 	n, err := parseCountResult([]map[string]interface{}{{"total": int64(5)}})
 	s.Require().NoError(err)
@@ -117,14 +117,14 @@ func (s *StoreHelpersTestSuite) TestParseCountResult() {
 	s.Require().Error(err)
 }
 
-func (s *StoreHelpersTestSuite) TestJSONColumnToString() {
+func (s *StoreTestSuite) TestJSONColumnToString() {
 	s.Require().Equal("abc", jsonColumnToString("abc"))
 	s.Require().Equal("xy", jsonColumnToString([]byte("xy")))
 	s.Require().Equal("", jsonColumnToString(123))
 	s.Require().Equal("", jsonColumnToString(nil))
 }
 
-func (s *StoreHelpersTestSuite) TestStringOrEmpty() {
+func (s *StoreTestSuite) TestStringOrEmpty() {
 	s.Require().Equal("s", stringOrEmpty("s"))
 	s.Require().Equal("", stringOrEmpty(nil))
 	s.Require().Equal("", stringOrEmpty(42))

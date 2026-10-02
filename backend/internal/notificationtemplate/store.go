@@ -21,12 +21,12 @@ import (
 // client picks up a transaction from the context automatically).
 type notificationTemplateStoreInterface interface {
 	CreateTemplate(ctx context.Context, template templateDAO) error
-	GetTemplate(ctx context.Context, channel, id string) (templateDAO, error)
-	ListTemplates(ctx context.Context, channel string, limit, offset int) ([]templateDAO, error)
-	CountTemplates(ctx context.Context, channel string) (int, error)
+	GetTemplate(ctx context.Context, channel ChannelType, id string) (templateDAO, error)
+	ListTemplates(ctx context.Context, channel ChannelType, limit, offset int) ([]templateDAO, error)
+	CountTemplates(ctx context.Context, channel ChannelType) (int, error)
 	UpdateTemplate(ctx context.Context, template templateDAO) error
-	DeleteTemplate(ctx context.Context, channel, id string) error
-	IsHandleExists(ctx context.Context, channel, handle string) (bool, error)
+	DeleteTemplate(ctx context.Context, channel ChannelType, id string) error
+	IsHandleExists(ctx context.Context, channel ChannelType, handle string) (bool, error)
 }
 
 // notificationTemplateStore is the config-DB backed implementation.
@@ -55,9 +55,14 @@ func (s *notificationTemplateStore) CreateTemplate(ctx context.Context, t templa
 		return fmt.Errorf("failed to marshal template content: %w", err)
 	}
 
+	designJSON, err := designArg(t)
+	if err != nil {
+		return err
+	}
+
 	if _, err := dbClient.ExecuteContext(ctx, queryCreateTemplate,
-		t.ID, t.Channel, t.Handle, t.DisplayName, t.Description, contentJSON,
-		colorSchemeArg(t), s.deploymentID); err != nil {
+		t.ID, string(t.Channel), t.Handle, t.DisplayName, t.Description, contentJSON,
+		designJSON, s.deploymentID); err != nil {
 		return fmt.Errorf("failed to execute create query: %w", err)
 	}
 
@@ -65,13 +70,13 @@ func (s *notificationTemplateStore) CreateTemplate(ctx context.Context, t templa
 }
 
 // GetTemplate retrieves a template by channel and id.
-func (s *notificationTemplateStore) GetTemplate(ctx context.Context, channel, id string) (templateDAO, error) {
+func (s *notificationTemplateStore) GetTemplate(ctx context.Context, channel ChannelType, id string) (templateDAO, error) {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
 		return templateDAO{}, err
 	}
 
-	results, err := dbClient.QueryContext(ctx, queryGetTemplateByID, id, channel, s.deploymentID)
+	results, err := dbClient.QueryContext(ctx, queryGetTemplateByID, id, string(channel), s.deploymentID)
 	if err != nil {
 		return templateDAO{}, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -87,14 +92,14 @@ func (s *notificationTemplateStore) GetTemplate(ctx context.Context, channel, id
 }
 
 // ListTemplates retrieves a page of templates of a channel.
-func (s *notificationTemplateStore) ListTemplates(ctx context.Context, channel string, limit, offset int) (
+func (s *notificationTemplateStore) ListTemplates(ctx context.Context, channel ChannelType, limit, offset int) (
 	[]templateDAO, error) {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
 		return nil, err
 	}
 
-	results, err := dbClient.QueryContext(ctx, queryListTemplates, channel, s.deploymentID, limit, offset)
+	results, err := dbClient.QueryContext(ctx, queryListTemplates, string(channel), s.deploymentID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute list query: %w", err)
 	}
@@ -112,13 +117,13 @@ func (s *notificationTemplateStore) ListTemplates(ctx context.Context, channel s
 }
 
 // CountTemplates returns the number of templates in a channel, for pagination totals.
-func (s *notificationTemplateStore) CountTemplates(ctx context.Context, channel string) (int, error) {
+func (s *notificationTemplateStore) CountTemplates(ctx context.Context, channel ChannelType) (int, error) {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
 		return 0, err
 	}
 
-	results, err := dbClient.QueryContext(ctx, queryCountTemplates, channel, s.deploymentID)
+	results, err := dbClient.QueryContext(ctx, queryCountTemplates, string(channel), s.deploymentID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute count query: %w", err)
 	}
@@ -138,9 +143,14 @@ func (s *notificationTemplateStore) UpdateTemplate(ctx context.Context, t templa
 		return fmt.Errorf("failed to marshal template content: %w", err)
 	}
 
+	designJSON, err := designArg(t)
+	if err != nil {
+		return err
+	}
+
 	if _, err := dbClient.ExecuteContext(ctx, queryUpdateTemplate,
-		t.DisplayName, t.Description, contentJSON, colorSchemeArg(t),
-		t.ID, t.Channel, s.deploymentID); err != nil {
+		t.DisplayName, t.Description, contentJSON, designJSON,
+		t.ID, string(t.Channel), s.deploymentID); err != nil {
 		return fmt.Errorf("failed to execute update query: %w", err)
 	}
 
@@ -148,13 +158,13 @@ func (s *notificationTemplateStore) UpdateTemplate(ctx context.Context, t templa
 }
 
 // DeleteTemplate deletes a template row by channel and id.
-func (s *notificationTemplateStore) DeleteTemplate(ctx context.Context, channel, id string) error {
+func (s *notificationTemplateStore) DeleteTemplate(ctx context.Context, channel ChannelType, id string) error {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
 		return err
 	}
 
-	if _, err := dbClient.ExecuteContext(ctx, queryDeleteTemplate, id, channel, s.deploymentID); err != nil {
+	if _, err := dbClient.ExecuteContext(ctx, queryDeleteTemplate, id, string(channel), s.deploymentID); err != nil {
 		return fmt.Errorf("failed to execute delete query: %w", err)
 	}
 
@@ -163,14 +173,14 @@ func (s *notificationTemplateStore) DeleteTemplate(ctx context.Context, channel,
 
 // IsHandleExists checks whether a template in the channel already uses the given handle. The handle is
 // immutable, so this is only ever a create-time pre-check.
-func (s *notificationTemplateStore) IsHandleExists(ctx context.Context, channel, handle string) (
+func (s *notificationTemplateStore) IsHandleExists(ctx context.Context, channel ChannelType, handle string) (
 	bool, error) {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
 		return false, err
 	}
 
-	results, err := dbClient.QueryContext(ctx, queryCheckHandleExists, channel, handle, s.deploymentID)
+	results, err := dbClient.QueryContext(ctx, queryCheckHandleExists, string(channel), handle, s.deploymentID)
 	if err != nil {
 		return false, fmt.Errorf("failed to check template handle: %w", err)
 	}
@@ -183,13 +193,18 @@ func (s *notificationTemplateStore) IsHandleExists(ctx context.Context, channel,
 	return count > 0, nil
 }
 
-// colorSchemeArg returns the COLOR_SCHEME value to persist for a template: the color scheme when a
-// design is present, or nil so the column is stored as NULL for a channel without a design.
-func colorSchemeArg(t templateDAO) interface{} {
-	if t.Design != nil && t.Design.ColorScheme != "" {
-		return t.Design.ColorScheme
+// designArg returns the DESIGN JSON value to persist for a template: the design marshaled to JSON
+// when present, or an empty JSON object for a channel without a design. The column is NOT NULL, so a
+// value is always written.
+func designArg(t templateDAO) (interface{}, error) {
+	if t.Design == nil {
+		return []byte("{}"), nil
 	}
-	return nil
+	b, err := json.Marshal(t.Design)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal template design: %w", err)
+	}
+	return b, nil
 }
 
 // getConfigDBClient retrieves the config database client.
@@ -202,7 +217,7 @@ func (s *notificationTemplateStore) getConfigDBClient() (provider.DBClientInterf
 }
 
 // buildTemplateFromRow maps a DB result row to a templateDAO. The CONTENT column is a JSON document;
-// the COLOR_SCHEME column is NULL when the template carries no design.
+// the DESIGN column holds an empty JSON object ({}) when the template carries no design.
 func buildTemplateFromRow(row map[string]interface{}) (templateDAO, error) {
 	id, ok := row["id"].(string)
 	if !ok {
@@ -226,7 +241,7 @@ func buildTemplateFromRow(row map[string]interface{}) (templateDAO, error) {
 
 	dao := templateDAO{
 		ID:          id,
-		Channel:     channel,
+		Channel:     ChannelType(channel),
 		Handle:      handle,
 		DisplayName: displayName,
 		Description: stringOrEmpty(row["description"]),
@@ -238,8 +253,15 @@ func buildTemplateFromRow(row map[string]interface{}) (templateDAO, error) {
 		}
 	}
 
-	if colorScheme := stringOrEmpty(row["color_scheme"]); colorScheme != "" {
-		dao.Design = &TemplateDesign{ColorScheme: colorScheme}
+	if designStr := jsonColumnToString(row["design"]); designStr != "" {
+		var design TemplateDesign
+		if err := json.Unmarshal([]byte(designStr), &design); err != nil {
+			return templateDAO{}, fmt.Errorf("failed to unmarshal template design: %w", err)
+		}
+		// An empty JSON object ({}) is how a channel without a design is stored; treat it as absent.
+		if design != (TemplateDesign{}) {
+			dao.Design = &design
+		}
 	}
 
 	return dao, nil

@@ -19,27 +19,31 @@ type channelRules interface {
 	// checks (displayName and body required) are done by the service before this is called.
 	validate(dao templateDAO) *tidcommon.ServiceError
 
-	// normalize returns the canonical dao to persist for this channel. A nil design means the
-	// COLOR_SCHEME column is stored as NULL.
+	// normalize returns the canonical dao to persist for this channel. A nil design is persisted as an empty JSON object; the
+	// DESIGN column is never NULL.
 	normalize(dao templateDAO) templateDAO
 }
 
-// rulesFor returns the rules for a channel. It is the single switch over channels in the module;
-// an unknown channel is rejected here so every entry point validates the channel through one place.
-func rulesFor(channel string) (channelRules, *tidcommon.ServiceError) {
-	switch channel {
-	case channelEmail:
-		return emailRules{}, nil
-	case channelSMS:
-		return smsRules{}, nil
-	default:
-		return nil, &ErrorInvalidChannel
-	}
+// channelRulesByChannel holds one evaluator per channel, built once at package initialization and
+// shared across requests rather than created per call.
+var channelRulesByChannel = map[ChannelType]channelRules{
+	ChannelTypeEmail: emailRules{},
+	ChannelTypeSMS:   smsRules{},
 }
 
-// validateChannel reports whether the channel is supported, reusing rulesFor's single switch for
+// rulesFor returns the rules for a channel. It is the single lookup over channels in the module;
+// an unknown channel is rejected here so every entry point validates the channel through one place.
+func rulesFor(channel ChannelType) (channelRules, *tidcommon.ServiceError) {
+	rules, ok := channelRulesByChannel[channel]
+	if !ok {
+		return nil, &ErrorInvalidChannel
+	}
+	return rules, nil
+}
+
+// validateChannel reports whether the channel is supported, reusing rulesFor's single lookup for
 // entry points that carry no content (list, get, delete).
-func validateChannel(channel string) *tidcommon.ServiceError {
+func validateChannel(channel ChannelType) *tidcommon.ServiceError {
 	_, svcErr := rulesFor(channel)
 	return svcErr
 }

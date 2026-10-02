@@ -6,20 +6,20 @@ package notificationtemplate
 import dbmodel "github.com/thunder-id/thunderid/internal/system/database/model"
 
 // A template and its design are stored in a single NOTIFICATION_TEMPLATE row: the content is a JSON
-// column (CONTENT) and the design is a column (COLOR_SCHEME), NULL when a channel carries no design.
+// column (CONTENT) and the design is a JSON column (DESIGN), an empty JSON object ({}) when a channel carries no design.
 var (
 	// queryCreateTemplate inserts a new notification template row.
 	queryCreateTemplate = dbmodel.DBQuery{
 		ID: "NTQ-NOTIF_TMPL-01",
 		Query: `INSERT INTO "NOTIFICATION_TEMPLATE" ` +
-			`(ID, CHANNEL, HANDLE, DISPLAY_NAME, DESCRIPTION, CONTENT, COLOR_SCHEME, DEPLOYMENT_ID) ` +
+			`(ID, CHANNEL, HANDLE, DISPLAY_NAME, DESCRIPTION, CONTENT, DESIGN, DEPLOYMENT_ID) ` +
 			`VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 	}
 
 	// queryGetTemplateByID retrieves a template by channel and id.
 	queryGetTemplateByID = dbmodel.DBQuery{
 		ID: "NTQ-NOTIF_TMPL-02",
-		Query: `SELECT ID, CHANNEL, HANDLE, DISPLAY_NAME, DESCRIPTION, CONTENT, COLOR_SCHEME ` +
+		Query: `SELECT ID, CHANNEL, HANDLE, DISPLAY_NAME, DESCRIPTION, CONTENT, DESIGN ` +
 			`FROM "NOTIFICATION_TEMPLATE" ` +
 			`WHERE ID = $1 AND CHANNEL = $2 AND DEPLOYMENT_ID = $3`,
 	}
@@ -27,7 +27,7 @@ var (
 	// queryListTemplates retrieves a page of templates of a channel.
 	queryListTemplates = dbmodel.DBQuery{
 		ID: "NTQ-NOTIF_TMPL-03",
-		Query: `SELECT ID, CHANNEL, HANDLE, DISPLAY_NAME, DESCRIPTION, CONTENT, COLOR_SCHEME ` +
+		Query: `SELECT ID, CHANNEL, HANDLE, DISPLAY_NAME, DESCRIPTION, CONTENT, DESIGN ` +
 			`FROM "NOTIFICATION_TEMPLATE" ` +
 			`WHERE CHANNEL = $1 AND DEPLOYMENT_ID = $2 ORDER BY CREATED_AT DESC, ID DESC LIMIT $3 OFFSET $4`,
 	}
@@ -37,9 +37,9 @@ var (
 	queryUpdateTemplate = dbmodel.DBQuery{
 		ID: "NTQ-NOTIF_TMPL-04",
 		PostgresQuery: `UPDATE "NOTIFICATION_TEMPLATE" SET DISPLAY_NAME = $1, DESCRIPTION = $2, ` +
-			`CONTENT = $3, COLOR_SCHEME = $4, UPDATED_AT = NOW() WHERE ID = $5 AND CHANNEL = $6 AND DEPLOYMENT_ID = $7`,
+			`CONTENT = $3, DESIGN = $4, UPDATED_AT = NOW() WHERE ID = $5 AND CHANNEL = $6 AND DEPLOYMENT_ID = $7`,
 		SQLiteQuery: `UPDATE "NOTIFICATION_TEMPLATE" SET DISPLAY_NAME = $1, DESCRIPTION = $2, ` +
-			`CONTENT = $3, COLOR_SCHEME = $4, UPDATED_AT = datetime('now') ` +
+			`CONTENT = $3, DESIGN = $4, UPDATED_AT = datetime('now') ` +
 			`WHERE ID = $5 AND CHANNEL = $6 AND DEPLOYMENT_ID = $7`,
 	}
 

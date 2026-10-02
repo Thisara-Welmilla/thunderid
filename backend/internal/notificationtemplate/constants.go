@@ -10,10 +10,13 @@ import "regexp"
 // convention (internal/flow/mgt).
 var handleFormatRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*[a-z0-9]$|^[a-z0-9]$`)
 
+// ChannelType is the notification channel a template belongs to.
+type ChannelType string
+
 // Notification channels.
 const (
-	channelEmail = "email"
-	channelSMS   = "sms"
+	ChannelTypeEmail ChannelType = "email"
+	ChannelTypeSMS   ChannelType = "sms"
 )
 
 // Color theme variants.

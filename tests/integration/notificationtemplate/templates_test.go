@@ -42,7 +42,8 @@ func (ts *TemplatesTestSuite) TearDownSuite() {
 	for _, c := range ts.createdIDs {
 		status, _ := ts.do(http.MethodDelete,
 			fmt.Sprintf("/notification-templates/%s/templates/%s", c.channel, c.id), nil)
-		ts.Require().Contains([]int{http.StatusNoContent, http.StatusNotFound}, status)
+		// Delete is idempotent: an absent template still returns 204.
+		ts.Require().Equal(http.StatusNoContent, status)
 	}
 }
 
@@ -128,7 +129,7 @@ func (ts *TemplatesTestSuite) TestEmailRequiresSubject() {
 		"content":     map[string]string{"body": "<p>b</p>"},
 	})
 	ts.Require().Equal(http.StatusBadRequest, status)
-	ts.Require().Equal("NTM-1022", errorCode(body))
+	ts.Require().Equal("NTM-1003", errorCode(body))
 
 	// A whitespace-only subject is treated as missing.
 	status, body = ts.create("email", map[string]interface{}{
@@ -137,7 +138,7 @@ func (ts *TemplatesTestSuite) TestEmailRequiresSubject() {
 		"content":     map[string]string{"subject": "   ", "body": "<p>b</p>"},
 	})
 	ts.Require().Equal(http.StatusBadRequest, status)
-	ts.Require().Equal("NTM-1022", errorCode(body))
+	ts.Require().Equal("NTM-1003", errorCode(body))
 
 	// Create with a subject, then try to drop it on update.
 	status, body = ts.create("email", map[string]interface{}{
@@ -154,7 +155,7 @@ func (ts *TemplatesTestSuite) TestEmailRequiresSubject() {
 			"content":     map[string]string{"body": "<p>b</p>"},
 		})
 	ts.Require().Equal(http.StatusBadRequest, status)
-	ts.Require().Equal("NTM-1022", errorCode(body))
+	ts.Require().Equal("NTM-1003", errorCode(body))
 }
 
 // TestSMSSubjectRules confirms the mirror rule: SMS needs no subject and rejects one if supplied.
