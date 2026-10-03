@@ -62,6 +62,9 @@ const ContentTypeFormURLEncoded = "application/x-www-form-urlencoded"
 // WWWAuthenticateHeaderName is the name of the WWW-Authenticate header used in HTTP responses.
 const WWWAuthenticateHeaderName = "WWW-Authenticate"
 
+// LocationHeaderName is the name of the Location header used in HTTP responses.
+const LocationHeaderName = "Location"
+
 // XFrameOptionsHeaderName is the name of the X-Frame-Options header used in HTTP responses.
 const XFrameOptionsHeaderName = "X-Frame-Options"
 
@@ -134,3 +137,6 @@ const (
 	// StoreModeComposite indicates resources are merged from both database and declarative files (hybrid mode).
 	StoreModeComposite StoreMode = "composite"
 )
+
+// SCIMContentType is the SCIM-specific content type required by RFC 7644.
+const SCIMContentType = "application/scim+json"

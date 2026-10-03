@@ -38,6 +38,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/authzen"
 	"github.com/thunder-id/thunderid/internal/cert"
 	"github.com/thunder-id/thunderid/internal/connection"
+	"github.com/thunder-id/thunderid/internal/connection/authzenpdp"
 	"github.com/thunder-id/thunderid/internal/consent"
 	layoutmgt "github.com/thunder-id/thunderid/internal/design/layout/mgt"
 	"github.com/thunder-id/thunderid/internal/design/resolve"
@@ -54,10 +55,12 @@ import (
 	"github.com/thunder-id/thunderid/internal/flow/interceptor"
 	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
 	flowsession "github.com/thunder-id/thunderid/internal/flow/session"
+	"github.com/thunder-id/thunderid/internal/gateway"
 	"github.com/thunder-id/thunderid/internal/group"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	"github.com/thunder-id/thunderid/internal/notification"
+	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/internal/oauth"
 	oauthconfig "github.com/thunder-id/thunderid/internal/oauth/config"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dcr"
@@ -70,6 +73,8 @@ import (
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
 	"github.com/thunder-id/thunderid/internal/runtimestore"
+	"github.com/thunder-id/thunderid/internal/scim"
+	scimconfig "github.com/thunder-id/thunderid/internal/scim/config"
 	"github.com/thunder-id/thunderid/internal/serverconfig"
 	"github.com/thunder-id/thunderid/internal/system/cache"
 	"github.com/thunder-id/thunderid/internal/system/cmodels"
@@ -99,6 +104,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/template"
 	"github.com/thunder-id/thunderid/internal/user"
 	"github.com/thunder-id/thunderid/internal/usermgtprovider"
+	"github.com/thunder-id/thunderid/internal/variablestore"
 	"github.com/thunder-id/thunderid/internal/vc/credential"
 	"github.com/thunder-id/thunderid/internal/vc/presentation"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
@@ -158,10 +164,15 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	// Add to exporters list (must be done after initializing list)
 	exporters = append(exporters, i18nExporter)
 
+	// Initialize the variable store. It takes the config crypto provider directly, since that is
+	// what seals a secret before it reaches the database.
+	variablestore.Initialize(mux, configCryptoSvc, cacheManager)
+
 	ouAuthzService, err := sysauthz.Initialize()
 	fatalOnError(ctx, logger, err, "Failed to initialize system authorization service")
 
-	ouService, ouHierarchyResolver, ouExporter, err := ou.Initialize(mux, mcpServer, cacheManager, ouAuthzService)
+	// The hierarchy enumerator is consumed by the sharing module, which is not wired in yet.
+	ouService, ouHierarchyResolver, _, ouExporter, err := ou.Initialize(mux, mcpServer, cacheManager, ouAuthzService)
 	fatalOnError(ctx, logger, err, "Failed to initialize OrganizationUnitService")
 	exporters = append(exporters, ouExporter)
 
@@ -204,9 +215,21 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	fatalOnError(ctx, logger, err, "Failed to initialize GroupService")
 	exporters = append(exporters, groupExporter)
 
-	resourceService, resourceExporter, err := resource.Initialize(mux, ouService)
+	authZENPDPService, err := authzenpdp.Initialize(runtime.Config.AuthZENPDP, entityTypeService)
+	fatalOnError(ctx, logger, err, "Failed to initialize AuthZENPDPService")
+
+	resourceService, resourceExporter, err := resource.Initialize(mux, ouService, authZENPDPService)
 	fatalOnError(ctx, logger, err, "Failed to initialize Resource Service")
 	exporters = append(exporters, resourceExporter)
+
+	// Initialize SCIM service.
+	scim.Initialize(
+		mux,
+		userService,
+		entityTypeService,
+		groupService,
+		scimconfig.FromServerRuntime(),
+	)
 
 	roleService, roleAssignmentService, ouRoleResolver, roleExporter, err := role.Initialize(
 		mux, entityService, groupService, ouService, resourceService, entityTypeService, ouAuthzService,
@@ -219,13 +242,18 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	ouService.SetOUGroupResolver(ouGroupResolver)
 	ouService.SetOURoleResolver(ouRoleResolver)
 
+	// Adapt the OU service to the runtime provider contract. The OAuth and flow layers depend only
+	// on providers.OrganizationUnitProvider and never see the management model.
+	ouProvider := ou.NewOrganizationUnitProvider(ouService)
+
 	// Complete the two-phase initialization of the privilege-escalation guard. The resolver spans
 	// roles, groups, and entities, so it can only be built once all three are ready. Until it is
 	// injected the guard fails closed, so this must not be skipped.
 	ouAuthzService.SetPermissionResolver(
 		role.NewEffectivePermissionResolver(roleService, groupService, entityService))
 
-	authZService := authz.Initialize(roleService)
+	authZService := authz.Initialize(
+		roleService, resourceService, entityService, authZENPDPService)
 
 	idpService, err := idp.Initialize(cacheManager, entityTypeService, roleService, groupService, resourceService)
 	fatalOnError(ctx, logger, err, "Failed to initialize IDPService")
@@ -236,9 +264,13 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	notifSenderMgtSvc, notifOTPService, notifSenderSvc, err := notification.Initialize(jwtService)
 	fatalOnError(ctx, logger, err, "Failed to initialize NotificationService")
 
+	notifTemplateSvc, err := notificationtemplate.Initialize(mux)
+	fatalOnError(ctx, logger, err, "Failed to initialize NotificationTemplateService")
+
 	// Register the /connections API as a thin layer over the identity-provider and
 	// notification-sender services.
-	connectionExporter, err := connection.Initialize(mux, idpService, notifSenderMgtSvc)
+	connectionExporter, err := connection.Initialize(
+		mux, idpService, notifSenderMgtSvc, resourceService, authZENPDPService)
 	fatalOnError(ctx, logger, err, "Failed to initialize connection declarative resources")
 	exporters = append(exporters, connectionExporter)
 
@@ -348,12 +380,14 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	revocationEnforcer, revocationSvc := revocation.Initialize(jwtService, observabilitySvc,
 		tokenFamilyRevocationTTL, runtime.Config.OAuth.Revocation.TokenFamily.OnExplicitRevokeEnabled())
 	sessionRevoker := sessionCriteriaRevoker{revoker: revocationSvc}
-	sessionService, sessionCfg := initSessionService(ctx, serverConfigService,
+	// The termination hook is kept for the back-channel logout dispatcher, which is built after the
+	// actor provider and installed through it.
+	sessionService, _, sessionCfg := initSessionService(ctx, serverConfigService,
 		runtime.Config.Server.Identifier, sessionRevoker, logger)
 	flowConfig.Session = sessionCfg
 	flowFactory, execRegistry, interceptorRegistry, graphBuilder := initializeFlowCoreAndExecutor(ctx, logger,
 		cacheManager, executor.ExecutorDependencies{
-			OUService:             ouService,
+			OUService:             ouProvider,
 			IDPService:            idpService,
 			NotifSenderSvc:        notifSenderSvc,
 			JWTService:            jwtService,
@@ -444,17 +478,18 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	// imports). flowMgtService is both a consumer and a provider: it reports which flows reference an
 	// identity provider or notification sender.
 	registerDependencyRegistry(dependencyConsumers{
-		theme:       themeMgtService,
-		layout:      layoutMgtService,
-		flow:        flowMgtService,
-		user:        userService,
-		idp:         idpService,
-		notifSender: notifSenderMgtSvc,
-		application: applicationService,
-		agent:       agentService,
-		group:       groupService,
-		ou:          ouService,
-		resource:    resourceService,
+		theme:         themeMgtService,
+		layout:        layoutMgtService,
+		flow:          flowMgtService,
+		user:          userService,
+		idp:           idpService,
+		notifSender:   notifSenderMgtSvc,
+		application:   applicationService,
+		agent:         agentService,
+		group:         groupService,
+		ou:            ouService,
+		resource:      resourceService,
+		notifTemplate: notifTemplateSvc,
 	}, applicationService, agentService, flowMgtService, roleAssignmentService, roleService,
 		groupService, ouService, ouUserResolver, ouGroupResolver, resourceService)
 
@@ -464,10 +499,15 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	actorProvider := actorprovider.Initialize(inboundClientService, entityProvider, authnProvider, roleService)
 
 	// Initialize flow metadata service
-	_ = flowmeta.Initialize(mux, actorProvider, ouService, designResolveService, i18nService)
+	_ = flowmeta.Initialize(mux, actorProvider, ouProvider, designResolveService, i18nService)
 
 	// Initialize export service with collected exporters
-	_ = export.Initialize(mux, exporters)
+	_ = export.Initialize(mux, exporters, export.TemplatePlaceholders)
+
+	// The gateways this control plane administers. Registration is bounded by server.max_gateways,
+	// which is one unless a deployment raises it.
+	gatewayService, err := gateway.Initialize(mux)
+	fatalOnError(ctx, logger, err, "Failed to initialize gateway service")
 
 	// Initialize import service
 	importService := importer.Initialize(
@@ -490,6 +530,8 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 		openid4vpDefSvc,
 		openid4vciCredSvc,
 		serverConfigService,
+		gatewayService,
+		authZENPDPService,
 	)
 
 	attestationProvider := initAttestationProvider(ctx, logger, runtimeCryptoSvc)
@@ -500,7 +542,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	// Initialize OAuth services.
 	tokenValidator, err := oauth.Initialize(mux, actorProvider, authnProvider, jwtService, jweService,
-		flowExecService, observabilitySvc, runtimeCryptoSvc, ouService, attributeCacheService, authZService,
+		flowExecService, observabilitySvc, runtimeCryptoSvc, ouProvider, attributeCacheService, authZService,
 		resourceServerProvider, i18nService, idpService, dpopVerifier,
 		runtimeStoreProvider, transactioner, revocationEnforcer, revocationSvc,
 		sessionService, flowMgtService, oauthCfg)
@@ -514,7 +556,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	if oauthCfg.OAuth.DCR.IsEnabled() {
 		// Register OAuth2 DCR service.
-		err = dcr.Initialize(mux, applicationService, ouService, i18nService, oauthCfg)
+		err = dcr.Initialize(mux, applicationService, ouService, i18nService, authnProvider, oauthCfg)
 		fatalOnError(ctx, logger, err, "Failed to initialize OAuth2 DCR service")
 	}
 
@@ -539,17 +581,18 @@ func initAttestationProvider(ctx context.Context, logger *log.Logger,
 // dependencyConsumers groups the services that check the dependency registry before deleting their
 // own resources.
 type dependencyConsumers struct {
-	theme       thememgt.ThemeMgtServiceInterface
-	layout      layoutmgt.LayoutMgtServiceInterface
-	flow        flowmgt.FlowMgtServiceInterface
-	user        user.UserServiceInterface
-	idp         idp.IDPServiceInterface
-	notifSender notification.NotificationSenderMgtSvcInterface
-	application application.ApplicationServiceInterface
-	agent       agent.AgentServiceInterface
-	group       group.GroupServiceInterface
-	ou          ou.ConfigurableOUService
-	resource    resource.ResourceServiceInterface
+	theme         thememgt.ThemeMgtServiceInterface
+	layout        layoutmgt.LayoutMgtServiceInterface
+	flow          flowmgt.FlowMgtServiceInterface
+	user          user.UserServiceInterface
+	idp           idp.IDPServiceInterface
+	notifSender   notification.NotificationSenderMgtSvcInterface
+	application   application.ApplicationServiceInterface
+	agent         agent.AgentServiceInterface
+	group         group.GroupServiceInterface
+	ou            ou.ConfigurableOUService
+	resource      resource.ResourceServiceInterface
+	notifTemplate notificationtemplate.NotificationTemplateServiceInterface
 }
 
 // registerDependencyRegistry builds the dependency registry from the given providers and wires it
@@ -567,6 +610,7 @@ func registerDependencyRegistry(consumers dependencyConsumers, providers ...reso
 	consumers.group.SetDependencyRegistry(registry)
 	consumers.ou.SetDependencyRegistry(registry)
 	consumers.resource.SetDependencyRegistry(registry)
+	consumers.notifTemplate.SetDependencyRegistry(registry)
 }
 
 // unregisterServices unregisters all services that require cleanup during shutdown.
@@ -575,15 +619,17 @@ func unregisterServices() {
 }
 
 // initSessionService reads the effective SSO session configuration from the server-config section and
-// builds the session service, returning both so the caller can thread the config into flowexec too.
+// builds the session service, returning the service, its termination hook, and the config so the caller
+// can thread the config into flowexec too.
 func initSessionService(ctx context.Context, svc serverconfig.ServerConfigService, deploymentID string,
-	criteriaRevoker flowsession.CriteriaRevoker, logger *log.Logger) (flowsession.Service, flowsession.Config) {
+	criteriaRevoker flowsession.CriteriaRevoker, logger *log.Logger,
+) (flowsession.Service, flowsession.TerminationHook, flowsession.Config) {
 	cfg := readSessionConfig(ctx, svc, logger)
-	sessionService, err := flowsession.Initialize(dbprovider.GetDBProvider(), deploymentID,
+	sessionService, terminationHook, err := flowsession.Initialize(dbprovider.GetDBProvider(), deploymentID,
 		flowsession.NewTimeouts(cfg.IdleTimeoutSeconds, cfg.AbsoluteTimeoutSeconds,
 			cfg.ActivityRefreshIntervalSeconds), criteriaRevoker)
 	fatalOnError(ctx, logger, err, "Failed to initialize SSO session service")
-	return sessionService, cfg
+	return sessionService, terminationHook, cfg
 }
 
 // sessionCriteriaRevoker fixes the reason used when the session service revokes a token family.
