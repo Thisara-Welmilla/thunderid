@@ -268,6 +268,7 @@ type importService struct {
 	credentialConfigurationService credentialConfigurationAdapter
 	serverConfigService            serverConfigAdapter
 	gatewayService                 gatewayAdapter
+	notifTemplateService           notificationTemplateAdapter
 	// references replaces a var: or sec: reference with the value this deployment holds. Nil leaves
 	// references in place, which is what a control plane wants: it keeps configuration as references
 	// and holds no values.
@@ -544,6 +545,8 @@ func (s *importService) importDocument(
 		return s.importServerConfig(ctx, doc, dryRun)
 	case resourceTypeGateway:
 		return s.importGateway(ctx, doc, options, dryRun)
+	case resourceTypeNotificationTemplate:
+		return s.importNotificationTemplate(ctx, doc, options, dryRun)
 	default:
 		return ImportItemOutcome{
 			ResourceType: doc.ResourceType,

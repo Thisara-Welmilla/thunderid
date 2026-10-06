@@ -1,39 +1,6 @@
 // Copyright 2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import {TEMPLATE_SCENARIOS} from './constants';
-
-/**
- * Builds the template scenario options for a picker, keeping the current value in the list
- * even when it is not one this build knows about — a flow authored elsewhere should not have
- * its template silently blanked.
- *
- * @param currentValue - The scenario currently stored on the executor.
- * @returns The scenario values to offer.
- */
-export const getTemplateScenarioOptions = (currentValue: string): string[] => {
-  const scenarios: string[] = TEMPLATE_SCENARIOS.map((scenario) => scenario.value);
-
-  return currentValue && !scenarios.includes(currentValue) ? [...scenarios, currentValue] : scenarios;
-};
-
-/**
- * Resolves the display label for a template scenario. Scenarios this build does not know
- * about have no translation, so they fall back to the raw value.
- *
- * @param scenario - The scenario value.
- * @param translate - Translation function.
- * @returns The human-readable label.
- */
-export const getTemplateScenarioLabel = (
-  scenario: string,
-  translate: (key: string, defaultValue: string) => string,
-): string => {
-  const known = TEMPLATE_SCENARIOS.find((candidate) => candidate.value === scenario);
-
-  return known ? translate(known.translationKey, known.displayLabel) : scenario;
-};
-
 /**
  * Parses a comma-separated string into a trimmed, non-empty string array.
  */

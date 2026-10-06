@@ -26,14 +26,14 @@ import (
 
 // NotificationTemplateServiceInterface defines the notification template management operations.
 type NotificationTemplateServiceInterface interface {
-	ListTemplates(ctx context.Context, channel channelType, limit, offset int) (
+	ListTemplates(ctx context.Context, channel ChannelType, limit, offset int) (
 		*TemplateListResponse, *tidcommon.ServiceError)
-	CreateTemplate(ctx context.Context, channel channelType, request CreateTemplateRequest) (
+	CreateTemplate(ctx context.Context, channel ChannelType, request CreateTemplateRequest) (
 		*Template, *tidcommon.ServiceError)
-	GetTemplate(ctx context.Context, channel channelType, id string) (*Template, *tidcommon.ServiceError)
-	UpdateTemplate(ctx context.Context, channel channelType, id string, request UpdateTemplateRequest) (
+	GetTemplate(ctx context.Context, channel ChannelType, id string) (*Template, *tidcommon.ServiceError)
+	UpdateTemplate(ctx context.Context, channel ChannelType, id string, request UpdateTemplateRequest) (
 		*Template, *tidcommon.ServiceError)
-	DeleteTemplate(ctx context.Context, channel channelType, id string) *tidcommon.ServiceError
+	DeleteTemplate(ctx context.Context, channel ChannelType, id string) *tidcommon.ServiceError
 	SetDependencyRegistry(r resourcedependency.Registry)
 }
 
@@ -57,7 +57,7 @@ func newNotificationTemplateService(store notificationTemplateStoreInterface,
 }
 
 // ListTemplates lists a page of templates of a channel.
-func (ts *notificationTemplateService) ListTemplates(ctx context.Context, channel channelType, limit, offset int) (
+func (ts *notificationTemplateService) ListTemplates(ctx context.Context, channel ChannelType, limit, offset int) (
 	*TemplateListResponse, *tidcommon.ServiceError) {
 	if svcErr := validateChannel(channel); svcErr != nil {
 		return nil, svcErr
@@ -100,7 +100,7 @@ func (ts *notificationTemplateService) ListTemplates(ctx context.Context, channe
 
 // CreateTemplate creates a new template with a server-assigned id. The handle-uniqueness check and the
 // insert run in one transaction so a concurrent create cannot slip a duplicate past the check.
-func (ts *notificationTemplateService) CreateTemplate(ctx context.Context, channel channelType,
+func (ts *notificationTemplateService) CreateTemplate(ctx context.Context, channel ChannelType,
 	request CreateTemplateRequest) (*Template, *tidcommon.ServiceError) {
 	if svcErr := validateChannel(channel); svcErr != nil {
 		return nil, svcErr
@@ -134,7 +134,7 @@ func (ts *notificationTemplateService) CreateTemplate(ctx context.Context, chann
 }
 
 // GetTemplate retrieves a template by channel and id.
-func (ts *notificationTemplateService) GetTemplate(ctx context.Context, channel channelType, id string) (
+func (ts *notificationTemplateService) GetTemplate(ctx context.Context, channel ChannelType, id string) (
 	*Template, *tidcommon.ServiceError) {
 	if svcErr := validateChannel(channel); svcErr != nil {
 		return nil, svcErr
@@ -158,7 +158,7 @@ func (ts *notificationTemplateService) GetTemplate(ctx context.Context, channel 
 // UpdateTemplate updates an existing template. The handle is immutable, so it is not part of the
 // request; existence and the write run in one transaction, and the stored handle is preserved and
 // echoed on the response.
-func (ts *notificationTemplateService) UpdateTemplate(ctx context.Context, channel channelType, id string,
+func (ts *notificationTemplateService) UpdateTemplate(ctx context.Context, channel ChannelType, id string,
 	request UpdateTemplateRequest) (*Template, *tidcommon.ServiceError) {
 	if svcErr := validateChannel(channel); svcErr != nil {
 		return nil, svcErr
@@ -200,7 +200,7 @@ func (ts *notificationTemplateService) UpdateTemplate(ctx context.Context, chann
 
 // DeleteTemplate deletes a template, rejecting the delete with a conflict if a flow references it.
 func (ts *notificationTemplateService) DeleteTemplate(
-	ctx context.Context, channel channelType, id string,
+	ctx context.Context, channel ChannelType, id string,
 ) *tidcommon.ServiceError {
 	if svcErr := validateChannel(channel); svcErr != nil {
 		return svcErr
@@ -259,7 +259,7 @@ func (ts *notificationTemplateService) SetDependencyRegistry(r resourcedependenc
 // persistUniqueHandle runs write inside a transaction after checking that handle is free in the
 // channel. It maps a handle collision to ErrorTemplateHandleConflict and any other failure to an
 // internal error.
-func (ts *notificationTemplateService) persistUniqueHandle(ctx context.Context, channel channelType, handle string,
+func (ts *notificationTemplateService) persistUniqueHandle(ctx context.Context, channel ChannelType, handle string,
 	write func(txCtx context.Context) error) *tidcommon.ServiceError {
 	var handleConflict bool
 	txErr := ts.transactioner.Transact(ctx, func(txCtx context.Context) error {
@@ -292,7 +292,7 @@ func (ts *notificationTemplateService) persistUniqueHandle(ctx context.Context, 
 // toValidatedDAO validates the request through the channel handler and builds a templateDAO.
 // displayName and body are required for every channel; per-channel rules and canonicalization are
 // delegated to the channel rules. The handle is validated and set separately by the caller.
-func (ts *notificationTemplateService) toValidatedDAO(channel channelType, id, displayName, description string,
+func (ts *notificationTemplateService) toValidatedDAO(channel ChannelType, id, displayName, description string,
 	content TemplateContent, design *TemplateDesign) (templateDAO, *tidcommon.ServiceError) {
 	rules, svcErr := rulesFor(channel)
 	if svcErr != nil {
@@ -366,12 +366,12 @@ func daoToTemplate(dao templateDAO) *Template {
 }
 
 // buildSelf builds the relative URL of a template resource.
-func buildSelf(channel channelType, id string) string {
+func buildSelf(channel ChannelType, id string) string {
 	return fmt.Sprintf("/notification-templates/%s/templates/%s", channel, id)
 }
 
 // buildCollectionSelf builds the relative URL of a channel's template collection, used as the base for
 // pagination links.
-func buildCollectionSelf(channel channelType) string {
+func buildCollectionSelf(channel ChannelType) string {
 	return fmt.Sprintf("/notification-templates/%s/templates", channel)
 }

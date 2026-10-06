@@ -13,13 +13,13 @@ var handleFormatRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*[a-z0-9]$|^[a-z0
 // translationNamespace is the translation namespace that {{t(...)}} keys resolve under.
 const translationNamespace = "notification"
 
-// channelType is the notification channel a template belongs to.
-type channelType string
+// ChannelType is the notification channel a template belongs to.
+type ChannelType string
 
 // Notification channels.
 const (
-	channelTypeEmail channelType = "email"
-	channelTypeSMS   channelType = "sms"
+	ChannelTypeEmail ChannelType = "email"
+	ChannelTypeSMS   ChannelType = "sms"
 )
 
 // Color theme variants.

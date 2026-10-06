@@ -3846,14 +3846,6 @@ const translations = {
     'core.executions.sms.smsTemplate.placeholder': 'Select an SMS template',
     'core.executions.sms.smsTemplate.hint': 'The SMS template scenario to use when sending the message.',
 
-    // Template scenarios shared by the Email and SMS executors
-    'core.executions.templateScenarios.userInvite': 'User Invite',
-    'core.executions.templateScenarios.magicLink': 'Magic Link',
-    'core.executions.templateScenarios.selfRegistration': 'Self Registration',
-    'core.executions.templateScenarios.otp': 'OTP Verification',
-    'core.executions.templateScenarios.passwordRecovery': 'Password Recovery',
-    'core.executions.templateScenarios.cibaNotification': 'CIBA Notification',
-
     // OpenID4VP verifier executor
     'core.executions.openid4vp.description':
       'Select the presentation definition this executor requests from the wallet.',

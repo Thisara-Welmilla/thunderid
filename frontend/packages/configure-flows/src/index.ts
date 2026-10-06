@@ -7,12 +7,14 @@ export {default as useDeleteFlow} from './api/useDeleteFlow';
 export {default as useGetFlowById} from './api/useGetFlowById';
 export type {UseGetFlowsParams} from './api/useGetFlows';
 export {default as useGetFlows} from './api/useGetFlows';
+export {default as useGetNotificationTemplates} from './api/useGetNotificationTemplates';
 
 // Components
 export {default as OrganizationUnitDefaultFlowsSettings} from './components/OrganizationUnitDefaultFlowsSettings';
 
 // Models
 export * from './models/flows';
+export * from './models/notification-templates';
 export * from './models/responses';
 
 // Pages
