@@ -84,23 +84,23 @@ func (s *PlaceholderTestSuite) TestUnresolvedBeforeContext() {
 }
 
 func (s *PlaceholderTestSuite) TestCreateTemplate_PlaceholderValidation() {
-	s.mockStore.On("IsHandleExists", mock.Anything, channelTypeEmail, "otp").Return(false, nil)
+	s.mockStore.On("IsHandleExists", mock.Anything, ChannelTypeEmail, "otp").Return(false, nil)
 	s.mockStore.On("CreateTemplate", mock.Anything, mock.Anything).Return(nil)
 
 	// Email with a body design token is accepted.
-	_, err := s.svc.CreateTemplate(s.ctx, channelTypeEmail, CreateTemplateRequest{
+	_, err := s.svc.CreateTemplate(s.ctx, ChannelTypeEmail, CreateTemplateRequest{
 		Handle: "otp", DisplayName: "OTP",
 		Content: TemplateContent{Subject: "s", Body: "{{ctx(otp)}} {{design(palette.primary.main)}}"}})
 	s.Require().Nil(err)
 
 	// SMS with a design token is rejected (before store).
-	_, err = s.svc.CreateTemplate(s.ctx, channelTypeSMS, CreateTemplateRequest{
+	_, err = s.svc.CreateTemplate(s.ctx, ChannelTypeSMS, CreateTemplateRequest{
 		Handle: "otp", DisplayName: "OTP",
 		Content: TemplateContent{Body: "{{design(palette.primary.main)}}"}})
 	s.Require().Equal(ErrorDesignPlaceholderNotAllowed.Code, err.Code)
 
 	// A malformed placeholder is rejected on create (before store).
-	_, err = s.svc.CreateTemplate(s.ctx, channelTypeEmail, CreateTemplateRequest{
+	_, err = s.svc.CreateTemplate(s.ctx, ChannelTypeEmail, CreateTemplateRequest{
 		Handle: "otp2", DisplayName: "OTP",
 		Content: TemplateContent{Subject: "s", Body: "{{ctx()}}"}})
 	s.Require().Equal(ErrorInvalidPlaceholder.Code, err.Code)

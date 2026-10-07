@@ -21,7 +21,7 @@ func (s *StoreTestSuite) TestBuildTemplateFromRow_EmailWithDesign() {
 	// Happy path: a full email row (string CONTENT, as returned by SQLite) with a design JSON document.
 	row := map[string]interface{}{
 		"id":           "1",
-		"channel":      string(channelTypeEmail),
+		"channel":      string(ChannelTypeEmail),
 		"handle":       "otp-verification",
 		"display_name": "OTP Verification",
 		"description":  "desc",
@@ -32,7 +32,7 @@ func (s *StoreTestSuite) TestBuildTemplateFromRow_EmailWithDesign() {
 	dao, err := buildTemplateFromRow(row)
 	s.Require().NoError(err)
 	s.Require().Equal("1", dao.ID)
-	s.Require().Equal(channelTypeEmail, dao.Channel)
+	s.Require().Equal(ChannelTypeEmail, dao.Channel)
 	s.Require().Equal("otp-verification", dao.Handle)
 	s.Require().Equal("OTP Verification", dao.DisplayName)
 	s.Require().Equal("desc", dao.Description)
@@ -46,7 +46,7 @@ func (s *StoreTestSuite) TestBuildTemplateFromRow_NoDesign_ByteContent() {
 	// Happy path: an SMS row with []byte CONTENT (as returned by PostgreSQL) and an empty ({}) design.
 	row := map[string]interface{}{
 		"id":           "2",
-		"channel":      string(channelTypeSMS),
+		"channel":      string(ChannelTypeSMS),
 		"handle":       "otp",
 		"display_name": "OTP",
 		"description":  nil,
@@ -66,7 +66,7 @@ func (s *StoreTestSuite) TestBuildTemplateFromRow_Errors() {
 	base := func() map[string]interface{} {
 		return map[string]interface{}{
 			"id":           "1",
-			"channel":      string(channelTypeEmail),
+			"channel":      string(ChannelTypeEmail),
 			"handle":       "h",
 			"display_name": "D",
 			"content":      `{"body":"b"}`,

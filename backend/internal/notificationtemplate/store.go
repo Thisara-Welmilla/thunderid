@@ -21,13 +21,13 @@ import (
 // client picks up a transaction from the context automatically).
 type notificationTemplateStoreInterface interface {
 	CreateTemplate(ctx context.Context, template templateDAO) error
-	GetTemplate(ctx context.Context, channel channelType, id string) (templateDAO, error)
-	GetTemplateByHandle(ctx context.Context, channel channelType, handle string) (templateDAO, error)
-	ListTemplates(ctx context.Context, channel channelType, limit, offset int) ([]templateDAO, error)
-	CountTemplates(ctx context.Context, channel channelType) (int, error)
+	GetTemplate(ctx context.Context, channel ChannelType, id string) (templateDAO, error)
+	GetTemplateByHandle(ctx context.Context, channel ChannelType, handle string) (templateDAO, error)
+	ListTemplates(ctx context.Context, channel ChannelType, limit, offset int) ([]templateDAO, error)
+	CountTemplates(ctx context.Context, channel ChannelType) (int, error)
 	UpdateTemplate(ctx context.Context, template templateDAO) error
-	DeleteTemplate(ctx context.Context, channel channelType, id string) error
-	IsHandleExists(ctx context.Context, channel channelType, handle string) (bool, error)
+	DeleteTemplate(ctx context.Context, channel ChannelType, id string) error
+	IsHandleExists(ctx context.Context, channel ChannelType, handle string) (bool, error)
 }
 
 // notificationTemplateStore is the config-DB backed implementation.
@@ -76,7 +76,7 @@ func (s *notificationTemplateStore) CreateTemplate(ctx context.Context, t templa
 }
 
 // GetTemplate retrieves a template by channel and id.
-func (s *notificationTemplateStore) GetTemplate(ctx context.Context, channel channelType, id string) (
+func (s *notificationTemplateStore) GetTemplate(ctx context.Context, channel ChannelType, id string) (
 	templateDAO, error) {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
@@ -100,7 +100,7 @@ func (s *notificationTemplateStore) GetTemplate(ctx context.Context, channel cha
 
 // GetTemplateByHandle retrieves a template by channel and handle (the runtime lookup key; handles are
 // immutable and unique per channel).
-func (s *notificationTemplateStore) GetTemplateByHandle(ctx context.Context, channel channelType, handle string) (
+func (s *notificationTemplateStore) GetTemplateByHandle(ctx context.Context, channel ChannelType, handle string) (
 	templateDAO, error) {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
@@ -123,7 +123,7 @@ func (s *notificationTemplateStore) GetTemplateByHandle(ctx context.Context, cha
 }
 
 // ListTemplates retrieves a page of templates of a channel.
-func (s *notificationTemplateStore) ListTemplates(ctx context.Context, channel channelType, limit, offset int) (
+func (s *notificationTemplateStore) ListTemplates(ctx context.Context, channel ChannelType, limit, offset int) (
 	[]templateDAO, error) {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
@@ -148,7 +148,7 @@ func (s *notificationTemplateStore) ListTemplates(ctx context.Context, channel c
 }
 
 // CountTemplates returns the number of templates in a channel, for pagination totals.
-func (s *notificationTemplateStore) CountTemplates(ctx context.Context, channel channelType) (int, error) {
+func (s *notificationTemplateStore) CountTemplates(ctx context.Context, channel ChannelType) (int, error) {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
 		return 0, err
@@ -189,7 +189,7 @@ func (s *notificationTemplateStore) UpdateTemplate(ctx context.Context, t templa
 }
 
 // DeleteTemplate deletes a template row by channel and id.
-func (s *notificationTemplateStore) DeleteTemplate(ctx context.Context, channel channelType, id string) error {
+func (s *notificationTemplateStore) DeleteTemplate(ctx context.Context, channel ChannelType, id string) error {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
 		return err
@@ -204,7 +204,7 @@ func (s *notificationTemplateStore) DeleteTemplate(ctx context.Context, channel 
 
 // IsHandleExists checks whether a template in the channel already uses the given handle. The handle is
 // immutable, so this is only ever a create-time pre-check.
-func (s *notificationTemplateStore) IsHandleExists(ctx context.Context, channel channelType, handle string) (
+func (s *notificationTemplateStore) IsHandleExists(ctx context.Context, channel ChannelType, handle string) (
 	bool, error) {
 	dbClient, err := s.getConfigDBClient()
 	if err != nil {
@@ -272,7 +272,7 @@ func buildTemplateFromRow(row map[string]interface{}) (templateDAO, error) {
 
 	dao := templateDAO{
 		ID:          id,
-		Channel:     channelType(channel),
+		Channel:     ChannelType(channel),
 		Handle:      handle,
 		DisplayName: displayName,
 		Description: stringOrEmpty(row["description"]),

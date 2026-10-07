@@ -109,7 +109,7 @@ type designContext struct {
 // column (CONTENT), and the design (when present) as a single JSON column (DESIGN).
 type templateDAO struct {
 	ID          string
-	Channel     channelType
+	Channel     ChannelType
 	Handle      string
 	DisplayName string
 	Description string

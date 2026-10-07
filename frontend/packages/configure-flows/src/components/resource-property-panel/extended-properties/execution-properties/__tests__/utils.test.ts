@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {describe, it, expect} from 'vitest';
-import {clampToInteger, getTemplateScenarioLabel, getTemplateScenarioOptions, parseCommaSeparated} from '../utils';
+import {clampToInteger, parseCommaSeparated} from '../utils';
 
 describe('parseCommaSeparated', () => {
   it('should parse comma-separated values', () => {
@@ -69,53 +69,5 @@ describe('clampToInteger', () => {
 
   it('should leave the value unbounded above when no maximum is given', () => {
     expect(clampToInteger('9999', 1)).toBe('9999');
-  });
-});
-
-describe('getTemplateScenarioOptions', () => {
-  it('should offer the supported scenarios', () => {
-    expect(getTemplateScenarioOptions('')).toEqual([
-      'USER_INVITE',
-      'MAGIC_LINK',
-      'SELF_REGISTRATION',
-      'OTP',
-      'PASSWORD_RECOVERY',
-      'CIBA_NOTIFICATION',
-    ]);
-  });
-
-  it('should not duplicate a known current value', () => {
-    expect(getTemplateScenarioOptions('OTP')).toHaveLength(6);
-  });
-
-  it('should keep an unknown current value so it is not blanked', () => {
-    expect(getTemplateScenarioOptions('CUSTOM_SCENARIO')).toContain('CUSTOM_SCENARIO');
-  });
-});
-
-describe('getTemplateScenarioLabel', () => {
-  const translate = (key: string): string => `translated:${key}`;
-
-  // Mirrors i18next resolving a missing key to the supplied default.
-  const translateMissing = (_key: string, defaultValue: string): string => defaultValue;
-
-  it('should translate a known scenario', () => {
-    expect(getTemplateScenarioLabel('USER_INVITE', translate)).toBe(
-      'translated:flows:core.executions.templateScenarios.userInvite',
-    );
-  });
-
-  it('should fall back to the readable label when the key has no translation', () => {
-    expect(getTemplateScenarioLabel('USER_INVITE', translateMissing)).toBe('User Invite');
-    expect(getTemplateScenarioLabel('OTP', translateMissing)).toBe('OTP Verification');
-    expect(getTemplateScenarioLabel('CIBA_NOTIFICATION', translateMissing)).toBe('CIBA Notification');
-  });
-
-  it('should fall back to the raw value for an unknown scenario', () => {
-    expect(getTemplateScenarioLabel('CUSTOM_SCENARIO', translate)).toBe('CUSTOM_SCENARIO');
-  });
-
-  it('should fall back to an empty label for an empty value', () => {
-    expect(getTemplateScenarioLabel('', translate)).toBe('');
   });
 });

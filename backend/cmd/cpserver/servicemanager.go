@@ -349,6 +349,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 		serverConfigService,
 		gatewayService,
 		authZENPDPService,
+		notifTemplateSvc,
 		// A control plane keeps configuration as references and holds no values, so none are resolved.
 		nil,
 	)
