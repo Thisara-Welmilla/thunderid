@@ -8,12 +8,13 @@ import (
 	"net/http"
 
 	"github.com/thunder-id/thunderid/internal/system/cache"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/database/provider"
 	"github.com/thunder-id/thunderid/internal/system/middleware"
 )
 
 // Initialize wires the store, service, handler, and runtime renderer, and registers HTTP routes.
-// The DB-backed store is wrapped with a read cache for the runtime hot path.
+// The selected store is wrapped with a read cache for the runtime hot path.
 func Initialize(mux *http.ServeMux, cacheManager cache.CacheManagerInterface,
 	translation translationResolver) (NotificationTemplateServiceInterface, TemplateRendererInterface, error) {
 	transactioner, err := provider.GetDBProvider().GetConfigDBTransactioner()
@@ -21,8 +22,13 @@ func Initialize(mux *http.ServeMux, cacheManager cache.CacheManagerInterface,
 		return nil, nil, fmt.Errorf("failed to get config database transactioner: %w", err)
 	}
 
+	inner, err := selectStore()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	byHandle := cache.GetCache[templateDAO](cacheManager, "NotificationTemplateByHandleCache")
-	store := newCacheBackedStore(byHandle, newNotificationTemplateStore())
+	store := newCacheBackedStore(byHandle, inner)
 
 	service := newNotificationTemplateService(store, transactioner)
 	handler := newNotificationTemplateHandler(service)
@@ -31,6 +37,26 @@ func Initialize(mux *http.ServeMux, cacheManager cache.CacheManagerInterface,
 	templateRenderer := newTemplateRenderer(store, translation)
 
 	return service, templateRenderer, nil
+}
+
+// selectStore builds the store for the configured mode, loading declared templates at startup.
+func selectStore() (notificationTemplateStoreInterface, error) {
+	switch getStoreMode() {
+	case serverconst.StoreModeDeclarative:
+		fileStore := newFileStore()
+		if err := loadDeclarativeTemplates(fileStore); err != nil {
+			return nil, err
+		}
+		return fileStore, nil
+	case serverconst.StoreModeComposite:
+		fileStore := newFileStore()
+		if err := loadDeclarativeTemplates(fileStore); err != nil {
+			return nil, err
+		}
+		return newCompositeStore(fileStore, newNotificationTemplateStore()), nil
+	default:
+		return newNotificationTemplateStore(), nil
+	}
 }
 
 // registerRoutes registers the notification template management routes.

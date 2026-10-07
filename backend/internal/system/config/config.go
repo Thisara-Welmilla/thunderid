@@ -94,12 +94,41 @@ type DatabaseConfig struct {
 
 // NotificationConfig holds the notification configuration details.
 type NotificationConfig struct {
-	OTP OTPConfig `yaml:"otp" json:"otp"`
+	OTP      OTPConfig                  `yaml:"otp"      json:"otp"`
+	Template NotificationTemplateConfig `yaml:"template" json:"template"`
+}
+
+// NotificationTemplateConfig holds the storage mode for notification templates.
+type NotificationTemplateConfig struct {
+	// Store defines the storage mode for notification templates.
+	// Valid values: "mutable", "declarative", "composite" (hybrid mode).
+	// If not specified, falls back to the global declarative_resources.enabled setting:
+	//   - enabled = true: behaves as "declarative"
+	//   - enabled = false: behaves as "mutable"
+	Store string `yaml:"store" json:"store"`
 }
 
 // Validate checks the notification configuration for correctness.
 func (c *NotificationConfig) Validate() error {
-	return c.OTP.Validate()
+	if err := c.OTP.Validate(); err != nil {
+		return err
+	}
+	return c.Template.Validate()
+}
+
+// Validate ensures an explicit store mode is one of the recognized values. An unset value is valid
+// and falls back to the global declarative-resources setting at startup.
+func (c *NotificationTemplateConfig) Validate() error {
+	if c.Store == "" {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Store)) {
+	case "mutable", "declarative", "composite":
+		return nil
+	default:
+		return fmt.Errorf(
+			"notification.template.store must be one of mutable, declarative, composite (got %q)", c.Store)
+	}
 }
 
 // OTPConfig holds the OTP generation configuration details.
