@@ -147,6 +147,10 @@ const (
 	propertyKeyProvisioningMode = "mode"
 	propertyKeyRequiredScopes   = "requiredScopes"
 	propertyKeyEmailTemplate    = "emailTemplate"
+
+	// Notification template channels.
+	notificationChannelEmail = "email"
+	notificationChannelSMS   = "sms"
 	// TODO: Revisit propertyKeyTokenExpiry and propertyKeyMagicLinkURL — these should not be node properties.
 	propertyKeyTokenExpiry                             = "tokenExpiry"
 	propertyKeyMagicLinkURL                            = "magicLinkURL"

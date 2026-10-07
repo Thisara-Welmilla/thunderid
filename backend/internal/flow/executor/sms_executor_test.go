@@ -14,28 +14,35 @@ import (
 
 	"github.com/thunder-id/thunderid/internal/flow/common"
 	notifcm "github.com/thunder-id/thunderid/internal/notification/common"
-	"github.com/thunder-id/thunderid/internal/system/template"
+	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
 	"github.com/thunder-id/thunderid/tests/mocks/notification/notificationmock"
-	"github.com/thunder-id/thunderid/tests/mocks/templatemock"
 )
 
 const testRenderedSMSBody = "Your notification from the system."
 
+// Flow template property values and the handles they normalize to.
+const (
+	smsSelfRegistrationProperty = "SELF_REGISTRATION"
+	smsSelfRegistrationHandle   = "self-registration"
+	smsCIBAProperty             = "CIBA_NOTIFICATION"
+	smsCIBAHandle               = "ciba-notification"
+)
+
 type SMSExecutorTestSuite struct {
 	suite.Suite
-	mockFlowFactory     *coremock.FlowFactoryInterfaceMock
-	mockBaseExecutor    *coremock.ExecutorInterfaceMock
-	mockSMSSenderSvc    *notificationmock.NotificationSenderServiceInterfaceMock
-	mockTemplateService *templatemock.TemplateServiceInterfaceMock
-	executor            *smsExecutor
+	mockFlowFactory      *coremock.FlowFactoryInterfaceMock
+	mockBaseExecutor     *coremock.ExecutorInterfaceMock
+	mockSMSSenderSvc     *notificationmock.NotificationSenderServiceInterfaceMock
+	mockTemplateRenderer *notificationTemplateRendererMock
+	executor             *smsExecutor
 }
 
 func (suite *SMSExecutorTestSuite) SetupTest() {
 	suite.mockFlowFactory = coremock.NewFlowFactoryInterfaceMock(suite.T())
 	suite.mockBaseExecutor = coremock.NewExecutorInterfaceMock(suite.T())
 	suite.mockSMSSenderSvc = notificationmock.NewNotificationSenderServiceInterfaceMock(suite.T())
-	suite.mockTemplateService = templatemock.NewTemplateServiceInterfaceMock(suite.T())
+	suite.mockTemplateRenderer = newNotificationTemplateRendererMock(suite.T())
 
 	suite.mockFlowFactory.On("CreateExecutor",
 		ExecutorNameSMSExecutor,
@@ -47,7 +54,7 @@ func (suite *SMSExecutorTestSuite) SetupTest() {
 		mock.Anything,
 	).Return(suite.mockBaseExecutor)
 
-	suite.executor = newSMSExecutor(suite.mockFlowFactory, suite.mockSMSSenderSvc, suite.mockTemplateService, nil)
+	suite.executor = newSMSExecutor(suite.mockFlowFactory, suite.mockSMSSenderSvc, suite.mockTemplateRenderer, nil)
 }
 
 func (suite *SMSExecutorTestSuite) TestExecute_SendMode_Success() {
@@ -60,16 +67,16 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_Success() {
 		RuntimeData: make(map[string]string),
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
 	suite.mockBaseExecutor.On("GetRequiredInputs", mock.Anything).Return([]providers.Input{
 		{Identifier: common.AttributeMobileNumber, Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioSelfRegistration,
-		template.TemplateTypeSMS, mock.Anything).
-		Return(&template.RenderedTemplate{Body: testRenderedSMSBody}, nil)
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle,
+		mock.Anything).
+		Return(&notificationtemplate.ResolvedContent{Body: testRenderedSMSBody}, nil)
 	suite.mockSMSSenderSvc.On("Send",
 		mock.Anything, mock.Anything, "sender-uuid-001",
 		notifcm.NotificationData{Recipient: "+94714627887", Body: testRenderedSMSBody},
@@ -92,16 +99,16 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_RecipientFromRuntimeData
 		},
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
 	suite.mockBaseExecutor.On("GetRequiredInputs", mock.Anything).Return([]providers.Input{
 		{Identifier: common.AttributeMobileNumber, Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioSelfRegistration,
-		template.TemplateTypeSMS, mock.Anything).
-		Return(&template.RenderedTemplate{Body: testRenderedSMSBody}, nil)
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle,
+		mock.Anything).
+		Return(&notificationtemplate.ResolvedContent{Body: testRenderedSMSBody}, nil)
 	suite.mockSMSSenderSvc.On("Send",
 		mock.Anything, mock.Anything, "sender-uuid-001",
 		notifcm.NotificationData{Recipient: "+94714627887", Body: testRenderedSMSBody},
@@ -126,16 +133,16 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_UserInputOverridesRuntim
 		},
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
 	suite.mockBaseExecutor.On("GetRequiredInputs", mock.Anything).Return([]providers.Input{
 		{Identifier: common.AttributeMobileNumber, Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioSelfRegistration,
-		template.TemplateTypeSMS, mock.Anything).
-		Return(&template.RenderedTemplate{Body: testRenderedSMSBody}, nil)
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle,
+		mock.Anything).
+		Return(&notificationtemplate.ResolvedContent{Body: testRenderedSMSBody}, nil)
 	suite.mockSMSSenderSvc.On("Send",
 		mock.Anything, mock.Anything, "sender-uuid-001",
 		notifcm.NotificationData{Recipient: "+94714627887", Body: testRenderedSMSBody},
@@ -161,16 +168,16 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_CustomPhoneAttribute() {
 		},
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
 	suite.mockBaseExecutor.On("GetRequiredInputs", mock.Anything).Return([]providers.Input{
 		{Identifier: "phoneNumber", Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioSelfRegistration,
-		template.TemplateTypeSMS, mock.Anything).
-		Return(&template.RenderedTemplate{Body: testRenderedSMSBody}, nil)
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle,
+		mock.Anything).
+		Return(&notificationtemplate.ResolvedContent{Body: testRenderedSMSBody}, nil)
 	suite.mockSMSSenderSvc.On("Send",
 		mock.Anything, mock.Anything, "sender-uuid-001",
 		notifcm.NotificationData{Recipient: "+94714627887", Body: testRenderedSMSBody},
@@ -191,7 +198,7 @@ func (suite *SMSExecutorTestSuite) TestExecute_PrerequisiteNotMet_ReturnsFailure
 		RuntimeData:  make(map[string]string),
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
@@ -315,7 +322,7 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_NilSMSSenderService_Retu
 		mock.Anything,
 	).Return(mockBaseExecutor)
 
-	noServiceExecutor := newSMSExecutor(mockFactory, nil, suite.mockTemplateService, nil)
+	noServiceExecutor := newSMSExecutor(mockFactory, nil, suite.mockTemplateRenderer, nil)
 
 	ctx := &providers.NodeContext{
 		ExecutionID:  "test-flow-id",
@@ -347,16 +354,16 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_UserOnboarding_ClientErr
 		RuntimeData: make(map[string]string),
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
 	suite.mockBaseExecutor.On("GetRequiredInputs", mock.Anything).Return([]providers.Input{
 		{Identifier: common.AttributeMobileNumber, Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioSelfRegistration,
-		template.TemplateTypeSMS, mock.Anything).
-		Return(&template.RenderedTemplate{Body: testRenderedSMSBody}, nil)
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle,
+		mock.Anything).
+		Return(&notificationtemplate.ResolvedContent{Body: testRenderedSMSBody}, nil)
 	clientErr := &tidcommon.ServiceError{
 		Type:  tidcommon.ClientErrorType,
 		Code:  "MNS-1001",
@@ -387,16 +394,16 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_UserOnboarding_ServerErr
 		RuntimeData: make(map[string]string),
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
 	suite.mockBaseExecutor.On("GetRequiredInputs", mock.Anything).Return([]providers.Input{
 		{Identifier: common.AttributeMobileNumber, Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioSelfRegistration,
-		template.TemplateTypeSMS, mock.Anything).
-		Return(&template.RenderedTemplate{Body: testRenderedSMSBody}, nil)
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle,
+		mock.Anything).
+		Return(&notificationtemplate.ResolvedContent{Body: testRenderedSMSBody}, nil)
 	serverErr := &tidcommon.ServiceError{
 		Type: tidcommon.ServerErrorType,
 		Code: "MNS-5000",
@@ -425,16 +432,16 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_OtherFlow_NotificationEr
 		RuntimeData: make(map[string]string),
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
 	suite.mockBaseExecutor.On("GetRequiredInputs", mock.Anything).Return([]providers.Input{
 		{Identifier: common.AttributeMobileNumber, Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioSelfRegistration,
-		template.TemplateTypeSMS, mock.Anything).
-		Return(&template.RenderedTemplate{Body: testRenderedSMSBody}, nil)
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle,
+		mock.Anything).
+		Return(&notificationtemplate.ResolvedContent{Body: testRenderedSMSBody}, nil)
 	clientErr := &tidcommon.ServiceError{
 		Type:  tidcommon.ClientErrorType,
 		Code:  "MNS-1001",
@@ -476,7 +483,8 @@ func (suite *SMSExecutorTestSuite) TestExecute_NoSMSTemplateProperty_ReturnsFlow
 	suite.NoError(err)
 	suite.Equal(providers.ExecFailure, resp.Status)
 	suite.Equal(ErrSMSTemplateMissing.Error.DefaultValue, resp.Error.Error.DefaultValue)
-	suite.mockTemplateService.AssertNotCalled(suite.T(), "Render", mock.Anything, mock.Anything, mock.Anything)
+	suite.mockTemplateRenderer.AssertNotCalled(suite.T(), "Resolve",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	suite.mockSMSSenderSvc.AssertNotCalled(suite.T(), "Send",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
@@ -504,12 +512,13 @@ func (suite *SMSExecutorTestSuite) TestExecute_EmptySMSTemplateProperty_ReturnsF
 	suite.NoError(err)
 	suite.Equal(providers.ExecFailure, resp.Status)
 	suite.Equal(ErrSMSTemplateMissing.Error.DefaultValue, resp.Error.Error.DefaultValue)
-	suite.mockTemplateService.AssertNotCalled(suite.T(), "Render", mock.Anything, mock.Anything, mock.Anything)
+	suite.mockTemplateRenderer.AssertNotCalled(suite.T(), "Resolve",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	suite.mockSMSSenderSvc.AssertNotCalled(suite.T(), "Send",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-func (suite *SMSExecutorTestSuite) TestExecute_SMSTemplatePropertySet_UsesCustomScenario() {
+func (suite *SMSExecutorTestSuite) TestExecute_SMSTemplatePropertySet_UsesCustomHandle() {
 	ctx := &providers.NodeContext{
 		ExecutionID:  "test-flow-id",
 		ExecutorMode: ExecutorModeSend,
@@ -519,16 +528,16 @@ func (suite *SMSExecutorTestSuite) TestExecute_SMSTemplatePropertySet_UsesCustom
 		RuntimeData: make(map[string]string),
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
 	suite.mockBaseExecutor.On("GetRequiredInputs", mock.Anything).Return([]providers.Input{
 		{Identifier: common.AttributeMobileNumber, Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioSelfRegistration,
-		template.TemplateTypeSMS, mock.Anything).
-		Return(&template.RenderedTemplate{Body: testRenderedSMSBody}, nil)
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle,
+		mock.Anything).
+		Return(&notificationtemplate.ResolvedContent{Body: testRenderedSMSBody}, nil)
 	suite.mockSMSSenderSvc.On("Send",
 		mock.Anything, mock.Anything, "sender-uuid-001",
 		notifcm.NotificationData{Recipient: "+94714627887", Body: testRenderedSMSBody},
@@ -538,8 +547,8 @@ func (suite *SMSExecutorTestSuite) TestExecute_SMSTemplatePropertySet_UsesCustom
 
 	suite.NoError(err)
 	suite.Equal(providers.ExecComplete, resp.Status)
-	suite.mockTemplateService.AssertCalled(suite.T(), "Render",
-		mock.Anything, template.ScenarioSelfRegistration, template.TemplateTypeSMS, mock.Anything)
+	suite.mockTemplateRenderer.AssertCalled(suite.T(), "Resolve",
+		mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle, mock.Anything)
 }
 
 func (suite *SMSExecutorTestSuite) TestExecute_SendMode_TemplateRenderFailure_ReturnsError() {
@@ -552,7 +561,7 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_TemplateRenderFailure_Re
 		RuntimeData: make(map[string]string),
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioSelfRegistration),
+			propertyKeySMSTemplate:          smsSelfRegistrationProperty,
 		},
 	}
 
@@ -560,8 +569,8 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_TemplateRenderFailure_Re
 		{Identifier: common.AttributeMobileNumber, Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
 	renderErr := &tidcommon.ServiceError{Code: "TPL-5000"}
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioSelfRegistration,
-		template.TemplateTypeSMS, mock.Anything).
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsSelfRegistrationHandle,
+		mock.Anything).
 		Return(nil, renderErr)
 
 	resp, err := suite.executor.Execute(ctx)
@@ -591,21 +600,22 @@ func (suite *SMSExecutorTestSuite) TestExecute_SendMode_TemplateDataIncludesRunt
 		},
 		NodeProperties: map[string]interface{}{
 			propertyKeyNotificationSenderID: "sender-uuid-001",
-			propertyKeySMSTemplate:          string(template.ScenarioCIBANotification),
+			propertyKeySMSTemplate:          smsCIBAProperty,
 		},
 	}
 
 	suite.mockBaseExecutor.On("GetRequiredInputs", mock.Anything).Return([]providers.Input{
 		{Identifier: common.AttributeMobileNumber, Type: providers.InputTypePhone, Required: true},
 	}).Maybe()
-	suite.mockTemplateService.On("Render", mock.Anything, template.ScenarioCIBANotification,
-		template.TemplateTypeSMS,
-		template.TemplateData{
-			common.RuntimeKeyBindingMessage: "Approve sign-in",
-			"appName":                       "MyApp",
-			"inviteLink":                    "https://localhost:5190/gate/invite?executionId=test",
+	suite.mockTemplateRenderer.On("Resolve", mock.Anything, notificationChannelSMS, smsCIBAHandle,
+		notificationtemplate.RenderInput{
+			Data: map[string]string{
+				common.RuntimeKeyBindingMessage: "Approve sign-in",
+				"appName":                       "MyApp",
+				"inviteLink":                    "https://localhost:5190/gate/invite?executionId=test",
+			},
 		},
-	).Return(&template.RenderedTemplate{Body: testRenderedSMSBody}, nil)
+	).Return(&notificationtemplate.ResolvedContent{Body: testRenderedSMSBody}, nil)
 	suite.mockSMSSenderSvc.On("Send",
 		mock.Anything, mock.Anything, "sender-uuid-001",
 		notifcm.NotificationData{Recipient: "+94714627887", Body: testRenderedSMSBody},

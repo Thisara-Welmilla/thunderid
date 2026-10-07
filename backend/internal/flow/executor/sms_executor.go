@@ -17,8 +17,8 @@ import (
 	"github.com/thunder-id/thunderid/internal/flow/core"
 	"github.com/thunder-id/thunderid/internal/notification"
 	notifcm "github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/internal/system/log"
-	"github.com/thunder-id/thunderid/internal/system/template"
 )
 
 // phoneNumberRegex matches phone numbers in various formats including optional +, digits, spaces, dashes,
@@ -28,16 +28,16 @@ var phoneNumberRegex = regexp.MustCompile(`^\+?[0-9\s\-().]{7,20}$`)
 // smsExecutor sends an SMS message using the configured sender from node properties and a template-based body.
 type smsExecutor struct {
 	providers.Executor
-	logger          *log.Logger
-	notifSenderSvc  notification.NotificationSenderServiceInterface
-	templateService template.TemplateServiceInterface
-	entityProvider  entityprovider.EntityProviderInterface
+	logger           *log.Logger
+	notifSenderSvc   notification.NotificationSenderServiceInterface
+	templateRenderer notificationTemplateRenderer
+	entityProvider   entityprovider.EntityProviderInterface
 }
 
 // newSMSExecutor creates a new instance of smsExecutor.
 func newSMSExecutor(flowFactory core.FlowFactoryInterface,
 	notifSenderSvc notification.NotificationSenderServiceInterface,
-	templateService template.TemplateServiceInterface,
+	templateRenderer notificationTemplateRenderer,
 	entityProvider entityprovider.EntityProviderInterface) *smsExecutor {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "SMSExecutor"))
 	base := flowFactory.CreateExecutor(
@@ -55,11 +55,11 @@ func newSMSExecutor(flowFactory core.FlowFactoryInterface,
 		},
 	)
 	return &smsExecutor{
-		Executor:        base,
-		logger:          logger,
-		notifSenderSvc:  notifSenderSvc,
-		templateService: templateService,
-		entityProvider:  entityProvider,
+		Executor:         base,
+		logger:           logger,
+		notifSenderSvc:   notifSenderSvc,
+		templateRenderer: templateRenderer,
+		entityProvider:   entityProvider,
 	}
 }
 
@@ -117,11 +117,15 @@ func (e *smsExecutor) Execute(ctx *providers.NodeContext) (*providers.ExecutorRe
 		execResp.Error = &ErrSMSTemplateMissing
 		return execResp, nil
 	}
-	scenario := template.ScenarioType(tmplStr)
+	handle := normalizeTemplateHandle(tmplStr)
 
 	templateData := e.resolveTemplateData(ctx)
 
-	rendered, svcErr := e.templateService.Render(ctx.Context, scenario, template.TemplateTypeSMS, templateData)
+	// SMS has no theme; Locale omitted (renderer falls back to system language).
+	rendered, svcErr := e.templateRenderer.Resolve(ctx.Context, notificationChannelSMS, handle,
+		notificationtemplate.RenderInput{
+			Data: templateData,
+		})
 	if svcErr != nil {
 		return nil, fmt.Errorf("failed to render SMS template: %s", svcErr.Code)
 	}
@@ -145,8 +149,8 @@ func (e *smsExecutor) Execute(ctx *providers.NodeContext) (*providers.ExecutorRe
 }
 
 // resolveTemplateData extracts template data from RuntimeData, Context, and ForwardedData.
-func (e *smsExecutor) resolveTemplateData(ctx *providers.NodeContext) template.TemplateData {
-	templateData := template.TemplateData{}
+func (e *smsExecutor) resolveTemplateData(ctx *providers.NodeContext) map[string]string {
+	templateData := map[string]string{}
 
 	for k, v := range ctx.RuntimeData {
 		templateData[k] = v
