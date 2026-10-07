@@ -263,6 +263,8 @@ oauth:
   client_assertion:
     max_lifetime: {{ .Values.configuration.oauth.clientAssertion.maxLifetime }}
     max_iat_age: {{ .Values.configuration.oauth.clientAssertion.maxIatAge }}
+  cimd:
+    enabled: {{ .Values.configuration.oauth.cimd.enabled }}
   send_server_errors_to_client: {{ .Values.configuration.oauth.sendServerErrorsToClient }}
   allowed_auth_methods:
   {{- range .Values.configuration.oauth.allowedAuthMethods }}
@@ -295,6 +297,9 @@ flow:
     - {{ . | quote }}
   {{- end }}
 {{- end }}
+
+direct_api:
+  enabled: {{ .Values.configuration.directApi.enabled }}
 
 passkey:
   allowed_origins:

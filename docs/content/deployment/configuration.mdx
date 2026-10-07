@@ -1120,6 +1120,28 @@ passkey:
     - "https://localhost:8090"
 ```
 
+## Direct API Configuration
+
+Controls the [Direct API](../../key-concepts/authentication/integration-models#direct-api) authentication endpoints.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `direct_api.enabled` | `true` | If `false`, <ProductName /> does not register the Direct API authentication endpoints (`/auth/**` and `/register/passkey/**`), and requests to them return `404`. AuthZEN access endpoints (`/access/**`) are not affected |
+
+**Example:**
+```yaml
+direct_api:
+  enabled: false
+```
+
+To hide the passkey registration endpoints in the Console as well, set `direct_api.enabled` to `false` in the Console `config.js`:
+
+```js
+direct_api: {
+  enabled: false,
+},
+```
+
 ## Security Configuration
 
 Controls server-wide security behavior that is not specific to any single authenticator. Maps to `SecurityConfig` in the backend, nested under `server.security`.

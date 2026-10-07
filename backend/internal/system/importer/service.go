@@ -1197,6 +1197,7 @@ func applicationRequestToDTO(req *appmodel.ApplicationRequestWithID) *appmodel.A
 					RequirePushedAuthorizationRequests: config.OAuthConfig.RequirePushedAuthorizationRequests,
 					DPoPBoundAccessTokens:              config.OAuthConfig.DPoPBoundAccessTokens,
 					IncludeActClaim:                    config.OAuthConfig.IncludeActClaim,
+					ClientIDMetadataDocument:           config.OAuthConfig.ClientIDMetadataDocument,
 					Token:                              config.OAuthConfig.Token,
 					Scopes:                             config.OAuthConfig.Scopes,
 					UserInfo:                           config.OAuthConfig.UserInfo,

@@ -11,6 +11,9 @@ import IntegrationGuides from '../IntegrationGuides';
 const mockGetServerUrl = vi.fn(() => 'https://localhost:8090');
 const mockGetRuntimeUrl = vi.fn(() => 'https://localhost:8090');
 const mockGetDocumentationLink = vi.fn((key: string) => documentationLinks[key]);
+const mockConfig: {brand: {product_name: string}; direct_api?: {enabled?: boolean}} = {
+  brand: {product_name: 'ThunderID'},
+};
 
 const documentationLinks: Record<string, string> = {
   'applications.templates.react.docs':
@@ -33,7 +36,7 @@ vi.mock('@thunderid/contexts', async (importOriginal) => {
   return {
     ...actual,
     useConfig: () => ({
-      config: {brand: {product_name: 'ThunderID'}},
+      config: mockConfig,
       getServerUrl: mockGetServerUrl,
       getDocumentationLink: mockGetDocumentationLink,
     }),
@@ -101,6 +104,7 @@ describe('IntegrationGuides', () => {
   beforeEach(() => {
     vi.useFakeTimers({shouldAdvanceTime: true});
     mockUseGetOrganizationUnit.mockReset().mockReturnValue({data: undefined});
+    delete mockConfig.direct_api;
     mockGetRuntimeUrl.mockReset().mockReturnValue('https://localhost:8090');
     mockWriteText.mockReset().mockResolvedValue(undefined);
     mockGetDocumentationLink.mockImplementation((key: string) => documentationLinks[key]);
@@ -343,6 +347,17 @@ describe('IntegrationGuides', () => {
       expect(screen.getByText('https://localhost:8090/register/passkey/finish')).toBeInTheDocument();
       expect(screen.queryByText('https://localhost:8090/oauth2/authorize')).not.toBeInTheDocument();
       expect(screen.queryByText('https://localhost:8090/oauth2/token')).not.toBeInTheDocument();
+    });
+
+    it('hides the passkey registration endpoints when the Direct API is disabled', () => {
+      mockConfig.direct_api = {enabled: false};
+
+      renderWithProviders(<IntegrationGuides application={mobileApplication} oauth2Config={oauth2Config} />);
+
+      expect(screen.getByText('https://localhost:8090/flow/execute')).toBeInTheDocument();
+      expect(screen.getByText('https://localhost:8090/flow/meta')).toBeInTheDocument();
+      expect(screen.queryByText('https://localhost:8090/register/passkey/start')).not.toBeInTheDocument();
+      expect(screen.queryByText('https://localhost:8090/register/passkey/finish')).not.toBeInTheDocument();
     });
 
     it('shows the standard OAuth2/OIDC endpoints (not App Native ones) for a pure browser SPA', () => {

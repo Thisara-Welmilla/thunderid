@@ -36,7 +36,7 @@ func newNotificationTemplateHandler(
 // HandleTemplateListRequest handles GET /notification-templates/{channel}/templates.
 func (h *notificationTemplateHandler) HandleTemplateListRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	channel := channelType(r.PathValue("channel"))
+	channel := ChannelType(r.PathValue("channel"))
 
 	limit, offset, svcErr := parsePaginationParams(r.URL.Query())
 	if svcErr != nil {
@@ -83,7 +83,7 @@ func parsePaginationParams(query url.Values) (int, int, *tidcommon.ServiceError)
 // HandleTemplatePostRequest handles POST /notification-templates/{channel}/templates.
 func (h *notificationTemplateHandler) HandleTemplatePostRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	channel := channelType(r.PathValue("channel"))
+	channel := ChannelType(r.PathValue("channel"))
 
 	request, err := sysutils.DecodeJSONBody[CreateTemplateRequest](r)
 	if err != nil {
@@ -105,7 +105,7 @@ func (h *notificationTemplateHandler) HandleTemplatePostRequest(w http.ResponseW
 // HandleTemplateGetRequest handles GET /notification-templates/{channel}/templates/{id}.
 func (h *notificationTemplateHandler) HandleTemplateGetRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	channel := channelType(r.PathValue("channel"))
+	channel := ChannelType(r.PathValue("channel"))
 	id := r.PathValue("id")
 
 	template, svcErr := h.service.GetTemplate(ctx, channel, id)
@@ -121,7 +121,7 @@ func (h *notificationTemplateHandler) HandleTemplateGetRequest(w http.ResponseWr
 // HandleTemplatePutRequest handles PUT /notification-templates/{channel}/templates/{id}.
 func (h *notificationTemplateHandler) HandleTemplatePutRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	channel := channelType(r.PathValue("channel"))
+	channel := ChannelType(r.PathValue("channel"))
 	id := r.PathValue("id")
 
 	request, err := sysutils.DecodeJSONBody[UpdateTemplateRequest](r)
@@ -143,7 +143,7 @@ func (h *notificationTemplateHandler) HandleTemplatePutRequest(w http.ResponseWr
 // HandleTemplateDeleteRequest handles DELETE /notification-templates/{channel}/templates/{id}.
 func (h *notificationTemplateHandler) HandleTemplateDeleteRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	channel := channelType(r.PathValue("channel"))
+	channel := ChannelType(r.PathValue("channel"))
 	id := r.PathValue("id")
 
 	svcErr := h.service.DeleteTemplate(ctx, channel, id)

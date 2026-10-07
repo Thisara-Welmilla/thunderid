@@ -63,7 +63,7 @@ func (r *templateRenderer) SetDesignResolver(resolver designResolver) {
 // locale, failing closed if any required placeholder cannot be resolved.
 func (r *templateRenderer) Resolve(ctx context.Context, channel, handle string, in RenderInput) (
 	*ResolvedContent, *tidcommon.ServiceError) {
-	ch := channelType(channel)
+	ch := ChannelType(channel)
 	if svcErr := validateChannel(ch); svcErr != nil {
 		return nil, svcErr
 	}
@@ -85,9 +85,9 @@ func (r *templateRenderer) Resolve(ctx context.Context, channel, handle string, 
 
 // resolveContent renders the subject and body. An email body is HTML and may carry design tokens; the
 // subject is plain text; SMS has neither a subject nor design.
-func (r *templateRenderer) resolveContent(ctx context.Context, channel channelType, dao templateDAO,
+func (r *templateRenderer) resolveContent(ctx context.Context, channel ChannelType, dao templateDAO,
 	in RenderInput) (*ResolvedContent, *tidcommon.ServiceError) {
-	htmlBody := channel == channelTypeEmail
+	htmlBody := channel == ChannelTypeEmail
 
 	// Shared across the subject and body so a key used in both is resolved only once.
 	translations := map[string]string{}

@@ -40,7 +40,7 @@ func (_m *NotificationTemplateServiceInterfaceMock) EXPECT() *NotificationTempla
 }
 
 // CreateTemplate provides a mock function for the type NotificationTemplateServiceInterfaceMock
-func (_mock *NotificationTemplateServiceInterfaceMock) CreateTemplate(ctx context.Context, channel channelType, request CreateTemplateRequest) (*Template, *common.ServiceError) {
+func (_mock *NotificationTemplateServiceInterfaceMock) CreateTemplate(ctx context.Context, channel ChannelType, request CreateTemplateRequest) (*Template, *common.ServiceError) {
 	ret := _mock.Called(ctx, channel, request)
 
 	if len(ret) == 0 {
@@ -49,17 +49,17 @@ func (_mock *NotificationTemplateServiceInterfaceMock) CreateTemplate(ctx contex
 
 	var r0 *Template
 	var r1 *common.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, channelType, CreateTemplateRequest) (*Template, *common.ServiceError)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, CreateTemplateRequest) (*Template, *common.ServiceError)); ok {
 		return returnFunc(ctx, channel, request)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, channelType, CreateTemplateRequest) *Template); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, CreateTemplateRequest) *Template); ok {
 		r0 = returnFunc(ctx, channel, request)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*Template)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, channelType, CreateTemplateRequest) *common.ServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, ChannelType, CreateTemplateRequest) *common.ServiceError); ok {
 		r1 = returnFunc(ctx, channel, request)
 	} else {
 		if ret.Get(1) != nil {
@@ -76,21 +76,21 @@ type NotificationTemplateServiceInterfaceMock_CreateTemplate_Call struct {
 
 // CreateTemplate is a helper method to define mock.On call
 //   - ctx context.Context
-//   - channel channelType
+//   - channel ChannelType
 //   - request CreateTemplateRequest
 func (_e *NotificationTemplateServiceInterfaceMock_Expecter) CreateTemplate(ctx interface{}, channel interface{}, request interface{}) *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call {
 	return &NotificationTemplateServiceInterfaceMock_CreateTemplate_Call{Call: _e.mock.On("CreateTemplate", ctx, channel, request)}
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call) Run(run func(ctx context.Context, channel channelType, request CreateTemplateRequest)) *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call) Run(run func(ctx context.Context, channel ChannelType, request CreateTemplateRequest)) *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 channelType
+		var arg1 ChannelType
 		if args[1] != nil {
-			arg1 = args[1].(channelType)
+			arg1 = args[1].(ChannelType)
 		}
 		var arg2 CreateTemplateRequest
 		if args[2] != nil {
@@ -110,13 +110,13 @@ func (_c *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call) Return(t
 	return _c
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call) RunAndReturn(run func(ctx context.Context, channel channelType, request CreateTemplateRequest) (*Template, *common.ServiceError)) *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call) RunAndReturn(run func(ctx context.Context, channel ChannelType, request CreateTemplateRequest) (*Template, *common.ServiceError)) *NotificationTemplateServiceInterfaceMock_CreateTemplate_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // DeleteTemplate provides a mock function for the type NotificationTemplateServiceInterfaceMock
-func (_mock *NotificationTemplateServiceInterfaceMock) DeleteTemplate(ctx context.Context, channel channelType, id string) *common.ServiceError {
+func (_mock *NotificationTemplateServiceInterfaceMock) DeleteTemplate(ctx context.Context, channel ChannelType, id string) *common.ServiceError {
 	ret := _mock.Called(ctx, channel, id)
 
 	if len(ret) == 0 {
@@ -124,7 +124,7 @@ func (_mock *NotificationTemplateServiceInterfaceMock) DeleteTemplate(ctx contex
 	}
 
 	var r0 *common.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, channelType, string) *common.ServiceError); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, string) *common.ServiceError); ok {
 		r0 = returnFunc(ctx, channel, id)
 	} else {
 		if ret.Get(0) != nil {
@@ -141,21 +141,21 @@ type NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call struct {
 
 // DeleteTemplate is a helper method to define mock.On call
 //   - ctx context.Context
-//   - channel channelType
+//   - channel ChannelType
 //   - id string
 func (_e *NotificationTemplateServiceInterfaceMock_Expecter) DeleteTemplate(ctx interface{}, channel interface{}, id interface{}) *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call {
 	return &NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call{Call: _e.mock.On("DeleteTemplate", ctx, channel, id)}
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call) Run(run func(ctx context.Context, channel channelType, id string)) *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call) Run(run func(ctx context.Context, channel ChannelType, id string)) *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 channelType
+		var arg1 ChannelType
 		if args[1] != nil {
-			arg1 = args[1].(channelType)
+			arg1 = args[1].(ChannelType)
 		}
 		var arg2 string
 		if args[2] != nil {
@@ -175,13 +175,13 @@ func (_c *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call) Return(s
 	return _c
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call) RunAndReturn(run func(ctx context.Context, channel channelType, id string) *common.ServiceError) *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call) RunAndReturn(run func(ctx context.Context, channel ChannelType, id string) *common.ServiceError) *NotificationTemplateServiceInterfaceMock_DeleteTemplate_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetTemplate provides a mock function for the type NotificationTemplateServiceInterfaceMock
-func (_mock *NotificationTemplateServiceInterfaceMock) GetTemplate(ctx context.Context, channel channelType, id string) (*Template, *common.ServiceError) {
+func (_mock *NotificationTemplateServiceInterfaceMock) GetTemplate(ctx context.Context, channel ChannelType, id string) (*Template, *common.ServiceError) {
 	ret := _mock.Called(ctx, channel, id)
 
 	if len(ret) == 0 {
@@ -190,17 +190,17 @@ func (_mock *NotificationTemplateServiceInterfaceMock) GetTemplate(ctx context.C
 
 	var r0 *Template
 	var r1 *common.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, channelType, string) (*Template, *common.ServiceError)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, string) (*Template, *common.ServiceError)); ok {
 		return returnFunc(ctx, channel, id)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, channelType, string) *Template); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, string) *Template); ok {
 		r0 = returnFunc(ctx, channel, id)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*Template)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, channelType, string) *common.ServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, ChannelType, string) *common.ServiceError); ok {
 		r1 = returnFunc(ctx, channel, id)
 	} else {
 		if ret.Get(1) != nil {
@@ -217,21 +217,21 @@ type NotificationTemplateServiceInterfaceMock_GetTemplate_Call struct {
 
 // GetTemplate is a helper method to define mock.On call
 //   - ctx context.Context
-//   - channel channelType
+//   - channel ChannelType
 //   - id string
 func (_e *NotificationTemplateServiceInterfaceMock_Expecter) GetTemplate(ctx interface{}, channel interface{}, id interface{}) *NotificationTemplateServiceInterfaceMock_GetTemplate_Call {
 	return &NotificationTemplateServiceInterfaceMock_GetTemplate_Call{Call: _e.mock.On("GetTemplate", ctx, channel, id)}
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_GetTemplate_Call) Run(run func(ctx context.Context, channel channelType, id string)) *NotificationTemplateServiceInterfaceMock_GetTemplate_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_GetTemplate_Call) Run(run func(ctx context.Context, channel ChannelType, id string)) *NotificationTemplateServiceInterfaceMock_GetTemplate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 channelType
+		var arg1 ChannelType
 		if args[1] != nil {
-			arg1 = args[1].(channelType)
+			arg1 = args[1].(ChannelType)
 		}
 		var arg2 string
 		if args[2] != nil {
@@ -251,7 +251,83 @@ func (_c *NotificationTemplateServiceInterfaceMock_GetTemplate_Call) Return(temp
 	return _c
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_GetTemplate_Call) RunAndReturn(run func(ctx context.Context, channel channelType, id string) (*Template, *common.ServiceError)) *NotificationTemplateServiceInterfaceMock_GetTemplate_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_GetTemplate_Call) RunAndReturn(run func(ctx context.Context, channel ChannelType, id string) (*Template, *common.ServiceError)) *NotificationTemplateServiceInterfaceMock_GetTemplate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetTemplateByHandle provides a mock function for the type NotificationTemplateServiceInterfaceMock
+func (_mock *NotificationTemplateServiceInterfaceMock) GetTemplateByHandle(ctx context.Context, channel ChannelType, handle string) (*Template, *common.ServiceError) {
+	ret := _mock.Called(ctx, channel, handle)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetTemplateByHandle")
+	}
+
+	var r0 *Template
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, string) (*Template, *common.ServiceError)); ok {
+		return returnFunc(ctx, channel, handle)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, string) *Template); ok {
+		r0 = returnFunc(ctx, channel, handle)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*Template)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, ChannelType, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, channel, handle)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTemplateByHandle'
+type NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call struct {
+	*mock.Call
+}
+
+// GetTemplateByHandle is a helper method to define mock.On call
+//   - ctx context.Context
+//   - channel ChannelType
+//   - handle string
+func (_e *NotificationTemplateServiceInterfaceMock_Expecter) GetTemplateByHandle(ctx interface{}, channel interface{}, handle interface{}) *NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call {
+	return &NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call{Call: _e.mock.On("GetTemplateByHandle", ctx, channel, handle)}
+}
+
+func (_c *NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call) Run(run func(ctx context.Context, channel ChannelType, handle string)) *NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 ChannelType
+		if args[1] != nil {
+			arg1 = args[1].(ChannelType)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call) Return(template *Template, serviceError *common.ServiceError) *NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call {
+	_c.Call.Return(template, serviceError)
+	return _c
+}
+
+func (_c *NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call) RunAndReturn(run func(ctx context.Context, channel ChannelType, handle string) (*Template, *common.ServiceError)) *NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -333,7 +409,7 @@ func (_c *NotificationTemplateServiceInterfaceMock_GetTemplateByHandle_Call) Run
 }
 
 // ListTemplates provides a mock function for the type NotificationTemplateServiceInterfaceMock
-func (_mock *NotificationTemplateServiceInterfaceMock) ListTemplates(ctx context.Context, channel channelType, limit int, offset int) (*TemplateListResponse, *common.ServiceError) {
+func (_mock *NotificationTemplateServiceInterfaceMock) ListTemplates(ctx context.Context, channel ChannelType, limit int, offset int) (*TemplateListResponse, *common.ServiceError) {
 	ret := _mock.Called(ctx, channel, limit, offset)
 
 	if len(ret) == 0 {
@@ -342,17 +418,17 @@ func (_mock *NotificationTemplateServiceInterfaceMock) ListTemplates(ctx context
 
 	var r0 *TemplateListResponse
 	var r1 *common.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, channelType, int, int) (*TemplateListResponse, *common.ServiceError)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, int, int) (*TemplateListResponse, *common.ServiceError)); ok {
 		return returnFunc(ctx, channel, limit, offset)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, channelType, int, int) *TemplateListResponse); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, int, int) *TemplateListResponse); ok {
 		r0 = returnFunc(ctx, channel, limit, offset)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*TemplateListResponse)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, channelType, int, int) *common.ServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, ChannelType, int, int) *common.ServiceError); ok {
 		r1 = returnFunc(ctx, channel, limit, offset)
 	} else {
 		if ret.Get(1) != nil {
@@ -369,22 +445,22 @@ type NotificationTemplateServiceInterfaceMock_ListTemplates_Call struct {
 
 // ListTemplates is a helper method to define mock.On call
 //   - ctx context.Context
-//   - channel channelType
+//   - channel ChannelType
 //   - limit int
 //   - offset int
 func (_e *NotificationTemplateServiceInterfaceMock_Expecter) ListTemplates(ctx interface{}, channel interface{}, limit interface{}, offset interface{}) *NotificationTemplateServiceInterfaceMock_ListTemplates_Call {
 	return &NotificationTemplateServiceInterfaceMock_ListTemplates_Call{Call: _e.mock.On("ListTemplates", ctx, channel, limit, offset)}
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_ListTemplates_Call) Run(run func(ctx context.Context, channel channelType, limit int, offset int)) *NotificationTemplateServiceInterfaceMock_ListTemplates_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_ListTemplates_Call) Run(run func(ctx context.Context, channel ChannelType, limit int, offset int)) *NotificationTemplateServiceInterfaceMock_ListTemplates_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 channelType
+		var arg1 ChannelType
 		if args[1] != nil {
-			arg1 = args[1].(channelType)
+			arg1 = args[1].(ChannelType)
 		}
 		var arg2 int
 		if args[2] != nil {
@@ -409,7 +485,7 @@ func (_c *NotificationTemplateServiceInterfaceMock_ListTemplates_Call) Return(te
 	return _c
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_ListTemplates_Call) RunAndReturn(run func(ctx context.Context, channel channelType, limit int, offset int) (*TemplateListResponse, *common.ServiceError)) *NotificationTemplateServiceInterfaceMock_ListTemplates_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_ListTemplates_Call) RunAndReturn(run func(ctx context.Context, channel ChannelType, limit int, offset int) (*TemplateListResponse, *common.ServiceError)) *NotificationTemplateServiceInterfaceMock_ListTemplates_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -455,7 +531,7 @@ func (_c *NotificationTemplateServiceInterfaceMock_SetDependencyRegistry_Call) R
 }
 
 // UpdateTemplate provides a mock function for the type NotificationTemplateServiceInterfaceMock
-func (_mock *NotificationTemplateServiceInterfaceMock) UpdateTemplate(ctx context.Context, channel channelType, id string, request UpdateTemplateRequest) (*Template, *common.ServiceError) {
+func (_mock *NotificationTemplateServiceInterfaceMock) UpdateTemplate(ctx context.Context, channel ChannelType, id string, request UpdateTemplateRequest) (*Template, *common.ServiceError) {
 	ret := _mock.Called(ctx, channel, id, request)
 
 	if len(ret) == 0 {
@@ -464,17 +540,17 @@ func (_mock *NotificationTemplateServiceInterfaceMock) UpdateTemplate(ctx contex
 
 	var r0 *Template
 	var r1 *common.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, channelType, string, UpdateTemplateRequest) (*Template, *common.ServiceError)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, string, UpdateTemplateRequest) (*Template, *common.ServiceError)); ok {
 		return returnFunc(ctx, channel, id, request)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, channelType, string, UpdateTemplateRequest) *Template); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, string, UpdateTemplateRequest) *Template); ok {
 		r0 = returnFunc(ctx, channel, id, request)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*Template)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, channelType, string, UpdateTemplateRequest) *common.ServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, ChannelType, string, UpdateTemplateRequest) *common.ServiceError); ok {
 		r1 = returnFunc(ctx, channel, id, request)
 	} else {
 		if ret.Get(1) != nil {
@@ -491,22 +567,22 @@ type NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call struct {
 
 // UpdateTemplate is a helper method to define mock.On call
 //   - ctx context.Context
-//   - channel channelType
+//   - channel ChannelType
 //   - id string
 //   - request UpdateTemplateRequest
 func (_e *NotificationTemplateServiceInterfaceMock_Expecter) UpdateTemplate(ctx interface{}, channel interface{}, id interface{}, request interface{}) *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call {
 	return &NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call{Call: _e.mock.On("UpdateTemplate", ctx, channel, id, request)}
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call) Run(run func(ctx context.Context, channel channelType, id string, request UpdateTemplateRequest)) *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call) Run(run func(ctx context.Context, channel ChannelType, id string, request UpdateTemplateRequest)) *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 channelType
+		var arg1 ChannelType
 		if args[1] != nil {
-			arg1 = args[1].(channelType)
+			arg1 = args[1].(ChannelType)
 		}
 		var arg2 string
 		if args[2] != nil {
@@ -531,7 +607,72 @@ func (_c *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call) Return(t
 	return _c
 }
 
-func (_c *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call) RunAndReturn(run func(ctx context.Context, channel channelType, id string, request UpdateTemplateRequest) (*Template, *common.ServiceError)) *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call {
+func (_c *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call) RunAndReturn(run func(ctx context.Context, channel ChannelType, id string, request UpdateTemplateRequest) (*Template, *common.ServiceError)) *NotificationTemplateServiceInterfaceMock_UpdateTemplate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ValidateTemplate provides a mock function for the type NotificationTemplateServiceInterfaceMock
+func (_mock *NotificationTemplateServiceInterfaceMock) ValidateTemplate(ctx context.Context, channel ChannelType, request CreateTemplateRequest) *common.ServiceError {
+	ret := _mock.Called(ctx, channel, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ValidateTemplate")
+	}
+
+	var r0 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ChannelType, CreateTemplateRequest) *common.ServiceError); ok {
+		r0 = returnFunc(ctx, channel, request)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*common.ServiceError)
+		}
+	}
+	return r0
+}
+
+// NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ValidateTemplate'
+type NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call struct {
+	*mock.Call
+}
+
+// ValidateTemplate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - channel ChannelType
+//   - request CreateTemplateRequest
+func (_e *NotificationTemplateServiceInterfaceMock_Expecter) ValidateTemplate(ctx interface{}, channel interface{}, request interface{}) *NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call {
+	return &NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call{Call: _e.mock.On("ValidateTemplate", ctx, channel, request)}
+}
+
+func (_c *NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call) Run(run func(ctx context.Context, channel ChannelType, request CreateTemplateRequest)) *NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 ChannelType
+		if args[1] != nil {
+			arg1 = args[1].(ChannelType)
+		}
+		var arg2 CreateTemplateRequest
+		if args[2] != nil {
+			arg2 = args[2].(CreateTemplateRequest)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call) Return(serviceError *common.ServiceError) *NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call {
+	_c.Call.Return(serviceError)
+	return _c
+}
+
+func (_c *NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call) RunAndReturn(run func(ctx context.Context, channel ChannelType, request CreateTemplateRequest) *common.ServiceError) *NotificationTemplateServiceInterfaceMock_ValidateTemplate_Call {
 	_c.Call.Return(run)
 	return _c
 }

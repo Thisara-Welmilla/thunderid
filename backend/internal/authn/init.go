@@ -10,6 +10,7 @@ import (
 
 	"github.com/thunder-id/thunderid/internal/authn/assert"
 	"github.com/thunder-id/thunderid/internal/authn/common"
+	authnconfig "github.com/thunder-id/thunderid/internal/authn/config"
 	"github.com/thunder-id/thunderid/internal/authn/github"
 	"github.com/thunder-id/thunderid/internal/authn/google"
 	"github.com/thunder-id/thunderid/internal/authn/magiclink"
@@ -26,9 +27,9 @@ import (
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 )
 
-// Initialize initializes the authentication service and registers its routes. It also creates the
-// Direct Auth Secret guard used to gate the Direct API endpoints and returns it so callers that own
-// other Direct API endpoints (e.g. authzen) can reuse the same guard.
+// Initialize initializes the authentication service and, when cfg.DirectAPIEnabled is set, registers
+// the Direct API routes. It also creates the Direct Auth Secret guard used to gate the Direct API endpoints
+// and returns it so callers that own other Direct API endpoints (e.g. authzen) can reuse the same guard.
 func Initialize(
 	mux *http.ServeMux,
 	mcpServer *mcp.Server,
@@ -44,7 +45,7 @@ func Initialize(
 	oidcSvc oidc.OIDCAuthnServiceInterface,
 	googleSvc google.GoogleOIDCAuthnServiceInterface,
 	githubSvc github.GithubOAuthAuthnServiceInterface,
-	directAuthSecret string,
+	cfg authnconfig.Config,
 ) (AuthenticationServiceInterface, DirectAuthGuardInterface) {
 	common.RegisterAuthenticator(common.AuthenticatorMeta{
 		Name:    common.AuthenticatorCredentials,
@@ -102,10 +103,12 @@ func Initialize(
 		githubSvc,
 	)
 
-	directAuthGuard := newDirectAuthGuard(directAuthSecret)
+	directAuthGuard := newDirectAuthGuard(cfg.DirectAuthSecret)
 
-	authnHandler := newAuthenticationHandler(authnService)
-	registerRoutes(mux, authnHandler, directAuthGuard)
+	if cfg.DirectAPIEnabled {
+		authnHandler := newAuthenticationHandler(authnService)
+		registerRoutes(mux, authnHandler, directAuthGuard)
+	}
 
 	// Register MCP tools
 	if mcpServer != nil {

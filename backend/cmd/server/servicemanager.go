@@ -22,6 +22,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/authn"
 	authnAssert "github.com/thunder-id/thunderid/internal/authn/assert"
 	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	authnconfig "github.com/thunder-id/thunderid/internal/authn/config"
 	authnConsent "github.com/thunder-id/thunderid/internal/authn/consent"
 	"github.com/thunder-id/thunderid/internal/authn/github"
 	"github.com/thunder-id/thunderid/internal/authn/google"
@@ -37,6 +38,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/authz"
 	"github.com/thunder-id/thunderid/internal/authzen"
 	"github.com/thunder-id/thunderid/internal/cert"
+	"github.com/thunder-id/thunderid/internal/cimd"
 	"github.com/thunder-id/thunderid/internal/connection"
 	"github.com/thunder-id/thunderid/internal/connection/authzenpdp"
 	"github.com/thunder-id/thunderid/internal/consent"
@@ -337,8 +339,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	_, directAuthGuard := authn.Initialize(mux, mcpServer, idpService, jwtService, authnProvider, authAssertGen,
 		otpCoreService, notifSenderSvc, templateService, magicLinkService, oauthAuthnService,
-		oidcAuthnService, googleAuthnService, githubAuthnService,
-		runtime.Config.Server.SecurityConfig.DirectAuthSecret)
+		oidcAuthnService, googleAuthnService, githubAuthnService, authnconfig.FromServerRuntime())
 
 	// AuthZEN access-evaluation endpoints are Direct API endpoints, so they reuse the Direct Auth
 	// guard created by the authn service.
@@ -445,9 +446,11 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	fatalOnError(ctx, logger, err, "Failed to initialize LayoutMgtService")
 	exporters = append(exporters, layoutExporter)
 
+	cimdService := cimd.Initialize(mux)
 	inboundClientService, err := inboundclient.Initialize(
 		cacheManager, certservice, entityProvider,
-		themeMgtService, layoutMgtService, flowMgtService, entityTypeService, runtimeCryptoSvc, jweService)
+		themeMgtService, layoutMgtService, flowMgtService, entityTypeService, runtimeCryptoSvc, jweService,
+		cimdService)
 	fatalOnError(ctx, logger, err, "Failed to initialize InboundClientService")
 
 	// Inject the consent service into the consent enforcer. It is wired here rather than at enforcer

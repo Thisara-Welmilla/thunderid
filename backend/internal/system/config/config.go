@@ -181,6 +181,16 @@ type PasskeyConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins" json:"allowed_origins"`
 }
 
+// DirectAPIConfig holds the configuration for the Direct API endpoints.
+type DirectAPIConfig struct {
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+}
+
+// IsEnabled reports whether the Direct API endpoints are enabled, defaulting to false when unset.
+func (c DirectAPIConfig) IsEnabled() bool {
+	return derefBool(c.Enabled)
+}
+
 // AttestationConfig holds engine-level platform attestation configuration shared across
 // applications.
 type AttestationConfig struct {
@@ -630,6 +640,7 @@ type OAuthConfig struct {
 	AuthorizationCode        engineconfig.AuthorizationCodeConfig    `yaml:"authorization_code" json:"authorization_code"`       //nolint:lll
 	AuthorizationRequest     engineconfig.AuthorizationRequestConfig `yaml:"authorization_request" json:"authorization_request"` //nolint:lll
 	DCR                      engineconfig.DCRConfig                  `yaml:"dcr" json:"dcr"`
+	CIMD                     engineconfig.CIMDConfig                 `yaml:"cimd" json:"cimd"`
 	PAR                      engineconfig.PARConfig                  `yaml:"par" json:"par"`
 	DPoP                     engineconfig.DPoPConfig                 `yaml:"dpop" json:"dpop"`
 	AuthClass                engineconfig.AuthClassConfig            `yaml:"auth_class" json:"auth_class"`
@@ -654,6 +665,7 @@ func (c OAuthConfig) ToEngineConfig() engineconfig.OAuthConfig {
 		AuthorizationCode:        c.AuthorizationCode,
 		AuthorizationRequest:     c.AuthorizationRequest,
 		DCR:                      c.DCR,
+		CIMD:                     c.CIMD,
 		PAR:                      c.PAR,
 		DPoP:                     c.DPoP,
 		AuthClass:                c.AuthClass,
@@ -711,6 +723,7 @@ type Config struct {
 	EntityType           EntityTypeConfig                  `yaml:"user_type"             json:"user_type"`
 	Observability        engineconfig.ObservabilityConfig  `yaml:"observability"         json:"observability"`
 	Passkey              PasskeyConfig                     `yaml:"passkey"               json:"passkey"`
+	DirectAPI            DirectAPIConfig                   `yaml:"direct_api"            json:"direct_api"`
 	Attestation          AttestationConfig                 `yaml:"attestation"           json:"attestation"`
 	OpenID4VP            OpenID4VPConfig                   `yaml:"openid4vp"             json:"openid4vp"`
 	OpenID4VCI           OpenID4VCIConfig                  `yaml:"openid4vci"            json:"openid4vci"`

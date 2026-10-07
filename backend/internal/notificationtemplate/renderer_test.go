@@ -35,7 +35,7 @@ func (s *RendererTestSuite) SetupTest() {
 }
 
 // expectGet stubs the store to return dao for a single GetTemplateByHandle on (channel, handle).
-func (s *RendererTestSuite) expectGet(channel channelType, handle string, dao templateDAO) {
+func (s *RendererTestSuite) expectGet(channel ChannelType, handle string, dao templateDAO) {
 	s.mockStore.On("GetTemplateByHandle", mock.Anything, channel, handle).Return(dao, nil).Once()
 }
 
@@ -98,8 +98,8 @@ func (s *RendererTestSuite) newRenderer(tr translationResolver, dr designResolve
 }
 
 func (s *RendererTestSuite) TestResolve_Email() {
-	s.expectGet(channelTypeEmail, "otp-verification", templateDAO{
-		ID: "t1", Channel: channelTypeEmail, Handle: "otp-verification", DisplayName: "OTP",
+	s.expectGet(ChannelTypeEmail, "otp-verification", templateDAO{
+		ID: "t1", Channel: ChannelTypeEmail, Handle: "otp-verification", DisplayName: "OTP",
 		Content: TemplateContent{
 			Subject: "{{t(otp.subject)}}",
 			Body:    "<b>{{t(otp.body)}}</b> {{ctx(otpCode)}} {{design(palette.primary.main)}}",
@@ -128,8 +128,8 @@ func (s *RendererTestSuite) TestResolve_Email() {
 // TestResolve_ColorSchemeEmptyWhenUnset verifies an email template with no explicit scheme passes an
 // empty scheme, so the design service falls back to the theme's own defaultColorScheme.
 func (s *RendererTestSuite) TestResolve_ColorSchemeEmptyWhenUnset() {
-	s.expectGet(channelTypeEmail, "h", templateDAO{
-		ID: "t1", Channel: channelTypeEmail, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeEmail, "h", templateDAO{
+		ID: "t1", Channel: ChannelTypeEmail, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Subject: "s", Body: "{{design(palette.primary.main)}}"},
 	})
 	dr := s.designer(map[string]string{"palette.primary.main": "#fff"})
@@ -143,8 +143,8 @@ func (s *RendererTestSuite) TestResolve_ColorSchemeEmptyWhenUnset() {
 
 // TestResolve_MultipleAndNoKeys covers a field with several {{t}} keys and static tail text.
 func (s *RendererTestSuite) TestResolve_MultipleAndNoKeys() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "t1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "t1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "{{t(greeting)}}, {{t(closing)}} — static tail"},
 	})
 	p := s.newRenderer(s.translator(map[string]string{"greeting": "Hello", "closing": "bye"}), nil)
@@ -157,8 +157,8 @@ func (s *RendererTestSuite) TestResolve_MultipleAndNoKeys() {
 // TestResolve_SMS covers a translated value that itself embeds a {{ctx}} placeholder, resolved in the
 // later context pass, and confirms SMS carries no subject.
 func (s *RendererTestSuite) TestResolve_SMS() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "s1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "s1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "{{t(sms.body)}}"},
 	})
 	p := s.newRenderer(s.translator(map[string]string{"sms.body": "Code {{ctx(otpCode)}}"}), nil)
@@ -171,8 +171,8 @@ func (s *RendererTestSuite) TestResolve_SMS() {
 
 // TestResolve_DottedContextKey covers a {{ctx}} key containing a dot, matching the placeholder grammar.
 func (s *RendererTestSuite) TestResolve_DottedContextKey() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "s1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "s1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "Hi {{ctx(user.name)}}"},
 	})
 	p := s.newRenderer(s.translator(nil), nil)
@@ -187,8 +187,8 @@ func (s *RendererTestSuite) TestResolve_DottedContextKey() {
 func (s *RendererTestSuite) TestResolve_EscapesContextInHTMLBody() {
 	data := map[string]string{"name": "<b>x</b>"}
 
-	s.expectGet(channelTypeEmail, "h", templateDAO{
-		ID: "e1", Channel: channelTypeEmail, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeEmail, "h", templateDAO{
+		ID: "e1", Channel: ChannelTypeEmail, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Subject: "s", Body: "Hi {{ctx(name)}}"},
 	})
 	p := s.newRenderer(s.translator(nil), nil)
@@ -196,8 +196,8 @@ func (s *RendererTestSuite) TestResolve_EscapesContextInHTMLBody() {
 	s.Require().Nil(err)
 	s.Equal("Hi &lt;b&gt;x&lt;/b&gt;", email.Body)
 
-	s.expectGet(channelTypeSMS, "h2", templateDAO{
-		ID: "s1", Channel: channelTypeSMS, Handle: "h2", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h2", templateDAO{
+		ID: "s1", Channel: ChannelTypeSMS, Handle: "h2", DisplayName: "D",
 		Content: TemplateContent{Body: "Hi {{ctx(name)}}"},
 	})
 	sms, err := p.Resolve(s.ctx, "sms", "h2", RenderInput{Data: data})
@@ -206,8 +206,8 @@ func (s *RendererTestSuite) TestResolve_EscapesContextInHTMLBody() {
 }
 
 func (s *RendererTestSuite) TestResolve_MissingTranslation() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "t1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "t1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "{{t(absent.key)}}"},
 	})
 	p := s.newRenderer(s.translator(nil), nil)
@@ -220,8 +220,8 @@ func (s *RendererTestSuite) TestResolve_MissingTranslation() {
 
 // TestResolve_TranslationError covers a non-not-found translation error, which also fails closed as 500.
 func (s *RendererTestSuite) TestResolve_TranslationError() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "t1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "t1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "{{t(some.key)}}"},
 	})
 	tr := s.failingTranslator(&tidcommon.ServiceError{Type: tidcommon.ServerErrorType, Code: "I18N-OTHER"})
@@ -235,8 +235,8 @@ func (s *RendererTestSuite) TestResolve_TranslationError() {
 // TestResolve_SubjectRenderFails covers a failing subject render (a missing translation in the subject),
 // confirming the subject path fails closed before the body is rendered.
 func (s *RendererTestSuite) TestResolve_SubjectRenderFails() {
-	s.expectGet(channelTypeEmail, "h", templateDAO{
-		ID: "e1", Channel: channelTypeEmail, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeEmail, "h", templateDAO{
+		ID: "e1", Channel: ChannelTypeEmail, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Subject: "{{t(absent.subject)}}", Body: "b"},
 	})
 	p := s.newRenderer(s.translator(nil), nil)
@@ -247,8 +247,8 @@ func (s *RendererTestSuite) TestResolve_SubjectRenderFails() {
 }
 
 func (s *RendererTestSuite) TestResolve_UnresolvedContextFails() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "s1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "s1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "{{t(sms.body)}}"},
 	})
 	p := s.newRenderer(s.translator(map[string]string{"sms.body": "Code {{ctx(otpCode)}}"}), nil)
@@ -263,19 +263,19 @@ func (s *RendererTestSuite) TestResolve_UnresolvedContextFails() {
 // theme does not carry. Both fail closed rather than ship a partially-branded body.
 func (s *RendererTestSuite) TestResolve_UnresolvedDesignFails() {
 	emailTmpl := templateDAO{
-		ID: "e1", Channel: channelTypeEmail, Handle: "h", DisplayName: "D",
+		ID: "e1", Channel: ChannelTypeEmail, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Subject: "s", Body: "{{design(palette.primary.main)}}"},
 	}
 	p := s.newRenderer(s.translator(nil), s.designer(nil))
 
 	// No theme supplied: cannot resolve.
-	s.expectGet(channelTypeEmail, "h", emailTmpl)
+	s.expectGet(ChannelTypeEmail, "h", emailTmpl)
 	_, err := p.Resolve(s.ctx, "email", "h", RenderInput{})
 	s.Require().NotNil(err)
 	s.Equal(tidcommon.InternalServerError.Code, err.Code)
 
 	// Theme supplied but the token is unknown: the resolver leaves it, so the render fails closed.
-	s.expectGet(channelTypeEmail, "h", emailTmpl)
+	s.expectGet(ChannelTypeEmail, "h", emailTmpl)
 	_, err = p.Resolve(s.ctx, "email", "h", RenderInput{ThemeID: "theme1"})
 	s.Require().NotNil(err)
 	s.Equal(tidcommon.InternalServerError.Code, err.Code)
@@ -283,8 +283,8 @@ func (s *RendererTestSuite) TestResolve_UnresolvedDesignFails() {
 
 // TestResolve_DesignResolverError covers the design resolver returning a service error.
 func (s *RendererTestSuite) TestResolve_DesignResolverError() {
-	s.expectGet(channelTypeEmail, "h", templateDAO{
-		ID: "e1", Channel: channelTypeEmail, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeEmail, "h", templateDAO{
+		ID: "e1", Channel: ChannelTypeEmail, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Subject: "s", Body: "{{design(palette.primary.main)}}"},
 	})
 	p := s.newRenderer(s.translator(nil), s.failingDesigner())
@@ -297,8 +297,8 @@ func (s *RendererTestSuite) TestResolve_DesignResolverError() {
 // TestResolve_DesignTokenInSubjectFailsClosed covers a design token smuggled into the subject via a
 // translation value: translated text may embed only {{ctx}}, so the render fails closed.
 func (s *RendererTestSuite) TestResolve_DesignTokenInSubjectFailsClosed() {
-	s.expectGet(channelTypeEmail, "h", templateDAO{
-		ID: "e1", Channel: channelTypeEmail, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeEmail, "h", templateDAO{
+		ID: "e1", Channel: ChannelTypeEmail, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Subject: "{{t(subj)}}", Body: "static"},
 	})
 	tr := s.translator(map[string]string{"subj": "Hi {{design(palette.primary.main)}}"})
@@ -312,8 +312,8 @@ func (s *RendererTestSuite) TestResolve_DesignTokenInSubjectFailsClosed() {
 // TestResolve_TranslationMemoizedAcrossSubjectAndBody verifies a key used in both the subject and the
 // body (and repeated) is resolved by the translation service only once per render.
 func (s *RendererTestSuite) TestResolve_TranslationMemoizedAcrossSubjectAndBody() {
-	s.expectGet(channelTypeEmail, "h", templateDAO{
-		ID: "e1", Channel: channelTypeEmail, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeEmail, "h", templateDAO{
+		ID: "e1", Channel: ChannelTypeEmail, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{
 			Subject: "{{t(org.name)}}",
 			Body:    "{{t(org.name)}} - {{t(org.name)}}",
@@ -332,8 +332,8 @@ func (s *RendererTestSuite) TestResolve_TranslationMemoizedAcrossSubjectAndBody(
 // TestResolve_NonCanonicalLocaleNormalized verifies a non-canonical locale (en_US) is normalized to
 // canonical BCP 47 (en-US) before the translation lookup, rather than being passed through verbatim.
 func (s *RendererTestSuite) TestResolve_NonCanonicalLocaleNormalized() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "s1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "s1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "{{t(greeting)}}"},
 	})
 	tr := s.translator(map[string]string{"greeting": "Hi"})
@@ -348,8 +348,8 @@ func (s *RendererTestSuite) TestResolve_NonCanonicalLocaleNormalized() {
 // TestResolve_NestedTranslationPlaceholderFailsClosed verifies a {{t()}} carried in by a translation
 // value is rejected (translated text may embed only {{ctx}}).
 func (s *RendererTestSuite) TestResolve_NestedTranslationPlaceholderFailsClosed() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "s1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "s1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "{{t(outer)}}"},
 	})
 	p := s.newRenderer(s.translator(map[string]string{"outer": "see {{t(inner)}}", "inner": "X"}), nil)
@@ -362,8 +362,8 @@ func (s *RendererTestSuite) TestResolve_NestedTranslationPlaceholderFailsClosed(
 // TestResolve_DesignTokenInSMSFailsClosed verifies a design token carried into an SMS body via a
 // translation value fails closed (translated text may embed only {{ctx}}).
 func (s *RendererTestSuite) TestResolve_DesignTokenInSMSFailsClosed() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "s1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "s1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "{{t(body)}}"},
 	})
 	p := s.newRenderer(s.translator(map[string]string{"body": "color {{design(palette.primary.main)}}"}), nil)
@@ -376,8 +376,8 @@ func (s *RendererTestSuite) TestResolve_DesignTokenInSMSFailsClosed() {
 // TestResolve_ContextValueWithPlaceholderTextNotRejected verifies a context value that itself contains
 // placeholder-like text is substituted verbatim (the last pass) and not misread as an unresolved token.
 func (s *RendererTestSuite) TestResolve_ContextValueWithPlaceholderTextNotRejected() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "s1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "s1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "Hi {{ctx(name)}}"},
 	})
 	p := s.newRenderer(s.translator(nil), nil)
@@ -391,8 +391,8 @@ func (s *RendererTestSuite) TestResolve_ContextValueWithPlaceholderTextNotReject
 // translation value fails closed even in the email body (translated text may embed only {{ctx}}),
 // consistent with the subject and SMS.
 func (s *RendererTestSuite) TestResolve_DesignTokenInBodyViaTranslationFailsClosed() {
-	s.expectGet(channelTypeEmail, "h", templateDAO{
-		ID: "e1", Channel: channelTypeEmail, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeEmail, "h", templateDAO{
+		ID: "e1", Channel: ChannelTypeEmail, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Subject: "s", Body: "{{t(body)}}"},
 	})
 	tr := s.translator(map[string]string{"body": "color {{design(palette.primary.main)}}"})
@@ -418,7 +418,7 @@ func (s *RendererTestSuite) TestResolve_EmptyHandle() {
 }
 
 func (s *RendererTestSuite) TestResolve_NotFound() {
-	s.mockStore.On("GetTemplateByHandle", mock.Anything, channelTypeEmail, "missing").
+	s.mockStore.On("GetTemplateByHandle", mock.Anything, ChannelTypeEmail, "missing").
 		Return(templateDAO{}, errTemplateNotFound).Once()
 	p := s.newRenderer(s.translator(nil), nil)
 
@@ -429,7 +429,7 @@ func (s *RendererTestSuite) TestResolve_NotFound() {
 
 // TestResolve_StoreError covers a non-not-found store error, surfaced as a 500.
 func (s *RendererTestSuite) TestResolve_StoreError() {
-	s.mockStore.On("GetTemplateByHandle", mock.Anything, channelTypeEmail, "h").
+	s.mockStore.On("GetTemplateByHandle", mock.Anything, ChannelTypeEmail, "h").
 		Return(templateDAO{}, context.DeadlineExceeded).Once()
 	p := s.newRenderer(s.translator(nil), nil)
 
@@ -441,8 +441,8 @@ func (s *RendererTestSuite) TestResolve_StoreError() {
 // TestResolve_NoTranslationResolver verifies a render that reaches a {{t(...)}} key before the
 // translation resolver is wired fails closed with a clean error instead of panicking on a nil resolver.
 func (s *RendererTestSuite) TestResolve_NoTranslationResolver() {
-	s.expectGet(channelTypeSMS, "h", templateDAO{
-		ID: "s1", Channel: channelTypeSMS, Handle: "h", DisplayName: "D",
+	s.expectGet(ChannelTypeSMS, "h", templateDAO{
+		ID: "s1", Channel: ChannelTypeSMS, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "{{t(sms.body)}}"},
 	})
 	// Renderer constructed with a nil translation resolver (defensive: a render then fails closed

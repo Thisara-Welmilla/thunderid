@@ -59,6 +59,11 @@ packages:
   # TODO: remove both once the integration suite exercises a Control Plane build. Tracked in #5558.
   backend/internal/system/valueref: 0
   backend/internal/system/export: 50
+  # Previewing a Client ID Metadata Document retrieves it through the SSRF-safe client, which refuses
+  # loopback and private addresses. The integration suite can serve a document only locally, so the
+  # successful retrieval and the mapping that follows it are covered by unit tests, and this bar
+  # applies to the rules, the rejections, and the routes the suite does reach.
+  backend/internal/cimd: 50
   # backend/internal/system/i18n: 0
 
 # Thresholds grouped by pull request label. A group applies only when the pull

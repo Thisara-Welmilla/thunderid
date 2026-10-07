@@ -29,7 +29,7 @@ func newCacheBackedStore(byHandle cache.CacheInterface[templateDAO],
 // cacheKey builds the by-handle cache key. Templates are addressed at runtime by (channel, handle); the
 // inner store scopes by deployment, and the cache is scoped to a single deployment, so the key needs no
 // deployment id.
-func cacheKey(channel channelType, handle string) cache.CacheKey {
+func cacheKey(channel ChannelType, handle string) cache.CacheKey {
 	return cache.CacheKey{Key: string(channel) + ":" + handle}
 }
 
@@ -44,13 +44,13 @@ func (s *cacheBackedStore) CreateTemplate(ctx context.Context, t templateDAO) er
 
 // GetTemplate retrieves a template by id. This is the management path; it always delegates and is not
 // cached (the runtime hot path is GetTemplateByHandle).
-func (s *cacheBackedStore) GetTemplate(ctx context.Context, channel channelType, id string) (
+func (s *cacheBackedStore) GetTemplate(ctx context.Context, channel ChannelType, id string) (
 	templateDAO, error) {
 	return s.inner.GetTemplate(ctx, channel, id)
 }
 
 // GetTemplateByHandle serves from cache on a hit, otherwise loads from the inner store and caches it.
-func (s *cacheBackedStore) GetTemplateByHandle(ctx context.Context, channel channelType, handle string) (
+func (s *cacheBackedStore) GetTemplateByHandle(ctx context.Context, channel ChannelType, handle string) (
 	templateDAO, error) {
 	if cached, ok := s.byHandle.Get(ctx, cacheKey(channel, handle)); ok {
 		return cached, nil
@@ -64,13 +64,13 @@ func (s *cacheBackedStore) GetTemplateByHandle(ctx context.Context, channel chan
 }
 
 // ListTemplates always delegates; the list is not cached.
-func (s *cacheBackedStore) ListTemplates(ctx context.Context, channel channelType, limit, offset int) (
+func (s *cacheBackedStore) ListTemplates(ctx context.Context, channel ChannelType, limit, offset int) (
 	[]templateDAO, error) {
 	return s.inner.ListTemplates(ctx, channel, limit, offset)
 }
 
 // CountTemplates always delegates; the count is not cached.
-func (s *cacheBackedStore) CountTemplates(ctx context.Context, channel channelType) (int, error) {
+func (s *cacheBackedStore) CountTemplates(ctx context.Context, channel ChannelType) (int, error) {
 	return s.inner.CountTemplates(ctx, channel)
 }
 
@@ -87,7 +87,7 @@ func (s *cacheBackedStore) UpdateTemplate(ctx context.Context, t templateDAO) er
 
 // DeleteTemplate resolves the handle, deletes the template, then invalidates the cache.
 // Missing rows are tolerated; other read errors abort before deletion.
-func (s *cacheBackedStore) DeleteTemplate(ctx context.Context, channel channelType, id string) error {
+func (s *cacheBackedStore) DeleteTemplate(ctx context.Context, channel ChannelType, id string) error {
 	dao, getErr := s.inner.GetTemplate(ctx, channel, id)
 	if getErr != nil && !errors.Is(getErr, errTemplateNotFound) {
 		return getErr
@@ -102,13 +102,13 @@ func (s *cacheBackedStore) DeleteTemplate(ctx context.Context, channel channelTy
 }
 
 // IsHandleExists always delegates; uniqueness must be checked against the source of truth.
-func (s *cacheBackedStore) IsHandleExists(ctx context.Context, channel channelType, handle string) (
+func (s *cacheBackedStore) IsHandleExists(ctx context.Context, channel ChannelType, handle string) (
 	bool, error) {
 	return s.inner.IsHandleExists(ctx, channel, handle)
 }
 
 // invalidate removes a template's cache entry, logging on failure without failing the operation.
-func (s *cacheBackedStore) invalidate(ctx context.Context, channel channelType, handle string) {
+func (s *cacheBackedStore) invalidate(ctx context.Context, channel ChannelType, handle string) {
 	if handle == "" {
 		return
 	}

@@ -320,6 +320,7 @@ export default function IntegrationGuides({
   // The endpoints below are for someone to copy into their own application, so they have to
   // name the deployment that answers them rather than the one the console is configured against.
   const runtimeUrl = useRuntimeUrl();
+  const isDirectApiEnabled = config.direct_api?.enabled !== false;
   const flowEndpoints = [
     {
       key: 'flowExecute',
@@ -331,16 +332,20 @@ export default function IntegrationGuides({
       label: t('applications:edit.overview.endpoints.flowMeta', 'Flow metadata endpoint'),
       url: `${runtimeUrl}/flow/meta`,
     },
-    {
-      key: 'passkeyRegisterStart',
-      label: t('applications:edit.overview.endpoints.passkeyRegisterStart', 'Passkey registration (start)'),
-      url: `${runtimeUrl}/register/passkey/start`,
-    },
-    {
-      key: 'passkeyRegisterFinish',
-      label: t('applications:edit.overview.endpoints.passkeyRegisterFinish', 'Passkey registration (finish)'),
-      url: `${runtimeUrl}/register/passkey/finish`,
-    },
+    ...(isDirectApiEnabled
+      ? [
+          {
+            key: 'passkeyRegisterStart',
+            label: t('applications:edit.overview.endpoints.passkeyRegisterStart', 'Passkey registration (start)'),
+            url: `${runtimeUrl}/register/passkey/start`,
+          },
+          {
+            key: 'passkeyRegisterFinish',
+            label: t('applications:edit.overview.endpoints.passkeyRegisterFinish', 'Passkey registration (finish)'),
+            url: `${runtimeUrl}/register/passkey/finish`,
+          },
+        ]
+      : []),
   ];
   const oauthEndpoints = [
     {

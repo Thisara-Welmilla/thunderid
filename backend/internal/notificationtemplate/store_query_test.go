@@ -48,7 +48,7 @@ func (s *NotificationTemplateStoreTestSuite) TestCreateTemplate_EmailWithDesign(
 		`{"subject":"s","body":"b"}`, `{"colorScheme":"dark"}`, "test-deployment").Return(int64(1), nil)
 
 	err := s.store.CreateTemplate(depCtx("test-deployment"), templateDAO{
-		ID: "id-1", Channel: channelTypeEmail, Handle: "otp", DisplayName: "OTP", Description: "desc",
+		ID: "id-1", Channel: ChannelTypeEmail, Handle: "otp", DisplayName: "OTP", Description: "desc",
 		Content: TemplateContent{Subject: "s", Body: "b"},
 		Design:  &TemplateDesign{ColorScheme: colorSchemeDark},
 	})
@@ -62,7 +62,7 @@ func (s *NotificationTemplateStoreTestSuite) TestCreateTemplate_NoDesignStoresEm
 		"id-2", "sms", "otp", "OTP", "", `{"body":"b"}`, "{}", "test-deployment").Return(int64(1), nil)
 
 	err := s.store.CreateTemplate(depCtx("test-deployment"), templateDAO{
-		ID: "id-2", Channel: channelTypeSMS, Handle: "otp", DisplayName: "OTP",
+		ID: "id-2", Channel: ChannelTypeSMS, Handle: "otp", DisplayName: "OTP",
 		Content: TemplateContent{Body: "b"},
 	})
 	s.Require().NoError(err)
@@ -76,7 +76,7 @@ func (s *NotificationTemplateStoreTestSuite) TestGetTemplate_Found() {
 			"description": "desc", "content": `{"subject":"s","body":"b"}`, "design": `{"colorScheme":"dark"}`,
 		}}, nil)
 
-	dao, err := s.store.GetTemplate(depCtx("test-deployment"), channelTypeEmail, "id-1")
+	dao, err := s.store.GetTemplate(depCtx("test-deployment"), ChannelTypeEmail, "id-1")
 	s.Require().NoError(err)
 	s.Require().Equal("otp", dao.Handle)
 	s.Require().Equal("s", dao.Content.Subject)
@@ -89,7 +89,7 @@ func (s *NotificationTemplateStoreTestSuite) TestGetTemplate_NotFound() {
 	s.mockDBClient.On("QueryContext", mock.Anything, queryGetTemplateByID, "missing", "email", "test-deployment").
 		Return([]map[string]interface{}{}, nil)
 
-	_, err := s.store.GetTemplate(depCtx("test-deployment"), channelTypeEmail, "missing")
+	_, err := s.store.GetTemplate(depCtx("test-deployment"), ChannelTypeEmail, "missing")
 	s.Require().ErrorIs(err, errTemplateNotFound)
 }
 
@@ -101,7 +101,7 @@ func (s *NotificationTemplateStoreTestSuite) TestGetTemplateByHandle_Found() {
 			"description": "desc", "content": `{"subject":"s","body":"b"}`, "design": `{"colorScheme":"dark"}`,
 		}}, nil)
 
-	dao, err := s.store.GetTemplateByHandle(depCtx("test-deployment"), channelTypeEmail, "otp")
+	dao, err := s.store.GetTemplateByHandle(depCtx("test-deployment"), ChannelTypeEmail, "otp")
 	s.Require().NoError(err)
 	s.Require().Equal("id-1", dao.ID)
 	s.Require().Equal("s", dao.Content.Subject)
@@ -114,7 +114,7 @@ func (s *NotificationTemplateStoreTestSuite) TestGetTemplateByHandle_NotFound() 
 	s.mockDBClient.On("QueryContext", mock.Anything, queryGetTemplateByHandle, "missing", "email", "test-deployment").
 		Return([]map[string]interface{}{}, nil)
 
-	_, err := s.store.GetTemplateByHandle(depCtx("test-deployment"), channelTypeEmail, "missing")
+	_, err := s.store.GetTemplateByHandle(depCtx("test-deployment"), ChannelTypeEmail, "missing")
 	s.Require().ErrorIs(err, errTemplateNotFound)
 }
 
@@ -126,7 +126,7 @@ func (s *NotificationTemplateStoreTestSuite) TestListTemplates() {
 			{"id": "b", "channel": "email", "handle": "b", "display_name": "B"},
 		}, nil)
 
-	list, err := s.store.ListTemplates(depCtx("test-deployment"), channelTypeEmail, 10, 0)
+	list, err := s.store.ListTemplates(depCtx("test-deployment"), ChannelTypeEmail, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(list, 2)
 	s.Require().Equal("a", list[0].Handle)
@@ -137,7 +137,7 @@ func (s *NotificationTemplateStoreTestSuite) TestCountTemplates() {
 	s.mockDBClient.On("QueryContext", mock.Anything, queryCountTemplates, "email", "test-deployment").
 		Return([]map[string]interface{}{{"total": int64(3)}}, nil)
 
-	n, err := s.store.CountTemplates(depCtx("test-deployment"), channelTypeEmail)
+	n, err := s.store.CountTemplates(depCtx("test-deployment"), ChannelTypeEmail)
 	s.Require().NoError(err)
 	s.Require().Equal(3, n)
 }
@@ -147,7 +147,7 @@ func (s *NotificationTemplateStoreTestSuite) TestIsHandleExists() {
 	s.mockDBClient.On("QueryContext", mock.Anything, queryCheckHandleExists, "email", "otp", "test-deployment").
 		Return([]map[string]interface{}{{"total": int64(1)}}, nil)
 
-	exists, err := s.store.IsHandleExists(depCtx("test-deployment"), channelTypeEmail, "otp")
+	exists, err := s.store.IsHandleExists(depCtx("test-deployment"), ChannelTypeEmail, "otp")
 	s.Require().NoError(err)
 	s.Require().True(exists)
 }
@@ -159,7 +159,7 @@ func (s *NotificationTemplateStoreTestSuite) TestUpdateTemplate() {
 		"id-1", "email", "test-deployment").Return(int64(1), nil)
 
 	err := s.store.UpdateTemplate(depCtx("test-deployment"), templateDAO{
-		ID: "id-1", Channel: channelTypeEmail, DisplayName: "OTP", Description: "desc",
+		ID: "id-1", Channel: ChannelTypeEmail, DisplayName: "OTP", Description: "desc",
 		Content: TemplateContent{Subject: "s", Body: "b"},
 		Design:  &TemplateDesign{ColorScheme: colorSchemeDark},
 	})
@@ -171,14 +171,14 @@ func (s *NotificationTemplateStoreTestSuite) TestDeleteTemplate() {
 	s.mockDBClient.On("ExecuteContext", mock.Anything, queryDeleteTemplate, "id-1", "email", "test-deployment").
 		Return(int64(1), nil)
 
-	err := s.store.DeleteTemplate(depCtx("test-deployment"), channelTypeEmail, "id-1")
+	err := s.store.DeleteTemplate(depCtx("test-deployment"), ChannelTypeEmail, "id-1")
 	s.Require().NoError(err)
 }
 
 func (s *NotificationTemplateStoreTestSuite) TestGetTemplate_DBClientError() {
 	s.mockDBProvider.On("GetConfigDBClient").Return(nil, errors.New("connection error"))
 
-	_, err := s.store.GetTemplate(depCtx("test-deployment"), channelTypeEmail, "id-1")
+	_, err := s.store.GetTemplate(depCtx("test-deployment"), ChannelTypeEmail, "id-1")
 	s.Require().Error(err)
 }
 
@@ -187,14 +187,14 @@ func (s *NotificationTemplateStoreTestSuite) TestGetTemplate_QueryError() {
 	s.mockDBClient.On("QueryContext", mock.Anything, queryGetTemplateByID, "id-1", "email", "test-deployment").
 		Return(nil, errors.New("query failed"))
 
-	_, err := s.store.GetTemplate(depCtx("test-deployment"), channelTypeEmail, "id-1")
+	_, err := s.store.GetTemplate(depCtx("test-deployment"), ChannelTypeEmail, "id-1")
 	s.Require().Error(err)
 }
 
 func (s *NotificationTemplateStoreTestSuite) TestListTemplates_DBClientError() {
 	s.mockDBProvider.On("GetConfigDBClient").Return(nil, errors.New("connection error"))
 
-	_, err := s.store.ListTemplates(depCtx("test-deployment"), channelTypeEmail, 10, 0)
+	_, err := s.store.ListTemplates(depCtx("test-deployment"), ChannelTypeEmail, 10, 0)
 	s.Require().Error(err)
 }
 
@@ -203,7 +203,7 @@ func (s *NotificationTemplateStoreTestSuite) TestListTemplates_QueryError() {
 	s.mockDBClient.On("QueryContext", mock.Anything, queryListTemplates, "email", 10, 0, "test-deployment").
 		Return(nil, errors.New("query failed"))
 
-	_, err := s.store.ListTemplates(depCtx("test-deployment"), channelTypeEmail, 10, 0)
+	_, err := s.store.ListTemplates(depCtx("test-deployment"), ChannelTypeEmail, 10, 0)
 	s.Require().Error(err)
 }
 
@@ -214,7 +214,7 @@ func (s *NotificationTemplateStoreTestSuite) TestCreateTemplate_ExecError() {
 		mock.Anything, mock.Anything, mock.Anything).Return(int64(0), errors.New("insert failed"))
 
 	err := s.store.CreateTemplate(depCtx("test-deployment"), templateDAO{
-		ID: "id", Channel: channelTypeEmail, Handle: "h", DisplayName: "D",
+		ID: "id", Channel: ChannelTypeEmail, Handle: "h", DisplayName: "D",
 		Content: TemplateContent{Body: "b"},
 	})
 	s.Require().Error(err)
@@ -225,7 +225,7 @@ func (s *NotificationTemplateStoreTestSuite) TestDeleteTemplate_ExecError() {
 	s.mockDBClient.On("ExecuteContext", mock.Anything, queryDeleteTemplate, "id", "email", "test-deployment").
 		Return(int64(0), errors.New("delete failed"))
 
-	err := s.store.DeleteTemplate(depCtx("test-deployment"), channelTypeEmail, "id")
+	err := s.store.DeleteTemplate(depCtx("test-deployment"), ChannelTypeEmail, "id")
 	s.Require().Error(err)
 }
 
@@ -240,8 +240,8 @@ func (s *NotificationTemplateStoreTestSuite) TestScopeFollowsContextDeployment()
 	s.mockDBClient.On("QueryContext", mock.Anything, queryGetTemplateByID, "id-1", "email", "tenant-b").
 		Return([]map[string]interface{}{}, nil).Once()
 
-	_, errA := s.store.GetTemplate(depCtx("tenant-a"), channelTypeEmail, "id-1")
+	_, errA := s.store.GetTemplate(depCtx("tenant-a"), ChannelTypeEmail, "id-1")
 	s.Require().ErrorIs(errA, errTemplateNotFound)
-	_, errB := s.store.GetTemplate(depCtx("tenant-b"), channelTypeEmail, "id-1")
+	_, errB := s.store.GetTemplate(depCtx("tenant-b"), ChannelTypeEmail, "id-1")
 	s.Require().ErrorIs(errB, errTemplateNotFound)
 }

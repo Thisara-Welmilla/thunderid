@@ -26,14 +26,14 @@ type channelRules interface {
 
 // channelRulesByChannel holds one evaluator per channel, built once at package initialization and
 // shared across requests rather than created per call.
-var channelRulesByChannel = map[channelType]channelRules{
-	channelTypeEmail: emailRules{},
-	channelTypeSMS:   smsRules{},
+var channelRulesByChannel = map[ChannelType]channelRules{
+	ChannelTypeEmail: emailRules{},
+	ChannelTypeSMS:   smsRules{},
 }
 
 // rulesFor returns the rules for a channel. It is the single lookup over channels in the module;
 // an unknown channel is rejected here so every entry point validates the channel through one place.
-func rulesFor(channel channelType) (channelRules, *tidcommon.ServiceError) {
+func rulesFor(channel ChannelType) (channelRules, *tidcommon.ServiceError) {
 	rules, ok := channelRulesByChannel[channel]
 	if !ok {
 		return nil, &ErrorInvalidChannel
@@ -43,7 +43,7 @@ func rulesFor(channel channelType) (channelRules, *tidcommon.ServiceError) {
 
 // validateChannel reports whether the channel is supported, reusing rulesFor's single lookup for
 // entry points that carry no content (list, get, delete).
-func validateChannel(channel channelType) *tidcommon.ServiceError {
+func validateChannel(channel ChannelType) *tidcommon.ServiceError {
 	_, svcErr := rulesFor(channel)
 	return svcErr
 }
