@@ -537,6 +537,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 		openid4vciCredSvc,
 		serverConfigService,
 		gatewayService,
+		notifTemplateSvc,
 		authZENPDPService,
 		// References in imported configuration are replaced with what this deployment's store holds.
 		secretresolver.New(variablestore.Lookup(references)),

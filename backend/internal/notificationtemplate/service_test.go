@@ -390,6 +390,30 @@ func (s *NotificationTemplateServiceTestSuite) TestGetAndList() {
 	s.Require().Empty(list.Links)
 }
 
+func (s *NotificationTemplateServiceTestSuite) TestGetTemplateByHandle() {
+	dao := templateDAO{ID: "id-1", Channel: channelTypeEmail, Handle: "a", DisplayName: "A",
+		Content: TemplateContent{Subject: "s", Body: "b"}}
+	s.mockStore.On("GetTemplateByHandle", mock.Anything, channelTypeEmail, "a").Return(dao, nil)
+	s.mockStore.On("GetTemplateByHandle", mock.Anything, channelTypeEmail, "missing").
+		Return(templateDAO{}, errTemplateNotFound)
+
+	got, err := s.svc.GetTemplateByHandle(s.ctx, channelTypeEmail, "a")
+	s.Require().Nil(err)
+	s.Require().Equal("id-1", got.ID)
+	s.Require().Equal("a", got.Handle)
+
+	_, err = s.svc.GetTemplateByHandle(s.ctx, channelTypeEmail, "missing")
+	s.Require().Equal(ErrorTemplateNotFound.Code, err.Code)
+
+	// An empty handle is rejected before hitting the store.
+	_, err = s.svc.GetTemplateByHandle(s.ctx, channelTypeEmail, "")
+	s.Require().Equal(ErrorInvalidHandle.Code, err.Code)
+
+	// An unsupported channel is rejected.
+	_, err = s.svc.GetTemplateByHandle(s.ctx, channelType("push"), "a")
+	s.Require().Equal(ErrorInvalidChannel.Code, err.Code)
+}
+
 func (s *NotificationTemplateServiceTestSuite) TestListTemplates_Pagination() {
 	daos := []templateDAO{
 		{ID: "a", Channel: channelTypeEmail, Handle: "a", DisplayName: "a", Content: TemplateContent{Body: "b"}},

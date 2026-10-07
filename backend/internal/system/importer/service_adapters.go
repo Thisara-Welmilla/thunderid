@@ -16,6 +16,7 @@ import (
 	thememgt "github.com/thunder-id/thunderid/internal/design/theme/mgt"
 	"github.com/thunder-id/thunderid/internal/entitytype"
 	"github.com/thunder-id/thunderid/internal/group"
+	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
@@ -1220,4 +1221,102 @@ func (s *importService) importCredentialConfiguration(
 		return serviceErrorOutcome(resourceTypeCredentialConfiguration, dto.ID, dto.Handle, operationCreate, svcErr)
 	}
 	return successOutcome(resourceTypeCredentialConfiguration, created.ID, created.Handle, operationCreate)
+}
+
+// notificationTemplateImportDoc is the import shape for a notification template.
+// It mirrors the API create model with an added channel discriminator.
+type notificationTemplateImportDoc struct {
+	Channel     string `yaml:"channel"`
+	Handle      string `yaml:"handle"`
+	DisplayName string `yaml:"displayName"`
+	Description string `yaml:"description"`
+	Content     struct {
+		Subject string `yaml:"subject"`
+		Body    string `yaml:"body"`
+	} `yaml:"content"`
+	Design *struct {
+		ColorScheme string `yaml:"colorScheme"`
+	} `yaml:"design"`
+}
+
+// importNotificationTemplate imports a notification_template document.
+// Templates are keyed by (channel, handle); with upsert, existing templates are matched by handle and updated.
+func (s *importService) importNotificationTemplate(
+	ctx context.Context, doc parsedDocument, options *ImportOptions, dryRun bool,
+) ImportItemOutcome {
+	if s.notifTemplateService == nil {
+		return unsupportedAdapterOutcome(resourceTypeNotificationTemplate, "notification template")
+	}
+
+	var raw notificationTemplateImportDoc
+	if err := doc.Node.Decode(&raw); err != nil {
+		return decodeErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, err)
+	}
+
+	channel := notificationtemplate.ChannelType(raw.Channel)
+	content := notificationtemplate.TemplateContent{Subject: raw.Content.Subject, Body: raw.Content.Body}
+	var design *notificationtemplate.TemplateDesign
+	if raw.Design != nil {
+		design = &notificationtemplate.TemplateDesign{ColorScheme: raw.Design.ColorScheme}
+	}
+
+	// Resolve whether the handle already exists so both the dry run and the real apply report the
+	// correct create/update operation. Only meaningful when upsert is enabled.
+	existingID := ""
+	if options.IsUpsertEnabled() {
+		existing, lookupErr := s.notifTemplateService.GetTemplateByHandle(ctx, channel, raw.Handle)
+		if lookupErr != nil && !isNotFoundServiceError(lookupErr) {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationUpdate, lookupErr)
+		}
+		if existing != nil {
+			existingID = existing.ID
+		}
+	}
+
+	if dryRun {
+		op := operationCreate
+		if existingID != "" {
+			op = operationUpdate
+		}
+		return successOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle, op)
+	}
+
+	if existingID == "" {
+		created, svcErr := s.notifTemplateService.CreateTemplate(ctx, channel,
+			notificationtemplate.CreateTemplateRequest{
+				Handle:      raw.Handle,
+				DisplayName: raw.DisplayName,
+				Description: raw.Description,
+				Design:      design,
+				Content:     content,
+			})
+		if svcErr == nil {
+			return successOutcome(resourceTypeNotificationTemplate, created.ID, created.Handle, operationCreate)
+		}
+		// Create race: the handle appeared between the existence check and the insert. Fall back to
+		// updating it when upsert is on; otherwise surface the conflict as a create failure.
+		if svcErr.Code != notificationtemplate.ErrorTemplateHandleConflict.Code || !options.IsUpsertEnabled() {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationCreate, svcErr)
+		}
+		existing, lookupErr := s.notifTemplateService.GetTemplateByHandle(ctx, channel, raw.Handle)
+		if lookupErr != nil && !isNotFoundServiceError(lookupErr) {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationUpdate, lookupErr)
+		}
+		if existing == nil {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationCreate, svcErr)
+		}
+		existingID = existing.ID
+	}
+
+	updated, updErr := s.notifTemplateService.UpdateTemplate(ctx, channel, existingID,
+		notificationtemplate.UpdateTemplateRequest{
+			DisplayName: raw.DisplayName,
+			Description: raw.Description,
+			Design:      design,
+			Content:     content,
+		})
+	if updErr != nil {
+		return serviceErrorOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle, operationUpdate, updErr)
+	}
+	return successOutcome(resourceTypeNotificationTemplate, updated.ID, updated.Handle, operationUpdate)
 }

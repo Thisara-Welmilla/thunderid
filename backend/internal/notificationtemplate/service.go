@@ -31,6 +31,8 @@ type NotificationTemplateServiceInterface interface {
 	CreateTemplate(ctx context.Context, channel channelType, request CreateTemplateRequest) (
 		*Template, *tidcommon.ServiceError)
 	GetTemplate(ctx context.Context, channel channelType, id string) (*Template, *tidcommon.ServiceError)
+	GetTemplateByHandle(ctx context.Context, channel channelType, handle string) (
+		*Template, *tidcommon.ServiceError)
 	UpdateTemplate(ctx context.Context, channel channelType, id string, request UpdateTemplateRequest) (
 		*Template, *tidcommon.ServiceError)
 	DeleteTemplate(ctx context.Context, channel channelType, id string) *tidcommon.ServiceError
@@ -149,6 +151,29 @@ func (ts *notificationTemplateService) GetTemplate(ctx context.Context, channel 
 			return nil, &ErrorTemplateNotFound
 		}
 		ts.logger.Error(ctx, "Failed to retrieve notification template", log.String("id", id), log.Error(err))
+		return nil, &tidcommon.InternalServerError
+	}
+
+	return daoToTemplate(dao), nil
+}
+
+// GetTemplateByHandle retrieves a template by channel and handle. Handles are immutable and unique per
+// channel, so this is the stable lookup key for callers that only know a template by its handle.
+func (ts *notificationTemplateService) GetTemplateByHandle(ctx context.Context, channel channelType,
+	handle string) (*Template, *tidcommon.ServiceError) {
+	if svcErr := validateChannel(channel); svcErr != nil {
+		return nil, svcErr
+	}
+	if handle == "" {
+		return nil, &ErrorInvalidHandle
+	}
+
+	dao, err := ts.store.GetTemplateByHandle(ctx, channel, handle)
+	if err != nil {
+		if errors.Is(err, errTemplateNotFound) {
+			return nil, &ErrorTemplateNotFound
+		}
+		ts.logger.Error(ctx, "Failed to retrieve notification template", log.String("handle", handle), log.Error(err))
 		return nil, &tidcommon.InternalServerError
 	}
 
