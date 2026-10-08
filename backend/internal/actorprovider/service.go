@@ -56,6 +56,14 @@ func (p *actorProvider) GetOAuthClientByClientID(
 	return toProviderOAuthClient(client), nil
 }
 
+// IsOAuthClientAccessibleFromOU reports whether an OAuth2 client may act on behalf of an
+// organization unit, which the inbound client service answers from the sharing policies.
+func (p *actorProvider) IsOAuthClientAccessibleFromOU(
+	ctx context.Context, client *providers.OAuthClient, ouID string,
+) (bool, *tidcommon.ServiceError) {
+	return p.inboundClient.IsClientAccessibleFromOU(ctx, client, ouID)
+}
+
 // GetOAuthClientByID returns the runtime OAuth client for the given entity UUID, or nil when there
 // is none.
 func (p *actorProvider) GetOAuthClientByID(

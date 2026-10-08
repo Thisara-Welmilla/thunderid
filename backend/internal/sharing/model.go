@@ -264,6 +264,34 @@ type ReplayablePolicy struct {
 	Request PolicyRequest `json:"request" yaml:"request"`
 }
 
+// DeclaredResourcePolicies is the sharing half of one resource's declarative document: the resource
+// the policies belong to, and the policies themselves.
+//
+// It is a bundle rather than a single policy because a document declares a list, and the loader
+// stores one object per document.
+type DeclaredResourcePolicies struct {
+	// ResourceID identifies the resource the policies are declared on.
+	ResourceID string
+	// ResourceName is carried so a startup failure can name the offending document.
+	ResourceName string
+	// OwningOUID is the organization unit that owns the resource.
+	OwningOUID string
+	// Policies are the decisions the document declares, in the order it declares them.
+	Policies []PolicyRequest
+}
+
+// DeclarativeLoaderConfig tells the framework where a resource type's documents live and how to
+// read the sharing half out of them. The directory is the resource type's own: a policy has no
+// document of its own, it is carried inside the resource it shares.
+type DeclarativeLoaderConfig struct {
+	// ResourceType is the sharing resource type the policies are declared for.
+	ResourceType ResourceType
+	// DirectoryName is the declarative resources subdirectory the documents live in.
+	DirectoryName string
+	// Parser reads one document and returns its sharing half, or nil when it declares none.
+	Parser func(data []byte) (*DeclaredResourcePolicies, error)
+}
+
 // FieldDeclaration describes one field a resource type exposes to sharing policies.
 type FieldDeclaration struct {
 	// Key identifies the field.

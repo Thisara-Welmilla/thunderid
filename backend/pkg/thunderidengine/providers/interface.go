@@ -68,6 +68,7 @@ type ActorProvider interface {
 	GetInboundClientByID(
 		ctx context.Context, id string,
 	) (*InboundClient, *common.ServiceError)
+	IsOAuthClientAccessibleFromOU(ctx context.Context, client *OAuthClient, ouID string) (bool, *common.ServiceError)
 	AuthenticateActor(
 		ctx context.Context, identifiers, credentials map[string]interface{},
 	) *common.ServiceError

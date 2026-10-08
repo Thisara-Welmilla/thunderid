@@ -34,7 +34,9 @@ type designResolver interface {
 // Escaping: only {{ctx(...)}} values are HTML-escaped (HTML body only), as untrusted caller input;
 // translation and design values are inserted verbatim. Context is substituted last.
 type TemplateRendererInterface interface {
-	Resolve(ctx context.Context, channel, handle string, in RenderInput) (*ResolvedContent, *tidcommon.ServiceError)
+	Resolve(
+		ctx context.Context, channel ChannelType, handle string, in RenderInput,
+	) (*ResolvedContent, *tidcommon.ServiceError)
 	// SetDesignResolver injects the design resolve service, which is built after this renderer.
 	SetDesignResolver(resolver designResolver)
 }
@@ -61,17 +63,16 @@ func (r *templateRenderer) SetDesignResolver(resolver designResolver) {
 
 // Resolve loads the template by handle and produces fully resolved, ready-to-send content for the
 // locale, failing closed if any required placeholder cannot be resolved.
-func (r *templateRenderer) Resolve(ctx context.Context, channel, handle string, in RenderInput) (
+func (r *templateRenderer) Resolve(ctx context.Context, channel ChannelType, handle string, in RenderInput) (
 	*ResolvedContent, *tidcommon.ServiceError) {
-	ch := ChannelType(channel)
-	if svcErr := validateChannel(ch); svcErr != nil {
+	if svcErr := validateChannel(channel); svcErr != nil {
 		return nil, svcErr
 	}
 	if handle == "" {
 		return nil, &ErrorInvalidHandle
 	}
 
-	dao, err := r.store.GetTemplateByHandle(ctx, ch, handle)
+	dao, err := r.store.GetTemplateByHandle(ctx, channel, handle)
 	if err != nil {
 		if errors.Is(err, errTemplateNotFound) {
 			return nil, &ErrorTemplateNotFound
@@ -80,7 +81,7 @@ func (r *templateRenderer) Resolve(ctx context.Context, channel, handle string, 
 		return nil, &tidcommon.InternalServerError
 	}
 
-	return r.resolveContent(ctx, ch, dao, in)
+	return r.resolveContent(ctx, channel, dao, in)
 }
 
 // resolveContent renders the subject and body. An email body is HTML and may carry design tokens; the

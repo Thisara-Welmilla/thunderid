@@ -395,6 +395,7 @@
   },
   "gateway": {
     "max_gateways": 1,
+    "max_versions": 3,
     "store": "composite"
   }
 }

@@ -413,7 +413,7 @@ spec:
         - id: send_notification_email
           type: TASK_EXECUTION
           properties:
-            emailTemplate: "CIBA_NOTIFICATION"
+            emailTemplate: "ciba-notification"
           executor:
             name: EmailExecutor
             mode: send
@@ -609,7 +609,7 @@ spec:
         - id: send_recovery_email
           type: TASK_EXECUTION
           properties:
-            emailTemplate: "PASSWORD_RECOVERY"
+            emailTemplate: "password-recovery"
           executor:
             name: EmailExecutor
             mode: send
@@ -751,7 +751,7 @@ spec:
               x: 1270
               y: 340
           properties:
-            emailTemplate: "PASSWORD_RECOVERY"
+            emailTemplate: "password-recovery"
           executor:
             name: EmailExecutor
             mode: send
@@ -1378,7 +1378,7 @@ spec:
               x: 4213
               y: 1398
           properties:
-            emailTemplate: "USER_INVITE"
+            emailTemplate: "user-invite"
           executor:
             name: EmailExecutor
             mode: send

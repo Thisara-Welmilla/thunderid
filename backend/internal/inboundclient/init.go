@@ -12,6 +12,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/entitytype"
 	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	"github.com/thunder-id/thunderid/internal/system/cache"
 	dre "github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwe"
@@ -30,13 +31,16 @@ func Initialize(
 	cryptoProvider providers.RuntimeCryptoProvider,
 	jweService jwe.JWEServiceInterface,
 	cimdService cimd.CIMDServiceInterface,
+	sharingService sharing.SharingServiceInterface,
+	sharedTypes map[providers.EntityCategory]sharing.ResourceType,
 ) (InboundClientServiceInterface, error) {
 	store, transactioner, err := initializeStore(cacheManager)
 	if err != nil {
 		return nil, err
 	}
 	return newInboundClientService(store, transactioner, certService, entityProvider,
-		themeMgt, layoutMgt, flowMgt, entityType, cryptoProvider, jweService, cimdService), nil
+		themeMgt, layoutMgt, flowMgt, entityType, cryptoProvider, jweService, cimdService,
+		sharingService, sharedTypes), nil
 }
 
 // initializeStore always creates a composite store (DB + in-memory file store).

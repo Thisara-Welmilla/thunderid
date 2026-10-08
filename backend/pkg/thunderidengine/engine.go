@@ -199,12 +199,13 @@ func New(mux *http.ServeMux, opts ...Option) *Engine {
 	}
 
 	oauthConfig := oauthconfig.Config{
-		DeploymentID:           engineCtx.serverConfig.Identifier,
-		RuntimeTransientDBType: engineCtx.runtimeTransientDBType,
-		BaseURL:                config.GetServerURL(&engineCtx.serverConfig),
-		JWT:                    engineCtx.jwtConfig,
-		OAuth:                  engineCtx.oauthConfig,
-		GateClient:             engineCtx.gateClientConfig,
+		DeploymentID:               engineCtx.serverConfig.Identifier,
+		RuntimeTransientDBType:     engineCtx.runtimeTransientDBType,
+		BaseURL:                    config.GetServerURL(&engineCtx.serverConfig),
+		JWT:                        engineCtx.jwtConfig,
+		OAuth:                      engineCtx.oauthConfig,
+		GateClient:                 engineCtx.gateClientConfig,
+		EnableOUQualifiedEndpoints: engineCtx.serverConfig.EnableOUQualifiedEndpoints,
 	}
 	// With no SSO session store there is no session termination to deliver, so back-channel logout is
 	// off: no dispatcher is built and discovery does not advertise it.

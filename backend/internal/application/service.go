@@ -395,7 +395,6 @@ func (as *applicationService) GetApplication(ctx context.Context, appID string) 
 	if svcErr != nil {
 		return nil, svcErr
 	}
-
 	return as.enrichApplicationWithCertificate(ctx, buildApplicationResponse(fullApp))
 }
 

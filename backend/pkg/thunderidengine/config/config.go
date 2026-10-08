@@ -152,12 +152,13 @@ type RedisConfig struct {
 
 // ServerConfig holds the server configuration details.
 type ServerConfig struct {
-	Hostname       string         `yaml:"hostname"   json:"hostname"`
-	Port           int            `yaml:"port"       json:"port"`
-	HTTPOnly       bool           `yaml:"http_only"  json:"http_only"`
-	PublicURL      string         `yaml:"public_url" json:"public_url"`
-	Identifier     string         `yaml:"identifier" json:"identifier"`
-	SecurityConfig SecurityConfig `yaml:"security"   json:"security"`
+	Hostname                   string         `yaml:"hostname"   json:"hostname"`
+	Port                       int            `yaml:"port"       json:"port"`
+	HTTPOnly                   bool           `yaml:"http_only"  json:"http_only"`
+	PublicURL                  string         `yaml:"public_url" json:"public_url"`
+	Identifier                 string         `yaml:"identifier" json:"identifier"`
+	SecurityConfig             SecurityConfig `yaml:"security"   json:"security"`
+	EnableOUQualifiedEndpoints bool           `yaml:"enable_ou_qualified_endpoints" json:"enable_ou_qualified_endpoints"` //nolint:lll // one tag pair
 }
 
 // GateClientConfig holds the client configuration details.

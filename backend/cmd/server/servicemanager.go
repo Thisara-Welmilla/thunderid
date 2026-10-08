@@ -79,6 +79,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/scim"
 	scimconfig "github.com/thunder-id/thunderid/internal/scim/config"
 	"github.com/thunder-id/thunderid/internal/serverconfig"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	"github.com/thunder-id/thunderid/internal/system/cache"
 	"github.com/thunder-id/thunderid/internal/system/cmodels"
 	"github.com/thunder-id/thunderid/internal/system/config"
@@ -87,7 +88,6 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/csp"
 	dbprovider "github.com/thunder-id/thunderid/internal/system/database/provider"
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
-	"github.com/thunder-id/thunderid/internal/system/email"
 	"github.com/thunder-id/thunderid/internal/system/export"
 	healthcheckservice "github.com/thunder-id/thunderid/internal/system/healthcheck/service"
 	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
@@ -105,7 +105,6 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/secretresolver"
 	"github.com/thunder-id/thunderid/internal/system/services"
 	"github.com/thunder-id/thunderid/internal/system/sysauthz"
-	"github.com/thunder-id/thunderid/internal/system/template"
 	"github.com/thunder-id/thunderid/internal/user"
 	"github.com/thunder-id/thunderid/internal/usermgtprovider"
 	"github.com/thunder-id/thunderid/internal/variablestore"
@@ -176,8 +175,8 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	ouAuthzService, err := sysauthz.Initialize()
 	fatalOnError(ctx, logger, err, "Failed to initialize system authorization service")
 
-	// The hierarchy enumerator is consumed by the sharing module, which is not wired in yet.
-	ouService, ouHierarchyResolver, _, ouExporter, err := ou.Initialize(mux, mcpServer, cacheManager, ouAuthzService)
+	ouService, ouHierarchyResolver, ouEnumerator, ouExporter, err := ou.Initialize(
+		mux, mcpServer, cacheManager, ouAuthzService)
 	fatalOnError(ctx, logger, err, "Failed to initialize OrganizationUnitService")
 	exporters = append(exporters, ouExporter)
 
@@ -263,9 +262,6 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	idpService, err := idp.Initialize(cacheManager, entityTypeService, roleService, groupService, resourceService)
 	fatalOnError(ctx, logger, err, "Failed to initialize IDPService")
 
-	templateService, err := template.Initialize()
-	fatalOnError(ctx, logger, err, "Failed to initialize template service")
-
 	notifSenderMgtSvc, notifOTPService, notifSenderSvc, err := notification.Initialize(jwtService)
 	fatalOnError(ctx, logger, err, "Failed to initialize NotificationService")
 
@@ -338,7 +334,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	agentMgtProvider := agentmgtprovider.Initialize()
 
 	_, directAuthGuard := authn.Initialize(mux, mcpServer, idpService, jwtService, authnProvider, authAssertGen,
-		otpCoreService, notifSenderSvc, templateService, magicLinkService, oauthAuthnService,
+		otpCoreService, notifSenderSvc, notifTemplateRenderer, magicLinkService, oauthAuthnService,
 		oidcAuthnService, googleAuthnService, githubAuthnService, authnconfig.FromServerRuntime())
 
 	// AuthZEN access-evaluation endpoints are Direct API endpoints, so they reuse the Direct Auth
@@ -347,8 +343,6 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	attributeCacheService := attributecache.Initialize(runtimeStoreProvider, runtimeCryptoSvc,
 		runtime.Config.AttributeCache.Encryption.Enabled)
-
-	emailClient := initEmailClient(ctx, logger)
 
 	// Create the flow server-config handler early so it can be registered before serverconfig is
 	// initialized. The handle-existence validator is injected in a second phase after flowMgtService
@@ -409,8 +403,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 			UserMgtProvider:       userMgtProvider,
 			AgentMgtProvider:      agentMgtProvider,
 			AttributeCacheSvc:     attributeCacheService,
-			EmailClient:           emailClient,
-			TemplateService:       templateService,
+			TemplateRenderer:      notifTemplateRenderer,
 			OAuthSvc:              oauthAuthnService,
 			OIDCSvc:               oidcAuthnService,
 			GithubSvc:             githubAuthnService,
@@ -446,11 +439,17 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	fatalOnError(ctx, logger, err, "Failed to initialize LayoutMgtService")
 	exporters = append(exporters, layoutExporter)
 
+	sharingService, err := sharing.Initialize(cacheManager, ouHierarchyResolver, ouEnumerator,
+		runtime.Config.ResourceSharing.AllowChildOUCrossTreeSharing)
+	fatalOnError(ctx, logger, err, "Failed to initialize SharingService")
+
 	cimdService := cimd.Initialize(mux)
 	inboundClientService, err := inboundclient.Initialize(
 		cacheManager, certservice, entityProvider,
 		themeMgtService, layoutMgtService, flowMgtService, entityTypeService, runtimeCryptoSvc, jweService,
-		cimdService)
+		cimdService, sharingService, map[providers.EntityCategory]sharing.ResourceType{
+			providers.EntityCategoryApp: application.ApplicationSharingType,
+		})
 	fatalOnError(ctx, logger, err, "Failed to initialize InboundClientService")
 
 	// Inject the consent service into the consent enforcer. It is wired here rather than at enforcer
@@ -463,7 +462,8 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 		runtimeCryptoSvc, serverConfigService,
 		func(client *providers.OAuthClient) time.Duration {
 			return tokenservice.ArtifactLifetime(oauthCfg, client)
-		})
+		},
+		sharingService)
 	fatalOnError(ctx, logger, err, "Failed to initialize ApplicationService")
 	// Two-phase initialization: inject the application service into the executors that act on it.
 	fatalOnError(ctx, logger, executor.SetApplicationProvider(execRegistry, applicationService),
@@ -511,11 +511,11 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	_ = flowmeta.Initialize(mux, actorProvider, ouProvider, designResolveService, i18nService)
 
 	// Initialize export service with collected exporters
-	_ = export.Initialize(mux, exporters, export.TemplatePlaceholders)
+	exportService := export.Initialize(mux, exporters, export.TemplatePlaceholders)
 
 	// The gateways this control plane administers. Registration is bounded by server.max_gateways,
 	// which is one unless a deployment raises it.
-	gatewayService, err := gateway.Initialize(mux)
+	gatewayService, err := gateway.Initialize(mux, exportService)
 	fatalOnError(ctx, logger, err, "Failed to initialize gateway service")
 
 	// Initialize import service
@@ -540,6 +540,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 		openid4vciCredSvc,
 		serverConfigService,
 		gatewayService,
+		notifTemplateSvc,
 		authZENPDPService,
 		// References in imported configuration are replaced with what this deployment's store holds.
 		secretresolver.New(variablestore.Lookup(references)),
@@ -686,17 +687,6 @@ func fatalOnError(ctx context.Context, logger *log.Logger, err error, msg string
 	if err != nil {
 		logger.Fatal(ctx, msg, log.Error(err))
 	}
-}
-
-// initEmailClient initializes the email client, returning nil if not configured.
-func initEmailClient(ctx context.Context, logger *log.Logger) email.EmailClientInterface {
-	client, err := email.Initialize()
-	if err != nil {
-		logger.Debug(ctx, "Email client not configured. "+
-			"EmailExecutor will be registered but will not send emails.", log.Error(err))
-		return nil
-	}
-	return client
 }
 
 // initializeFlowCoreAndExecutor initializes the flow core and executor services.

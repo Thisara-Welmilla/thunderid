@@ -104,7 +104,7 @@ func Initialize(
 		cibaService, revocationSvc, revocationSvc, cfg)
 
 	token.Initialize(mux, jwtService, actorProvider, authnProvider, grantHandlerProvider,
-		scopeValidator, observabilitySvc, discoveryService, dpopVerifier, jtiStore, cfg)
+		scopeValidator, observabilitySvc, discoveryService, dpopVerifier, jtiStore, ouService, cfg)
 	introspect.Initialize(mux, jwtService, actorProvider, authnProvider, discoveryService, tokenValidator,
 		jtiStore, cfg.OAuth.ClientAssertion, cfg.JWT.Leeway)
 	userinfo.Initialize(mux, jwtService, jweService, resolver,

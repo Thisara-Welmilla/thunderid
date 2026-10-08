@@ -333,7 +333,7 @@ nodes:
   type: TASK_EXECUTION
   properties:
     senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
-    smsTemplate: OTP
+    smsTemplate: otp
   executor:
     name: SMSExecutor
   onSuccess: prompt_otp
@@ -631,7 +631,7 @@ nodes:
   type: TASK_EXECUTION
   properties:
     senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
-    smsTemplate: OTP
+    smsTemplate: otp
   executor:
     name: SMSExecutor
   onSuccess: prompt_otp
@@ -928,7 +928,7 @@ nodes:
   type: TASK_EXECUTION
   properties:
     senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
-    smsTemplate: OTP
+    smsTemplate: otp
   executor:
     name: SMSExecutor
   onSuccess: prompt_otp
@@ -1301,7 +1301,7 @@ nodes:
   type: TASK_EXECUTION
   properties:
     senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
-    smsTemplate: OTP
+    smsTemplate: otp
   executor:
     name: SMSExecutor
   onSuccess: prompt_otp

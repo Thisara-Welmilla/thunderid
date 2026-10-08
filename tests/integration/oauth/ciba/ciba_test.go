@@ -1005,7 +1005,7 @@ func cibaAuthFlowNodes(loginHintAttribute, senderID string, withAuthzCheck bool)
 			"type": "TASK_EXECUTION",
 			"properties": map[string]interface{}{
 				"senderId":    senderID,
-				"smsTemplate": "CIBA_NOTIFICATION",
+				"smsTemplate": "ciba-notification",
 			},
 			"executor": map[string]interface{}{
 				"name": "SMSExecutor",

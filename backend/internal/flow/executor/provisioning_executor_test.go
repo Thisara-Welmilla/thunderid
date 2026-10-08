@@ -416,6 +416,62 @@ func (suite *ProvisioningExecutorTestSuite) TestGetAttributesForProvisioning_Con
 	assert.Equal(suite.T(), float64(42), result["age"])
 }
 
+// A claim fills an identifying attribute the flow did not collect, but never a credential: a password
+// an external party chose is not one the End-User set.
+func (suite *ProvisioningExecutorTestSuite) TestGetAttributesForProvisioning_ExternalClaims() {
+	suite.mockEntityTypeService.On("GetAttributes", mock.Anything, mock.Anything, testUserType,
+		model.AttributeFilter{AllowCredential: true, AllowNonCredential: true}).
+		Return([]model.AttributeInfo{
+			{Attribute: "username", Type: model.TypeString, Required: true},
+			{Attribute: "password", Type: model.TypeString, Credential: true},
+		}, nil).Once()
+
+	ctx := &providers.NodeContext{
+		RuntimeData: map[string]string{
+			categoryTypeKey: testUserType,
+			common.RuntimeKeyExternalIdentity: externalIdentityEntry("idp-1", "sub-1",
+				map[string]interface{}{"username": "claimed", "password": "chosen-by-idp"}),
+		},
+		NodeInputs: []providers.Input{},
+	}
+
+	identifying, credentials, err := suite.executor.getAttributesForProvisioning(ctx, entitytype.TypeCategoryUser)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), "claimed", identifying["username"])
+	assert.Empty(suite.T(), credentials)
+}
+
+// A claim never stands in for a credential, so a password the flow has not collected is still prompted
+// even when the external identity asserts one.
+func (suite *ProvisioningExecutorTestSuite) TestBuildMissingInputs_ExternalClaimDoesNotSatisfyCredential() {
+	ctx := &providers.NodeContext{
+		RuntimeData: map[string]string{
+			common.RuntimeKeyExternalIdentity: externalIdentityEntry("idp-1", "sub-1",
+				map[string]interface{}{"username": "claimed", "password": "chosen-by-idp"}),
+		},
+	}
+
+	credRequired, _, ncRequired, _ := suite.executor.buildMissingInputs(ctx, []model.AttributeInfo{
+		{Attribute: "username", Type: model.TypeString, Required: true},
+		{Attribute: "password", Type: model.TypeString, Required: true, Credential: true},
+	}, map[string]providers.Input{})
+
+	assert.Empty(suite.T(), ncRequired)
+	assert.Len(suite.T(), credRequired, 1)
+	assert.Equal(suite.T(), "password", credRequired[0].Identifier)
+}
+
+// A claim named after the entity type key does not choose the type the user is created as.
+func (suite *ProvisioningExecutorTestSuite) TestGetEntityType_IgnoresExternalClaim() {
+	ctx := &providers.NodeContext{RuntimeData: map[string]string{
+		common.RuntimeKeyExternalIdentity: externalIdentityEntry("idp-1", "sub-1",
+			map[string]interface{}{categoryTypeKey: "admin"}),
+	}}
+
+	assert.Equal(suite.T(), "", suite.executor.getEntityType(ctx))
+}
+
 // TestGetAttributesForProvisioning_UnparseableBooleanIsPassedThrough verifies that a value that
 // does not parse is left as-is, so schema validation reports it instead of a zero value being
 // silently substituted.

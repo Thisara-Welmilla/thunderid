@@ -24,6 +24,7 @@ import (
 	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
 	"github.com/thunder-id/thunderid/internal/group"
 	ncommon "github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
@@ -232,6 +233,19 @@ type credentialConfigurationAdapter interface {
 	DeleteCredentialConfiguration(ctx context.Context, id string) *tidcommon.ServiceError
 }
 
+// notificationTemplateAdapter exposes the service methods needed by the importer.
+// Delete is omitted because templates require both channel and ID, which shared import-delete cannot provide.
+type notificationTemplateAdapter interface {
+	GetTemplateByHandle(ctx context.Context, channel notificationtemplate.ChannelType, handle string) (
+		*notificationtemplate.Template, *tidcommon.ServiceError)
+	ValidateTemplate(ctx context.Context, channel notificationtemplate.ChannelType,
+		request notificationtemplate.CreateTemplateRequest) *tidcommon.ServiceError
+	CreateTemplate(ctx context.Context, channel notificationtemplate.ChannelType,
+		request notificationtemplate.CreateTemplateRequest) (*notificationtemplate.Template, *tidcommon.ServiceError)
+	UpdateTemplate(ctx context.Context, channel notificationtemplate.ChannelType, id string,
+		request notificationtemplate.UpdateTemplateRequest) (*notificationtemplate.Template, *tidcommon.ServiceError)
+}
+
 // ImportServiceInterface defines runtime resource import and declarative resource deletion operations.
 type ImportServiceInterface interface {
 	ImportResources(ctx context.Context, request *ImportRequest) (*ImportResponse, *tidcommon.ServiceError)
@@ -268,6 +282,7 @@ type importService struct {
 	credentialConfigurationService credentialConfigurationAdapter
 	serverConfigService            serverConfigAdapter
 	gatewayService                 gatewayAdapter
+	notifTemplateService           notificationTemplateAdapter
 	// references replaces a var: or sec: reference with the value this deployment holds. Nil leaves
 	// references in place, which is what a control plane wants: it keeps configuration as references
 	// and holds no values.
@@ -294,6 +309,7 @@ func newImportService(
 	credentialConfigurationService credentialConfigurationAdapter,
 	serverConfigService serverConfigAdapter,
 	gatewayService gatewayAdapter,
+	notifTemplateService notificationTemplateAdapter,
 	authZENPDPServices ...authZENPDPAdapter,
 ) ImportServiceInterface {
 	var authZENPDPService authZENPDPAdapter
@@ -321,6 +337,7 @@ func newImportService(
 		credentialConfigurationService: credentialConfigurationService,
 		serverConfigService:            serverConfigService,
 		gatewayService:                 gatewayService,
+		notifTemplateService:           notifTemplateService,
 	}
 }
 
@@ -544,6 +561,8 @@ func (s *importService) importDocument(
 		return s.importServerConfig(ctx, doc, dryRun)
 	case resourceTypeGateway:
 		return s.importGateway(ctx, doc, options, dryRun)
+	case resourceTypeNotificationTemplate:
+		return s.importNotificationTemplate(ctx, doc, options, dryRun)
 	default:
 		return ImportItemOutcome{
 			ResourceType: doc.ResourceType,

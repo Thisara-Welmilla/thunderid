@@ -27,6 +27,7 @@ import (
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	oauthutils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	syshttp "github.com/thunder-id/thunderid/internal/system/http"
@@ -67,6 +68,10 @@ type InboundClientServiceInterface interface {
 	GetOAuthProfileByEntityID(ctx context.Context, entityID string) (*providers.OAuthProfile, error)
 	// GetOAuthClientByClientID resolves a full OAuthClient by its public client_id.
 	GetOAuthClientByClientID(ctx context.Context, clientID string) (*providers.OAuthClient, error)
+	// IsClientAccessibleFromOU refuses a client that may not act for the given organization unit.
+	IsClientAccessibleFromOU(
+		ctx context.Context, client *providers.OAuthClient, ouID string,
+	) (bool, *tidcommon.ServiceError)
 	// GetOAuthClientByEntityID returns the runtime OAuth client of the entity, or (nil, nil) when the
 	// entity does not exist or has no OAuth client registered.
 	GetOAuthClientByEntityID(ctx context.Context, entityID string) (*providers.OAuthClient, error)
@@ -100,6 +105,8 @@ type inboundClientService struct {
 	cryptoProvider providers.RuntimeCryptoProvider
 	jweService     jwe.JWEServiceInterface
 	cimdService    cimd.CIMDServiceInterface
+	sharingService sharing.SharingServiceInterface
+	sharedTypes    map[providers.EntityCategory]sharing.ResourceType
 	logger         *log.Logger
 }
 
@@ -114,6 +121,8 @@ func newInboundClientService(store inboundClientStoreInterface, transactioner pr
 	cryptoProvider providers.RuntimeCryptoProvider,
 	jweService jwe.JWEServiceInterface,
 	cimdService cimd.CIMDServiceInterface,
+	sharingService sharing.SharingServiceInterface,
+	sharedTypes map[providers.EntityCategory]sharing.ResourceType,
 ) InboundClientServiceInterface {
 	return &inboundClientService{
 		store:          store,
@@ -127,6 +136,8 @@ func newInboundClientService(store inboundClientStoreInterface, transactioner pr
 		cryptoProvider: cryptoProvider,
 		jweService:     jweService,
 		cimdService:    cimdService,
+		sharingService: sharingService,
+		sharedTypes:    sharedTypes,
 		logger:         log.GetLogger().With(log.String(log.LoggerKeyComponentName, "InboundClientService")),
 	}
 }
@@ -626,6 +637,34 @@ func clientIDFromEntity(e *providers.Entity) string {
 	}
 	clientID, _ := attrs["clientId"].(string)
 	return clientID
+}
+
+// IsClientAccessibleFromOU reports whether a client may act for the given organization unit.
+func (s *inboundClientService) IsClientAccessibleFromOU(
+	ctx context.Context, client *providers.OAuthClient, accessingOUID string,
+) (bool, *tidcommon.ServiceError) {
+	if accessingOUID == "" || client == nil {
+		return true, nil
+	}
+	// A client's own organization unit needs no policy. The framework would answer the same, but
+	// only after resolving ownership, and this is the common case on the token path.
+	if client.OUID == accessingOUID {
+		return true, nil
+	}
+
+	// A kind of client no resource type is registered for cannot be shared, so it is usable in its
+	// own organization unit alone.
+	rt, shareable := s.sharedTypes[client.EntityCategory]
+	if !shareable || s.sharingService == nil {
+		return false, nil
+	}
+	accessible, svcErr := s.sharingService.IsVisible(ctx, rt, client.ID, accessingOUID)
+	if svcErr != nil {
+		s.logger.Error(ctx, "Failed to resolve client access for an organization unit",
+			log.String("clientID", client.ID), log.Any("error", svcErr))
+		return false, svcErr
+	}
+	return accessible, nil
 }
 
 // BuildOAuthClient assembles an OAuthClient from a stored OAuthProfile and entity context.

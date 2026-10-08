@@ -179,6 +179,28 @@ notification:
 	assert.Equal(suite.T(), "mysql", config.Database.Config.SQLite.Path)
 }
 
+// ThunderID always serves the organization-unit-qualified routes, and resolving that during the
+// config load is what lets every module read one value instead of deciding for itself. A module
+// that reads the server config and finds this off would register no such route.
+func (suite *ConfigTestSuite) TestLoadConfigEnablesOUQualifiedEndpoints() {
+	tempDir := suite.T().TempDir()
+	userFile := suite.createTempFile(tempDir, "user*.yaml", `
+server:
+  hostname: "user-host"
+  port: 8095
+notification:
+  otp:
+    length: 6
+    use_numeric_only: true
+    validity_period_seconds: 120
+`)
+
+	config, err := LoadConfig(userFile, "", tempDir)
+
+	assert.NoError(suite.T(), err)
+	assert.True(suite.T(), config.Server.EnableOUQualifiedEndpoints)
+}
+
 func (suite *ConfigTestSuite) TestLoadConfigGateClientDefaultsToServer() {
 	tempDir := suite.T().TempDir()
 

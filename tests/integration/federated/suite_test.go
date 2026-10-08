@@ -62,6 +62,8 @@ var fedPersonType = testutils.UserType{
 		"city":       map[string]interface{}{"type": "string"},
 		"costCenter": map[string]interface{}{"type": "string"},
 		"sub":        map[string]interface{}{"type": "string"},
+		// Optional; signs a user in before a federated sign-in in the same flow.
+		"password": map[string]interface{}{"type": "string", "credential": true},
 	},
 }
 
@@ -605,8 +607,10 @@ func (s *FederatedMappingSuite) createAuthApp(
 }
 
 // createScenarioApp creates a flow and an application that runs it, for scenarios whose whole point is a
-// graph the shared flows cannot express. Both are torn down after the test.
-func (s *FederatedMappingSuite) createScenarioApp(flow testutils.Flow, clientID string) string {
+// graph the shared flows cannot express. Both are torn down after the test. The assertion carries the
+// user type, the OU and any assertionAttributes.
+func (s *FederatedMappingSuite) createScenarioApp(
+	flow testutils.Flow, clientID string, assertionAttributes ...string) string {
 	s.T().Helper()
 	flowID, err := testutils.CreateFlow(flow)
 	s.Require().NoError(err, "failed to create flow %s", flow.Handle)
@@ -626,12 +630,28 @@ func (s *FederatedMappingSuite) createScenarioApp(flow testutils.Flow, clientID 
 		AuthFlowID:         flowID,
 		RegistrationFlowID: regFlowID,
 		AssertionConfig: map[string]interface{}{
-			"userAttributes": []string{"userType", "ouId"},
+			"userAttributes": append([]string{"userType", "ouId"}, assertionAttributes...),
 		},
 	})
 	s.Require().NoError(err, "failed to create the scenario application")
 	s.perTestAppIDs = append(s.perTestAppIDs, appID)
 	return appID
+}
+
+// authenticateFlow drives an authentication flow for whichever identity the mocks return for sub, and
+// returns the step the federated callback leads to.
+func (s *FederatedMappingSuite) authenticateFlow(appID, sub string) (*common.FlowStep, error) {
+	s.T().Helper()
+	s.activeSub = sub
+
+	step, err := common.InitiateAuthenticationFlow(appID, false, nil, "")
+	s.Require().NoError(err, "failed to initiate the authentication flow")
+	s.Require().Equal("REDIRECTION", step.Type, "expected a redirection, got %+v", step)
+
+	code, state, err := testutils.SimulateFederatedOAuthFlow(step.Data.RedirectURL)
+	s.Require().NoError(err, "failed to simulate authorization at the identity provider")
+	return common.CompleteFlow(step.ExecutionID, map[string]string{"code": code, "state": state}, "",
+		step.ChallengeToken)
 }
 
 func (s *FederatedMappingSuite) TearDownTest() {

@@ -114,12 +114,14 @@ func (s *FederatedMappingSuite) TestAuthenticationFlowWithoutLocalUserFailsWhenN
 	step, err := s.authenticate(s.strictAuthAppID, mapping(fedPersonType.Handle, pair("email", "email")), user)
 
 	// Asserted exactly rather than "any failure": an unrelated OIDC, state or executor fault would
-	// otherwise satisfy this test. The identity currently fails as an opaque HTTP 500 carrying
-	// SSE-5000, which is the G18 behaviour; when that is corrected to a client error this assertion
-	// fails loudly and is updated, which is the intent.
-	s.Require().Error(err, "an unmatched identity must not authenticate, got %+v", step)
-	s.Contains(err.Error(), "500", "expected the documented G18 internal error, got %v", err)
-	s.Contains(err.Error(), "SSE-5000", "expected the documented G18 error code, got %v", err)
+	// otherwise satisfy this test. An identity that names no local user is the caller's input, so it
+	// terminates the flow in ERROR carrying the client error code, not an opaque HTTP 500 with
+	// SSE-5000, which is what the lost error classification used to produce.
+	s.Require().NoError(err, "a failed flow is still a 200 carrying its error, got %v", err)
+	s.Require().NotNil(step, "expected a terminal step for the unmatched identity")
+	s.Require().Equal("ERROR", step.FlowStatus, "an unmatched identity must not authenticate, got %+v", step)
+	s.Require().NotNil(step.Error, "expected the terminal step to carry its error, got %+v", step)
+	s.Equal("FET-1002", step.Error.Code, "expected the client error for an unidentifiable user, got %+v", step.Error)
 
 	unexpected, lookupErr := testutils.FindUserByAttribute("sub", user.Sub)
 	s.Require().NoError(lookupErr, "failed to check whether a user was created")

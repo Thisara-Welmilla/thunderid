@@ -73,7 +73,7 @@ var (
 				"type": "TASK_EXECUTION",
 				"properties": map[string]interface{}{
 					"senderId":    "placeholder-sender-id",
-					"smsTemplate": "OTP",
+					"smsTemplate": "otp",
 				},
 				"executor": map[string]interface{}{
 					"name": "SMSExecutor",
@@ -176,7 +176,7 @@ var (
 				"type": "TASK_EXECUTION",
 				"properties": map[string]interface{}{
 					"senderId":    "placeholder-sender-id",
-					"smsTemplate": "OTP",
+					"smsTemplate": "otp",
 				},
 				"executor": map[string]interface{}{
 					"name": "SMSExecutor",
@@ -815,7 +815,7 @@ func buildOTPPropertiesFlow(name, handle string, otpProperties map[string]interf
 			{
 				"id":         "sms_send",
 				"type":       "TASK_EXECUTION",
-				"properties": map[string]interface{}{"senderId": smsAuthTestSenderID, "smsTemplate": "OTP"},
+				"properties": map[string]interface{}{"senderId": smsAuthTestSenderID, "smsTemplate": "otp"},
 				"executor":   map[string]interface{}{"name": "SMSExecutor"},
 				"onSuccess":  "prompt_otp",
 			},

@@ -17,6 +17,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/group"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/notification"
+	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
@@ -51,6 +52,7 @@ func Initialize(
 	credentialConfigurationService credential.CredentialConfigurationServiceInterface,
 	serverConfigService serverconfig.ServerConfigService,
 	gatewayService gateway.ServiceInterface,
+	notifTemplateService notificationtemplate.NotificationTemplateServiceInterface,
 	authZENPDPService authzenpdp.AuthZENPDPServiceInterface,
 	references *secretresolver.Resolver,
 ) ImportServiceInterface {
@@ -74,6 +76,7 @@ func Initialize(
 		credentialConfigurationService,
 		serverConfigService,
 		gatewayService,
+		notifTemplateService,
 		authZENPDPService,
 	)
 	// Set here rather than passed to newImportService, which every test constructs without one.

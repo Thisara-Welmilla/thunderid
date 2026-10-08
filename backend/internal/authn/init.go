@@ -21,9 +21,9 @@ import (
 	"github.com/thunder-id/thunderid/internal/authn/reactsdk"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/notification"
+	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
 	"github.com/thunder-id/thunderid/internal/system/middleware"
-	"github.com/thunder-id/thunderid/internal/system/template"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 )
 
@@ -39,7 +39,7 @@ func Initialize(
 	authAssertGen assert.AuthAssertGeneratorInterface,
 	otpSvc otp.OTPAuthnServiceInterface,
 	notifSenderSvc notification.NotificationSenderServiceInterface,
-	templateSvc template.TemplateServiceInterface,
+	templateRenderer notificationtemplate.TemplateRendererInterface,
 	magicLinkSvc magiclink.MagicLinkAuthnServiceInterface,
 	oauthSvc oauth.OAuthAuthnServiceInterface,
 	oidcSvc oidc.OIDCAuthnServiceInterface,
@@ -95,7 +95,7 @@ func Initialize(
 		authnProvider,
 		otpSvc,
 		notifSenderSvc,
-		templateSvc,
+		templateRenderer,
 		magicLinkSvc,
 		oauthSvc,
 		oidcSvc,

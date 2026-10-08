@@ -443,7 +443,7 @@ func buildSMSOTPRecoveryFlow(senderID string) testutils.Flow {
 				"type": "TASK_EXECUTION",
 				"properties": map[string]interface{}{
 					"senderId":    senderID,
-					"smsTemplate": "OTP",
+					"smsTemplate": "otp",
 				},
 				"executor": map[string]interface{}{
 					"name": "SMSExecutor",

@@ -1745,3 +1745,29 @@ func (suite *ClientAuthTestSuite) TestValidateClientAssertion_MissingJTI() {
 func noopAuthnMgr() *managermock.AuthnProviderManagerMock {
 	return &managermock.AuthnProviderManagerMock{}
 }
+
+// A client that may not act for an organization unit and an organization unit that does not exist
+// answer identically, which is what stops the token endpoint being used to enumerate organization
+// units. Both are reached only after the client has authenticated, so an unauthenticated caller
+// cannot probe either.
+//
+// The two refusals are produced by different packages: this one by the admission step, the other
+// by the accessing-organization-unit middleware. This pins the half of the pair that lives here.
+func TestTheTwoOURefusalsAreIndistinguishable(t *testing.T) {
+	refusal := errClientNotAuthorizedForOU
+
+	assert.Equal(t, constants.ErrorUnauthorizedClient, refusal.ErrorCode)
+	assert.Equal(t, http.StatusBadRequest, refusal.StatusCode)
+	assert.Equal(t, constants.OUAccessRefusal, refusal.ErrorDescription,
+		"the wording is shared with the middleware's refusal, so the two cannot drift apart")
+}
+
+// A wrong secret stays a different answer. Collapsing that one too would leave a caller unable to
+// tell a bad credential from a missing policy, which is a refusal it can actually act on.
+func TestABadCredentialIsStillItsOwnAnswer(t *testing.T) {
+	refusal := errClientNotAuthorizedForOU
+
+	assert.NotEqual(t, errInvalidClientCredentials.ErrorCode, refusal.ErrorCode)
+	assert.Equal(t, constants.ErrorInvalidClient, errInvalidClientCredentials.ErrorCode,
+		"a bad credential remains invalid_client")
+}

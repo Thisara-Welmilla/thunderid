@@ -77,7 +77,7 @@ var (
 				"type": "TASK_EXECUTION",
 				"properties": map[string]interface{}{
 					"senderId":    "placeholder-sender-id",
-					"smsTemplate": "OTP",
+					"smsTemplate": "otp",
 				},
 				"executor": map[string]interface{}{
 					"name": "SMSExecutor",
@@ -187,7 +187,7 @@ var (
 				"type": "TASK_EXECUTION",
 				"properties": map[string]interface{}{
 					"senderId":    "placeholder-sender-id",
-					"smsTemplate": "OTP",
+					"smsTemplate": "otp",
 				},
 				"executor": map[string]interface{}{
 					"name": "SMSExecutor",

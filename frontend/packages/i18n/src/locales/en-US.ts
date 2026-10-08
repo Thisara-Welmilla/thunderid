@@ -3838,21 +3838,18 @@ const translations = {
     'core.executions.email.description': 'Configure the email executor settings.',
     'core.executions.email.emailTemplate.label': 'Email Template',
     'core.executions.email.emailTemplate.placeholder': 'Select an email template',
-    'core.executions.email.emailTemplate.hint': 'The email template scenario to use when sending the email.',
+    'core.executions.email.emailTemplate.hint': 'The email template to use when sending the email.',
+    'core.executions.email.emailTemplate.noTemplates':
+      'No email templates available. Please create an email template first.',
+    'core.executions.email.emailTemplate.loadError': 'Failed to load email templates. Please try again.',
 
     // SMS executor
     'core.executions.sms.description': 'Configure the SMS executor settings.',
     'core.executions.sms.smsTemplate.label': 'SMS Template',
     'core.executions.sms.smsTemplate.placeholder': 'Select an SMS template',
-    'core.executions.sms.smsTemplate.hint': 'The SMS template scenario to use when sending the message.',
-
-    // Template scenarios shared by the Email and SMS executors
-    'core.executions.templateScenarios.userInvite': 'User Invite',
-    'core.executions.templateScenarios.magicLink': 'Magic Link',
-    'core.executions.templateScenarios.selfRegistration': 'Self Registration',
-    'core.executions.templateScenarios.otp': 'OTP Verification',
-    'core.executions.templateScenarios.passwordRecovery': 'Password Recovery',
-    'core.executions.templateScenarios.cibaNotification': 'CIBA Notification',
+    'core.executions.sms.smsTemplate.hint': 'The SMS template to use when sending the message.',
+    'core.executions.sms.smsTemplate.noTemplates': 'No SMS templates available. Please create an SMS template first.',
+    'core.executions.sms.smsTemplate.loadError': 'Failed to load SMS templates. Please try again.',
 
     // OpenID4VP verifier executor
     'core.executions.openid4vp.description':
