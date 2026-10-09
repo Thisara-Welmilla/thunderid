@@ -14,12 +14,12 @@ import (
 // compositeStore merges file-declared and DB templates. Reads merge; writes hit the DB; declared
 // templates are read-only.
 type compositeStore struct {
-	fileStore *templateFileStore
+	fileStore *templateFileBasedStore
 	dbStore   notificationTemplateStoreInterface
 }
 
 // newCompositeStore combines a file store and a DB store.
-func newCompositeStore(fileStore *templateFileStore,
+func newCompositeStore(fileStore *templateFileBasedStore,
 	dbStore notificationTemplateStoreInterface) notificationTemplateStoreInterface {
 	return &compositeStore{fileStore: fileStore, dbStore: dbStore}
 }

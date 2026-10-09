@@ -14,33 +14,33 @@ import (
 // resourceTypeNotificationTemplate names this resource in files and logs.
 const resourceTypeNotificationTemplate = "NotificationTemplate"
 
-// templateFileStore holds file-declared templates in memory. Read-only; writes are refused.
-type templateFileStore struct {
+// templateFileBasedStore holds file-declared templates in memory. Read-only; writes are refused.
+type templateFileBasedStore struct {
 	*declarativeresource.GenericFileBasedStore
 }
 
-// newFileStore creates a file store over the shared declarative-resource store.
-func newFileStore() *templateFileStore {
-	return &templateFileStore{
+// newFileBasedTemplateStore creates a file store over the shared declarative-resource store.
+func newFileBasedTemplateStore() *templateFileBasedStore {
+	return &templateFileBasedStore{
 		GenericFileBasedStore: declarativeresource.NewGenericFileBasedStore(entity.KeyTypeNotificationTemplate),
 	}
 }
 
 // newTestFileStore creates a file store over an isolated backing store.
-func newTestFileStore() *templateFileStore {
-	return &templateFileStore{
+func newTestFileStore() *templateFileBasedStore {
+	return &templateFileBasedStore{
 		GenericFileBasedStore: declarativeresource.NewGenericFileBasedStoreForTest(entity.KeyTypeNotificationTemplate),
 	}
 }
 
 // put records a declared template; the loader's only way in.
-func (f *templateFileStore) put(t templateDAO) error {
+func (f *templateFileBasedStore) put(t templateDAO) error {
 	stored := t
 	return f.GenericFileBasedStore.Create(t.ID, &stored)
 }
 
 // listAll returns every declared template across all channels.
-func (f *templateFileStore) listAll() ([]templateDAO, error) {
+func (f *templateFileBasedStore) listAll() ([]templateDAO, error) {
 	entries, err := f.GenericFileBasedStore.List()
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func (f *templateFileStore) listAll() ([]templateDAO, error) {
 }
 
 // listByChannel returns a channel's declared templates, ordered by handle for stable pagination.
-func (f *templateFileStore) listByChannel(channel ChannelType) ([]templateDAO, error) {
+func (f *templateFileBasedStore) listByChannel(channel ChannelType) ([]templateDAO, error) {
 	all, err := f.listAll()
 	if err != nil {
 		return nil, err
@@ -74,12 +74,12 @@ func (f *templateFileStore) listByChannel(channel ChannelType) ([]templateDAO, e
 }
 
 // CreateTemplate refuses; files are the only writer.
-func (f *templateFileStore) CreateTemplate(_ context.Context, _ templateDAO) error {
+func (f *templateFileBasedStore) CreateTemplate(_ context.Context, _ templateDAO) error {
 	return errDeclarativeTemplate
 }
 
 // GetTemplate returns a declared template by channel and id.
-func (f *templateFileStore) GetTemplate(_ context.Context, channel ChannelType, id string) (templateDAO, error) {
+func (f *templateFileBasedStore) GetTemplate(_ context.Context, channel ChannelType, id string) (templateDAO, error) {
 	all, err := f.listAll()
 	if err != nil {
 		return templateDAO{}, err
@@ -93,7 +93,7 @@ func (f *templateFileStore) GetTemplate(_ context.Context, channel ChannelType, 
 }
 
 // GetTemplateByHandle returns a declared template by channel and handle.
-func (f *templateFileStore) GetTemplateByHandle(_ context.Context, channel ChannelType, handle string) (
+func (f *templateFileBasedStore) GetTemplateByHandle(_ context.Context, channel ChannelType, handle string) (
 	templateDAO, error) {
 	all, err := f.listAll()
 	if err != nil {
@@ -108,7 +108,7 @@ func (f *templateFileStore) GetTemplateByHandle(_ context.Context, channel Chann
 }
 
 // ListTemplates returns a page of declared templates of a channel.
-func (f *templateFileStore) ListTemplates(_ context.Context, channel ChannelType, limit, offset int) (
+func (f *templateFileBasedStore) ListTemplates(_ context.Context, channel ChannelType, limit, offset int) (
 	[]templateDAO, error) {
 	filtered, err := f.listByChannel(channel)
 	if err != nil {
@@ -125,7 +125,7 @@ func (f *templateFileStore) ListTemplates(_ context.Context, channel ChannelType
 }
 
 // CountTemplates returns the number of declared templates of a channel.
-func (f *templateFileStore) CountTemplates(_ context.Context, channel ChannelType) (int, error) {
+func (f *templateFileBasedStore) CountTemplates(_ context.Context, channel ChannelType) (int, error) {
 	filtered, err := f.listByChannel(channel)
 	if err != nil {
 		return 0, err
@@ -134,17 +134,17 @@ func (f *templateFileStore) CountTemplates(_ context.Context, channel ChannelTyp
 }
 
 // UpdateTemplate refuses; declared templates are read-only.
-func (f *templateFileStore) UpdateTemplate(_ context.Context, _ templateDAO) error {
+func (f *templateFileBasedStore) UpdateTemplate(_ context.Context, _ templateDAO) error {
 	return errDeclarativeTemplate
 }
 
 // DeleteTemplate refuses; declared templates are read-only.
-func (f *templateFileStore) DeleteTemplate(_ context.Context, _ ChannelType, _ string) error {
+func (f *templateFileBasedStore) DeleteTemplate(_ context.Context, _ ChannelType, _ string) error {
 	return errDeclarativeTemplate
 }
 
 // IsHandleExists reports whether a declared template in the channel already uses the handle.
-func (f *templateFileStore) IsHandleExists(_ context.Context, channel ChannelType, handle string) (bool, error) {
+func (f *templateFileBasedStore) IsHandleExists(_ context.Context, channel ChannelType, handle string) (bool, error) {
 	all, err := f.listAll()
 	if err != nil {
 		return false, err

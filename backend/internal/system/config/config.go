@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/log/rollingfile"
 	"github.com/thunder-id/thunderid/internal/system/utils"
@@ -122,12 +123,12 @@ func (c *NotificationTemplateConfig) Validate() error {
 	if c.Store == "" {
 		return nil
 	}
-	switch strings.ToLower(strings.TrimSpace(c.Store)) {
-	case "mutable", "declarative", "composite":
+	switch serverconst.StoreMode(strings.ToLower(strings.TrimSpace(c.Store))) {
+	case serverconst.StoreModeMutable, serverconst.StoreModeDeclarative, serverconst.StoreModeComposite:
 		return nil
 	default:
-		return fmt.Errorf(
-			"notification.template.store must be one of mutable, declarative, composite (got %q)", c.Store)
+		return fmt.Errorf("notification.template.store must be one of %q, %q, %q (got %q)",
+			serverconst.StoreModeMutable, serverconst.StoreModeDeclarative, serverconst.StoreModeComposite, c.Store)
 	}
 }
 

@@ -10,21 +10,24 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/cache"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/middleware"
 )
 
 // Initialize wires the store, service, handler, and runtime renderer, and registers HTTP routes.
-// The selected store is wrapped with a read cache for the runtime hot path.
+// The selected store is wrapped with a read cache for the runtime hot path. One declarative-resource
+// exporter is returned per channel.
 func Initialize(mux *http.ServeMux, cacheManager cache.CacheManagerInterface,
-	translation translationResolver) (NotificationTemplateServiceInterface, TemplateRendererInterface, error) {
+	translation translationResolver) (NotificationTemplateServiceInterface, TemplateRendererInterface,
+	[]declarativeresource.ResourceExporter, error) {
 	transactioner, err := provider.GetDBProvider().GetConfigDBTransactioner()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get config database transactioner: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to get config database transactioner: %w", err)
 	}
 
 	inner, err := selectStore()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	byHandle := cache.GetCache[templateDAO](cacheManager, "NotificationTemplateByHandleCache")
@@ -36,24 +39,30 @@ func Initialize(mux *http.ServeMux, cacheManager cache.CacheManagerInterface,
 
 	templateRenderer := newTemplateRenderer(store, translation)
 
-	return service, templateRenderer, nil
+	exporters := []declarativeresource.ResourceExporter{
+		newNotificationTemplateExporter(service, ChannelTypeEmail),
+		newNotificationTemplateExporter(service, ChannelTypeSMS),
+	}
+
+	return service, templateRenderer, exporters, nil
 }
 
 // selectStore builds the store for the configured mode, loading declared templates at startup.
 func selectStore() (notificationTemplateStoreInterface, error) {
 	switch getStoreMode() {
 	case serverconst.StoreModeDeclarative:
-		fileStore := newFileStore()
-		if err := loadDeclarativeTemplates(fileStore); err != nil {
+		fileStore := newFileBasedTemplateStore()
+		if err := loadDeclarativeTemplates(fileStore, nil); err != nil {
 			return nil, err
 		}
 		return fileStore, nil
 	case serverconst.StoreModeComposite:
-		fileStore := newFileStore()
-		if err := loadDeclarativeTemplates(fileStore); err != nil {
+		fileStore := newFileBasedTemplateStore()
+		dbStore := newNotificationTemplateStore()
+		if err := loadDeclarativeTemplates(fileStore, dbStore); err != nil {
 			return nil, err
 		}
-		return newCompositeStore(fileStore, newNotificationTemplateStore()), nil
+		return newCompositeStore(fileStore, dbStore), nil
 	default:
 		return newNotificationTemplateStore(), nil
 	}
