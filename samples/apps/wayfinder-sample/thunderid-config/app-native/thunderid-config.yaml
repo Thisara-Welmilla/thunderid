@@ -1,7 +1,8 @@
 resource_type: user_type
 id: wayfinder-customer-type
 category: user
-name: Customer
+handle: customer
+displayName: Customer
 ouHandle: default
 allowSelfRegistration: true
 systemAttributes:
@@ -47,7 +48,8 @@ schema: {
 resource_type: user_type
 id: wayfinder-staff-type
 category: user
-name: Staff
+handle: staff
+displayName: Staff
 ouHandle: default
 allowSelfRegistration: false
 systemAttributes:
@@ -135,6 +137,19 @@ resources:
       - name: Process
         handle: process
         description: Allows the upgrade scheduler agent to execute a pending upgrade via CIBA user token
+
+---
+resource_type: connection
+id: 0193b0a1-1002-7000-8000-000000000001
+name: Wayfinder Mock SMTP
+description: Mock SMTP server that the Wayfinder sample's email steps send through
+type: email-smtp
+host: 127.0.0.1
+port: 2525
+fromAddress: noreply@thunderid.dev
+tls: none
+authentication:
+  type: none
 
 ---
 resource_type: flow
@@ -372,7 +387,8 @@ nodes:
   - id: send_recovery_email
     type: TASK_EXECUTION
     properties:
-      emailTemplate: PASSWORD_RECOVERY
+      senderId: 0193b0a1-1002-7000-8000-000000000001
+      emailTemplate: password-recovery
     executor:
       name: EmailExecutor
       mode: send
@@ -667,7 +683,8 @@ nodes:
   - id: send_invite_email_support
     type: TASK_EXECUTION
     properties:
-      emailTemplate: USER_INVITE
+      senderId: 0193b0a1-1002-7000-8000-000000000001
+      emailTemplate: user-invite
     executor:
       name: EmailExecutor
       mode: send
@@ -787,7 +804,8 @@ nodes:
   - id: send_invite_email_destinations
     type: TASK_EXECUTION
     properties:
-      emailTemplate: USER_INVITE
+      senderId: 0193b0a1-1002-7000-8000-000000000001
+      emailTemplate: user-invite
     executor:
       name: EmailExecutor
       mode: send
@@ -1045,7 +1063,15 @@ flowType: AUTHENTICATION
 nodes:
   - id: start
     type: START
-    onSuccess: prompt_credentials
+    onSuccess: sso_check
+  - id: sso_check
+    type: TASK_EXECUTION
+    executor:
+      name: SSOCheckExecutor
+    properties:
+      checkpointRef: session
+    onSuccess: session
+    onFailure: prompt_credentials
   - id: prompt_credentials
     type: PROMPT
     meta:
@@ -1112,8 +1138,13 @@ nodes:
     type: TASK_EXECUTION
     executor:
       name: CredentialsAuthExecutor
-    onSuccess: authorization_check
+    onSuccess: session
     onIncomplete: prompt_credentials
+  - id: session
+    type: TASK_EXECUTION
+    executor:
+      name: SessionExecutor
+    onSuccess: authorization_check
   - id: authorization_check
     type: TASK_EXECUTION
     executor:
@@ -1161,7 +1192,7 @@ assertion:
     - groups
     - username
 allowedUserTypes:
-  - Customer
+  - customer
 inboundAuthConfig:
   - type: oauth2
     config:
@@ -1233,7 +1264,8 @@ nodes:
   - id: send_notification_email
     type: TASK_EXECUTION
     properties:
-      emailTemplate: CIBA_NOTIFICATION
+      senderId: 0193b0a1-1002-7000-8000-000000000001
+      emailTemplate: ciba-notification
     executor:
       name: EmailExecutor
       mode: send
@@ -1435,7 +1467,7 @@ nodes:
   - id: send_notification_sms
     type: TASK_EXECUTION
     properties:
-      smsTemplate: CIBA_NOTIFICATION
+      smsTemplate: ciba-notification
       senderId: "{{.SMS_SENDER_ID}}"
     executor:
       name: SMSExecutor
@@ -1790,7 +1822,7 @@ type: default
 logoUrl: "emoji:✈️"
 authFlowHandle: wayfinder-ciba-email-flow
 allowedUserTypes:
-  - Customer
+  - customer
 inboundAuthConfig:
   - type: oauth2
     config:
@@ -1829,7 +1861,7 @@ url: http://localhost:8787/mcp
 # step is shown.
 authFlowHandle: wayfinder-agent-auth-flow
 allowedUserTypes:
-  - Customer
+  - customer
 inboundAuthConfig:
   - type: oauth2
     config:
@@ -1961,7 +1993,7 @@ assignments:
 ---
 resource_type: user
 id: wayfinder-john-doe
-type: Customer
+type: customer
 ouHandle: default
 attributes:
   username: john.doe
@@ -1975,7 +2007,7 @@ credentials:
 ---
 resource_type: user
 id: wayfinder-jane-smith
-type: Customer
+type: customer
 ouHandle: default
 attributes:
   username: jane.smith
@@ -1989,7 +2021,7 @@ credentials:
 ---
 resource_type: user
 id: wayfinder-alex-carter
-type: Staff
+type: staff
 ouHandle: default
 attributes:
   username: alex.carter

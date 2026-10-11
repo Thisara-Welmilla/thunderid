@@ -59,6 +59,9 @@ type AuthorizationCode struct {
 	// resource ID rather than the possibly-mapped token subject.
 	SubjectID       string
 	SubjectCategory string
+	// SessionID is the SSO session id carried on the flow assertion, emitted in the ID token as the
+	// sid claim. Empty when the flow established no session; unlike TokenFamilyID it is never minted here.
+	SessionID string
 }
 
 // AuthZPostResponse represents the response body for the authorization POST request.
@@ -69,6 +72,8 @@ type AuthZPostResponse struct {
 // AuthorizationInitResult holds the result of a successful initial authorization request processing.
 type AuthorizationInitResult struct {
 	QueryParams map[string]string
+	// RedirectURI, when set, is the client redirect with the code; the login page is skipped.
+	RedirectURI string
 }
 
 // AuthorizationError holds structured error info for authorization failures.
@@ -88,8 +93,11 @@ type assertionClaims struct {
 	completedACR           string
 	authorizationRequestID string
 	tokenFamilyID          string
+	sessionID              string
 	correlationID          string
 	subjectID              string
 	subjectCategory        string
 	flowErrorType          string
+	jti                    string
+	expiresAt              time.Time
 }

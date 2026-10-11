@@ -3,7 +3,11 @@
 
 package tokenservice
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+)
 
 // Reasons a token failed validation, discriminated by callers with errors.Is to pick a specific error_description.
 var (
@@ -19,5 +23,13 @@ var (
 	ErrAudienceNotAccepted = errors.New("token audience is not accepted")
 
 	// ErrAssertionReplayed indicates the assertion's jti has already been recorded in the replay cache.
-	ErrAssertionReplayed = errors.New("assertion has already been used")
+	// Aliased to the shared sentinel so that every redemption path — this one and the authorization
+	// callback — reports replay as the same error value.
+	ErrAssertionReplayed = utils.ErrAssertionReplayed
+
+	// ErrAuthorizationMappingUnavailable indicates authorization mapping resolution failed because a
+	// dependency (the role, group, or resource service) was unavailable, rather than because the
+	// token's issuer is untrusted. Callers must map this to server_error, not to an issuer-trust or
+	// request-validation failure.
+	ErrAuthorizationMappingUnavailable = errors.New("authorization mapping resolution unavailable")
 )

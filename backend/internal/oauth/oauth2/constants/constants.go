@@ -250,7 +250,12 @@ const (
 	ClaimExp      string = "exp"
 	ClaimIat      string = "iat"
 	ClaimJTI      string = "jti"
+	ClaimNbf      string = "nbf"
+	ClaimNonce    string = "nonce"
+	ClaimAtHash   string = "at_hash"
+	ClaimCHash    string = "c_hash"
 	ClaimAuthTime string = "auth_time"
+	ClaimACR      string = "acr"
 )
 
 // Custom JWT claim names.
@@ -283,6 +288,9 @@ const (
 	// family at once. Revocation-only and not a client-managed identifier: it rides the token JWTs
 	// but is not part of any client-facing API.
 	ClaimTokenFamilyID string = "tfid"
+	// ClaimSessionID is the OIDC sid claim the id of the SSO session an authentication belongs to. Carried by ID and
+	// refresh tokens, never by access tokens, and omitted when no session was established.
+	ClaimSessionID string = "sid"
 	// ClaimCorrelationID carries the login flow's execution id on the flow assertion so the
 	// authorization code, and in turn the token issuance events, report the same correlation
 	// identifier as the flow's own observability events. Observability-only: it rides the internal
@@ -378,3 +386,12 @@ func GetStandardClaims() []string {
 		ClaimAuthTime,
 	}
 }
+
+// Refusals an organization-unit-scoped token request can receive. OUAccessRefusal is deliberately
+// the same answer whether the unit does not exist or the client has no standing in it.
+const (
+	OUAccessRefusal = "Client is not authorized for the requested organization unit"
+
+	OUScopedGrantRefusal = "The grant type is not supported on the organization unit scoped " +
+		"token endpoint"
+)

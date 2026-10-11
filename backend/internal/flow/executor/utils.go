@@ -8,16 +8,41 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"time"
 
 	authncm "github.com/thunder-id/thunderid/internal/authn/common"
 	entitytypemodel "github.com/thunder-id/thunderid/internal/entitytype/model"
 	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/revocation"
+	"github.com/thunder-id/thunderid/internal/system/log"
 	systemutils "github.com/thunder-id/thunderid/internal/system/utils"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 )
+
+// setExternalIdentity stores what an external party (a federated identity provider or a
+// credential issuer) asserted as one RuntimeData entry, replacing any earlier one whole so the claims of
+// two sign-ins never mix. Claims never reach RuntimeData under their own names, so none can stand in
+// for flow control state. Token metadata is dropped.
+func setExternalIdentity(execResp *providers.ExecutorResponse, idpID, sub string,
+	claims map[string]interface{}) error {
+	claims = maps.Clone(claims)
+	for _, key := range tokenMetadataClaims {
+		delete(claims, key)
+	}
+	encoded, err := json.Marshal(core.ExternalIdentity{IdpID: idpID, Sub: sub, Claims: claims})
+	if err != nil {
+		return fmt.Errorf("failed to encode the external identity: %w", err)
+	}
+	if execResp.RuntimeData == nil {
+		execResp.RuntimeData = make(map[string]string)
+	}
+	execResp.RuntimeData[common.RuntimeKeyExternalIdentity] = string(encoded)
+	return nil
+}
 
 // revocationPlan is the trusted intent a flow's pre-processing node produces and the executors that
 // follow act on. It is never built from request input, so the criteria, breadth and reason recorded
@@ -236,6 +261,50 @@ func setFederatedEntityState(ctx context.Context, execResp *providers.ExecutorRe
 	}
 }
 
+// resolveAndSetMappedAuthorizationTargets resolves the IDP's AuthorizationRuleMapping (explicit value
+// rules) and AuthorizationDirectMapping (direct name-based lookup) against federatedAttributes,
+// unions their targets, and stores the result as runtime data for later executors. Logs and continues
+// without the affected targets when the IDP or direct targets can't be resolved, rather than failing
+// the federated login over what is best-effort enrichment of its runtime state.
+func resolveAndSetMappedAuthorizationTargets(
+	ctx context.Context, execResp *providers.ExecutorResponse,
+	idpService providers.IDPProvider, idpID string, federatedAttributes map[string]interface{},
+	logger *log.Logger,
+) {
+	idpDTO, svcErr := idpService.GetIdentityProvider(ctx, idpID)
+	if svcErr != nil {
+		logger.Warn(ctx, "Failed to resolve IDP for authorization mapping, skipping",
+			log.String("idpId", idpID), log.String("error", svcErr.Error.DefaultValue))
+		return
+	}
+	targets := idp.GetRuleAuthorizationTargets(idpDTO, federatedAttributes)
+	directTargets, svcErr := idpService.GetDirectAuthorizationTargets(ctx, idpDTO, federatedAttributes)
+	if svcErr != nil {
+		logger.Warn(ctx, "Failed to resolve direct authorization targets, continuing with rule-based targets only",
+			log.String("idpId", idpID), log.String("error", svcErr.Error.DefaultValue))
+	} else {
+		targets = append(targets, directTargets...)
+	}
+	setMappedAuthorizationTargets(execResp, targets)
+}
+
+// setMappedAuthorizationTargets splits resolved authorization mapping targets (rule-based or direct)
+// by kind and stores them as runtime data for later executors. Always writes all three keys, even when
+// empty.
+func setMappedAuthorizationTargets(execResp *providers.ExecutorResponse, targets []providers.AuthorizationTarget) {
+	if execResp.RuntimeData == nil {
+		execResp.RuntimeData = make(map[string]string)
+	}
+	roleIDs, groupIDs, permissions := idp.SplitAuthorizationTargets(targets)
+	execResp.RuntimeData[common.RuntimeKeyMappedRoleIDs] = systemutils.StringifyStringArray(roleIDs, " ")
+	execResp.RuntimeData[common.RuntimeKeyMappedGroupIDs] = systemutils.StringifyStringArray(groupIDs, " ")
+	encoded, err := json.Marshal(permissions)
+	if err != nil {
+		encoded = []byte("[]")
+	}
+	execResp.RuntimeData[common.RuntimeKeyMappedPermissions] = string(encoded)
+}
+
 // isAllowAuthenticationWithoutLocalUserRuntimeFlagSet checks if the runtime flag for allowing authentication without
 // a local user is set in the context.
 func isAllowRegistrationWithExistingUserRuntimeFlagSet(ctx *providers.NodeContext) bool {
@@ -243,38 +312,40 @@ func isAllowRegistrationWithExistingUserRuntimeFlagSet(ctx *providers.NodeContex
 	return ok && val == dataValueTrue
 }
 
-// validateFederatedIdentifierConsistency checks if the federated identifiers from the authentication result
-// are consistent with any existing identifiers in the context (runtime data, user inputs, authenticated
-// user attributes).
-func validateFederatedIdentifierConsistency(ctx *providers.NodeContext,
+// validateFederatedIdentifierConsistency checks if the federated identity from the authentication result
+// is consistent with what the flow already holds. An earlier federated sign-in must be the same
+// identity: subjects are unique only within a connection, so the connection and subject are compared
+// together. The email is compared with runtime data, the earlier external identity's claims, user
+// inputs and the authenticated user's attributes.
+func validateFederatedIdentifierConsistency(ctx *providers.NodeContext, idpID string,
 	federatedIdentifiers, existingIdentifiers map[string]interface{}) bool {
 	if len(federatedIdentifiers) == 0 {
 		return true
 	}
 
+	sub := systemutils.ConvertInterfaceValueToString(federatedIdentifiers[userAttributeSub])
+	if earlier := core.GetExternalIdentity(ctx.RuntimeData); earlier != nil && earlier.Sub != "" &&
+		(earlier.IdpID != idpID || earlier.Sub != sub) {
+		return false
+	}
+
 	// TODO: Refine this well-known-key comparison when IDP-to-local attribute mapping is supported
-	fedIdfConsistencyKeys := []string{userAttributeEmail, userAttributeSub}
-	for _, key := range fedIdfConsistencyKeys {
-		federatedValue := ""
-		if value, ok := federatedIdentifiers[key]; ok {
-			federatedValue = systemutils.ConvertInterfaceValueToString(value)
-		}
-
-		if federatedValue == "" {
-			continue
-		}
-
-		if value, ok := ctx.RuntimeData[key]; ok && value != "" && value != federatedValue {
-			return false
-		}
-		if value, ok := ctx.UserInputs[key]; ok && value != "" && value != federatedValue {
-			return false
-		}
-		if value := existingIdentifiers[key]; value != nil &&
-			systemutils.ConvertInterfaceValueToString(value) != "" &&
-			systemutils.ConvertInterfaceValueToString(value) != federatedValue {
-			return false
-		}
+	email := systemutils.ConvertInterfaceValueToString(federatedIdentifiers[userAttributeEmail])
+	if email == "" {
+		return true
+	}
+	if value := ctx.RuntimeData[userAttributeEmail]; value != "" && value != email {
+		return false
+	}
+	if value, _ := core.GetExternalClaim(ctx.RuntimeData, userAttributeEmail); value != "" && value != email {
+		return false
+	}
+	if value := ctx.UserInputs[userAttributeEmail]; value != "" && value != email {
+		return false
+	}
+	if value := systemutils.ConvertInterfaceValueToString(existingIdentifiers[userAttributeEmail]); value != "" &&
+		value != email {
+		return false
 	}
 
 	return true

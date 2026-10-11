@@ -129,17 +129,17 @@ const translations = {
     'errors.DCR-1003': 'This resource is managed declaratively and cannot be deleted.',
 
     // Backend error code translations for flow executor failures (per the flow execution error envelope).
-    'errors.FET-1002': 'Could not check whether a matching user already exists. Please try again.',
-    'errors.FET-1003': 'The provided details match more than one existing user.',
-    'errors.FET-1006': 'The user was created but could not be signed in.',
-    'errors.FET-1007': 'A user with these details already exists.',
-    'errors.FET-1020': 'Provide at least one user attribute to continue.',
-    'errors.FET-1021': 'Something went wrong while creating the user. Please try again.',
-    'errors.FET-1022': 'The user was created but group or role assignment failed.',
+    'errors.FET-1002': 'Could not check whether a matching {{entity}} already exists. Please try again.',
+    'errors.FET-1003': 'The provided details match more than one existing {{entity}}.',
+    'errors.FET-1006': 'The {{entity}} was created but could not be signed in.',
+    'errors.FET-1007': 'Another {{entity}} with these details already exists.',
+    'errors.FET-1020': 'Provide at least one {{entity}} attribute to continue.',
+    'errors.FET-1021': 'Something went wrong while creating the {{entity}}. Please try again.',
+    'errors.FET-1022': 'The {{entity}} was created but group or role assignment failed.',
     'errors.FET-1023': 'Select an organization unit before continuing.',
-    'errors.FET-1024': 'A user with these details already exists in the selected organization unit.',
-    'errors.FET-1061': 'A user already exists with the provided {{attribute}}.',
-    'errors.FET-1080': 'A user with the same unique attribute value already exists.',
+    'errors.FET-1024': 'Another {{entity}} with these details already exists in the selected organization unit.',
+    'errors.FET-1061': 'Another {{entity}} already exists with the provided {{attribute}}.',
+    'errors.FET-1080': 'Another {{entity}} with the same unique attribute value already exists.',
     'errors.FET-1084': 'This user cannot be deleted in their current state.',
     'errors.FET-1085': 'The user could not be deleted. Please try again.',
     'errors.FET-1086': 'This application cannot be deleted in its current state.',
@@ -830,6 +830,9 @@ const translations = {
     'types.array': 'Array',
     'types.object': 'Object',
     'validationErrors.nameRequired': 'Please enter a user type name',
+    'validationErrors.handleRequired': 'Please enter a user type handle',
+    'validationErrors.handleInvalid':
+      'Handle must start and end with a lowercase letter or number, and may contain only lowercase letters, numbers, hyphens, and underscores',
     'validationErrors.ouIdRequired': 'Please provide an organization unit ID',
     'validationErrors.propertiesRequired': 'Please add at least one property',
     'validationErrors.duplicateProperties': 'Duplicate property names found: {{duplicates}}',
@@ -844,12 +847,15 @@ const translations = {
     noOrganizationUnits: 'No organization units available',
     confirmDeleteUserType: 'Are you sure you want to delete this user type?',
     'errors.USRS-1002': 'This user type no longer exists. It may have already been deleted.',
-    'errors.USRS-1003': 'A user type with the same name already exists.',
+    'errors.USRS-1003': 'A user type with the same handle already exists.',
     'errors.USRS-1004': 'The user type request is missing required fields or contains invalid data.',
     'errors.USRS-1008': 'This user type is managed by the system and cannot be modified or deleted.',
     'errors.USRS-1011': 'Display attribute must reference an attribute defined in the schema.',
     'errors.USRS-1012': 'Display attribute must reference a string or number type.',
     'errors.USRS-1013': 'Display attribute cannot reference a credential attribute.',
+    'errors.USRS-1016':
+      'The handle is invalid. It must start and end with a lowercase letter or number, and may contain only lowercase letters, numbers, hyphens, and underscores.',
+    'errors.USRS-1017': 'The handle of a user type cannot be changed.',
 
     // Edit page
     'manageUserType.title': 'Manage User Type',
@@ -859,6 +865,7 @@ const translations = {
     'edit.back': 'Back to User Types',
     'edit.editName': 'Edit user type name',
     'edit.copyId': 'Copy user type ID',
+    'edit.copyHandle': 'Copy user type handle',
     'edit.tabs.general': 'General',
     'edit.tabs.schema': 'Schema',
     'edit.tabs.advanced': 'Advanced',
@@ -873,6 +880,10 @@ const translations = {
     'schemaChangeWarning.affected': 'Affected attributes:',
     'schemaChangeWarning.areYouSure': 'Do you want to continue?',
     'schemaChangeWarning.confirm': 'Continue',
+    'edit.general.sections.quickCopy.title': 'Quick Copy',
+    'edit.general.sections.quickCopy.description': 'Copy user type identifiers for use in your application.',
+    'edit.general.labels.userTypeHandle': 'User Type Handle',
+    'edit.general.labels.userTypeId': 'User Type ID',
     'edit.general.organizationUnit.title': 'Organization Unit',
     'edit.general.organizationUnit.description': 'The organization unit this user type belongs to.',
     'edit.general.selfRegistration.title': 'Self Registration',
@@ -902,6 +913,12 @@ const translations = {
     'createWizard.name.fieldLabel': 'User Type Name',
     'createWizard.name.placeholder': 'Enter your user type name',
     'createWizard.name.maxLength': 'User type name cannot exceed {{max}} characters',
+    'createWizard.handle.fieldLabel': 'Handle',
+    'createWizard.handle.placeholder': 'e.g., customer',
+    'createWizard.handle.hint': "A unique identifier for this user type. You can't change it once created.",
+    'createWizard.handle.invalid':
+      'Handle must start and end with a lowercase letter or number, and may contain only lowercase letters, numbers, hyphens, and underscores',
+    'createWizard.handle.maxLength': 'Handle cannot exceed {{max}} characters',
     'createWizard.general.subtitle': 'Set registration preferences for this user type.',
     'createWizard.properties.title': 'Define your schema properties',
     'createWizard.properties.subtitle': 'Add the fields that make up this user type',
@@ -1049,6 +1066,7 @@ const translations = {
   // ============================================================================
   agents: {
     // Listing page
+    addAgent: 'Add Agent',
     'listing.title': 'Agents',
     'listing.subtitle': 'Manage service identities and machine clients',
     'listing.addAgent': 'Add Agent',
@@ -1060,31 +1078,19 @@ const translations = {
     'listing.columns.organizationUnit': 'Organization Unit',
     'listing.columns.actions': 'Actions',
 
-    // Create wizard
-    'createWizard.createAgent': 'Create agent',
-    'createWizard.errors.createFailed': 'Failed to create agent. Please try again.',
-    'createWizard.errors.ouRequired': 'Organization unit is required',
-    'createWizard.errors.schemaRequired': 'Schema is required',
-    'createWizard.steps.name': 'Details',
-    'createWizard.steps.organizationUnit': 'Organization unit',
-    'createWizard.steps.profile': 'Profile',
-    'createWizard.steps.owner': 'Owner',
-    'createWizard.organizationUnit.title': 'Where should this agent belong?',
-    'createWizard.organizationUnit.subtitle':
-      "Choose the organization unit that will own this agent. You can't change this once created.",
-    'createWizard.organizationUnit.fieldLabel': 'Organization Unit',
-    'createWizard.name.title': "Let's collect some details about your agent",
-    'createWizard.name.fieldLabel': 'Agent name',
-    'createWizard.name.placeholder': 'e.g. Billing Service',
-    'createWizard.name.maxLength': 'Agent name cannot exceed {{max}} characters',
-    'createWizard.agentDetails.title': 'Agent attributes',
-    'createWizard.agentDetails.subtitle': 'Provide values for the attributes defined by the agent schema.',
-    'createWizard.owner.title': 'Owner',
-    'createWizard.owner.subtitle': 'Choose the user that owns this agent.',
-    'createWizard.owner.userLabel': 'Owner',
-    'createWizard.owner.userPlaceholder': 'Select a user',
-    'createWizard.owner.helperText':
-      'Defaults to you if left unchanged. You can assign ownership to another user instead.',
+    // Onboarding (flow driven)
+    'onboarding.errors.notConfigured.title': 'Agent onboarding is not configured',
+    'onboarding.errors.notConfigured.description':
+      'No agent onboarding flow is configured for this deployment. Set flow.agentOnboardingFlow.defaultHandle in the server configuration to the handle of an administration flow that creates agents.',
+    'onboarding.errors.flowMissing.title': 'Agent onboarding flow not found',
+    'onboarding.errors.flowMissing.description':
+      'The configured agent onboarding flow "{{handle}}" does not exist. Create an administration flow with that handle, or point flow.agentOnboardingFlow.defaultHandle at one that exists.',
+    'onboarding.errors.unavailable.title': 'Could not start agent onboarding',
+    'onboarding.errors.unavailable.description':
+      'The agent onboarding flow could not be loaded. Check that the server is reachable and try again.',
+    'onboarding.errors.stepFailed': 'This step could not be completed. Review the values and try again.',
+    'onboarding.selectPlaceholder': 'Select an option',
+    'onboarding.addAnother': 'Add Another Agent',
 
     // Client secret (creation)
     'clientSecret.saveTitle': 'Save your client secret',
@@ -1142,6 +1148,7 @@ const translations = {
     'edit.page.validation.missingRedirectUri': 'add a redirect URI',
     'edit.page.validation.missingAllowedUserType': 'select at least one allowed user type',
     'edit.page.validation.missingCertificate': 'add a certificate',
+    'edit.page.validation.invalidBackchannelLogoutUri': 'fix the back-channel logout URI',
     'edit.page.validation.tokenSettings': 'fix the token settings',
     'edit.page.reset': 'Reset',
     'edit.page.save': 'Save',
@@ -1255,7 +1262,7 @@ const translations = {
     'edit.flows.allowedUserTypes.title': 'Allowed User Types',
     'edit.flows.allowedUserTypes.description': 'Restrict which user types can sign up through this agent.',
     'edit.flows.allowedUserTypes.label': 'User Types',
-    'edit.flows.allowedUserTypes.placeholder': 'Select or add user types',
+    'edit.flows.allowedUserTypes.placeholder': 'Select user types',
     'edit.flows.allowedUserTypes.hint': 'Users of these types can sign up through this agent.',
     'edit.flows.allowedUserTypes.required': 'Select at least one user type that can sign up through this agent.',
     'edit.flows.delegationLock.message':
@@ -1815,6 +1822,7 @@ const translations = {
     'categories.identity-verification': 'Identity Verification',
     'categories.crm': 'CRM',
     'categories.data-store': 'Data store',
+    'categories.authorization': 'Authorization',
     'categories.trusted-idp': 'Trusted Token Issuer',
     'categories.custom': 'Custom',
 
@@ -1833,6 +1841,8 @@ const translations = {
     'vendor.twilio.description': 'Send SMS one-time passcodes via Twilio.',
     'vendor.vonage.description': 'Deliver SMS and email passcodes through Vonage.',
     'vendor.sms-gateway.description': 'Route SMS through your own HTTP gateway.',
+    'vendor.authzen-pdp.description': 'Delegate authorization decisions to an AuthZEN-compatible PDP.',
+    'vendor.smtp.description': 'Deliver email through your own SMTP server.',
     'vendor.trustedIdp.description': 'Trusted token issuer for token exchange and ID-JAG.',
 
     // Add custom connection wizard
@@ -1852,6 +1862,17 @@ const translations = {
     'wizard.type.sms.label': 'SMS gateway',
     'wizard.type.sms.description': 'Route SMS through your own HTTP gateway.',
     'wizard.type.sms.tag': 'Message sender · SMS',
+    'wizard.type.policyDecisionPoint.label': 'Policy Decision Point (PDP)',
+    'wizard.type.policyDecisionPoint.description':
+      'Connect a policy decision point using a supported authorization protocol.',
+    'wizard.type.policyDecisionPoint.tag': 'Authorization · PDP',
+    'wizard.protocol.heading': 'Choose a policy decision point protocol',
+    'wizard.protocol.subheading': 'Select the protocol supported by your policy decision point.',
+    'wizard.protocol.authzen.label': 'AuthZEN',
+    'wizard.protocol.authzen.description': 'Use the AuthZEN protocol to send authorization evaluation requests.',
+    'wizard.type.smtp.label': 'Email Provider (SMTP)',
+    'wizard.type.smtp.description': 'Deliver email through your own SMTP server.',
+    'wizard.type.smtp.tag': 'Message sender · Email',
     'wizard.type.trustedIdp.label': 'Trusted Token Issuer',
     'wizard.type.trustedIdp.description':
       "Trust an external IdP's identity assertions and exchange them for access tokens.",
@@ -1860,8 +1881,8 @@ const translations = {
     'wizard.name.fieldLabel': 'Connection name',
     'wizard.name.placeholder': 'Enter your connection name',
     'wizard.configure.heading': 'Configure your connection',
-    'wizard.configure.subheading':
-      'Enter the credentials and endpoints for your custom connection. Secrets are stored write-only.',
+    'wizard.configure.subheading': 'Configure the connection settings below.',
+    'wizard.configure.pdpSubheading': 'Configure the endpoints and runtime settings for this connection.',
     'wizard.configure.redirectHint':
       'Register the redirect URI below with your identity provider as an allowed callback URL, then enter the credentials and endpoints it gives you.',
 
@@ -1879,7 +1900,9 @@ const translations = {
     'detail.notFound.title': 'Connection not found',
     'detail.notFound.description': 'This connection may have been deleted or the link is incorrect.',
     'detail.tabs.general': 'General',
+    'detail.tabs.authentication': 'Authentication',
     'detail.tabs.attributeMapping': 'Attribute Configuration',
+    'detail.tabs.subjectMapping': 'Attribute Configuration',
     'detail.tabs.advanced': 'Advanced',
     'detail.quickCopy.title': 'Quick copy',
     'detail.quickCopy.description': 'Copy connection identifiers for use in your integration.',
@@ -1887,6 +1910,15 @@ const translations = {
     'detail.connectionId.hint': 'Unique identifier for this connection.',
     'detail.credentials.title': 'Credentials',
     'detail.credentials.description': 'Credentials and endpoints for this connection. Secrets are stored write-only.',
+    'detail.configuration.title': 'Connection Configuration',
+    'detail.configuration.description': 'Provide the details ThunderID needs to connect to this service.',
+    'detail.authentication.title': 'Authentication',
+    'detail.authentication.description':
+      'Configure how ThunderID authenticates requests sent to this policy decision point.',
+    'detail.authentication.method.label': 'Authentication method',
+    'detail.authentication.method.none': 'None',
+    'detail.outboundAuthentication.description':
+      'Credentials ThunderID uses to sign in to this provider. Secrets are stored write-only.',
     'detail.dangerZone.title': 'Danger zone',
     'detail.dangerZone.description': 'Actions in this section are irreversible. Proceed with caution.',
     'detail.dangerZone.delete.title': 'Delete connection',
@@ -1907,6 +1939,20 @@ const translations = {
     'form.fields.clientId.hint': 'OAuth2 client identifier used for authentication.',
     'form.fields.clientSecret.label': 'Client secret',
     'form.fields.clientSecret.hint': 'OAuth2 client secret issued by your identity provider.',
+    'form.fields.authScheme.label': 'Authentication method',
+    'form.fields.authScheme.none': 'None',
+    'form.fields.authScheme.bearer': 'Bearer token',
+    'form.fields.authScheme.basic': 'Basic authentication',
+    'form.fields.authScheme.apiKey': 'API key',
+    'form.fields.authScheme.hint': 'Choose how ThunderID authenticates requests sent to this policy decision point.',
+    'form.fields.bearerToken.label': 'Bearer token',
+    'form.fields.bearerToken.hint': 'Token sent in the Authorization header for each PDP request.',
+    'form.fields.basicUsername.label': 'Username',
+    'form.fields.basicUsername.hint': 'Username sent with each PDP request.',
+    'form.fields.basicPassword.label': 'Password',
+    'form.fields.basicPassword.hint': 'Password sent with each PDP request.',
+    'form.fields.apiKeyHeader.hint': 'Header name used to send the API key to the PDP.',
+    'form.fields.apiKeyValue.hint': 'API key value sent in the configured header.',
     'form.fields.redirectUri.label': 'Redirect URI',
     'form.fields.redirectUri.help': 'Add this exact URI to your {{vendor}} OAuth client.',
     'form.fields.redirectUri.hint':
@@ -1954,17 +2000,86 @@ const translations = {
     'form.fields.httpMethod.hint': 'Method used to call the gateway URL.',
     'form.fields.contentType.label': 'Content type',
     'form.fields.contentType.hint': 'Format of the request body sent to the gateway.',
-    'form.fields.httpHeaders.label': 'HTTP headers',
+    'form.fields.httpHeaders.label': 'Additional HTTP headers',
     'form.fields.httpHeaders.hint':
       'Optional headers sent with every request. Commas are not supported in a name or value.',
+    'form.fields.httpHeaders.replaceHint':
+      'Additional headers are already configured. Add one or more pairs to replace them.',
+    'form.fields.authzenHeaders.hint':
+      'Add the API key header and any other headers required by the PDP. Commas are not supported in a name or value.',
+    'form.fields.authzenHeaders.add': 'Add header',
     'form.fields.httpHeaders.add': 'Add header',
+    'form.fields.authzenEndpoint.label': 'AuthZEN evaluation endpoint',
+    'form.fields.authzenBatchEndpoint.label': 'AuthZEN batch evaluation endpoint',
+    'form.fields.timeoutMs.label': 'Timeout in milliseconds',
+    'form.fields.timeoutMs.hint': 'Maximum time ThunderID waits for one PDP request.',
+    'form.fields.retryCount.label': 'Retry count',
+    'form.fields.retryCount.hint': 'Number of retries for transient PDP or network failures.',
+    'subjectMapping.attributes.title': 'Subject attribute mapping',
+    'subjectMapping.attributes.description':
+      'Choose user or agent attributes this PDP needs and optionally rename them for the AuthZEN request.',
+    'subjectMapping.attributes.category.user': 'User',
+    'subjectMapping.attributes.category.agent': 'Agent',
+    'subjectMapping.attributes.userType.label': 'User type',
+    'subjectMapping.attributes.userType.placeholder': 'Select a user type',
+    'subjectMapping.attributes.agentType.label': 'Agent type',
+    'subjectMapping.attributes.agentType.placeholder': 'Select an agent type',
+    'subjectMapping.attributes.label': 'Allowed subject attributes',
+    'subjectMapping.attributes.placeholder': 'email department riskScore',
+    'subjectMapping.attributes.hint':
+      'Select known subject attributes or type custom runtime attributes. Leave empty to send only the default subject fields.',
+    'subjectMapping.mappings.title': 'Attribute Mappings',
+    'subjectMapping.mappings.description':
+      'Map ThunderID subject attribute names to the attribute names expected by the PDP.',
+    'subjectMapping.mappings.hint':
+      'Select extra user or agent attributes to include in the PDP request. The PDP attribute is optional and is only needed when the PDP expects a different name.',
+    'subjectMapping.mappings.thunderIdAttribute': 'ThunderID Attribute',
+    'subjectMapping.mappings.pdpAttribute': 'PDP Attribute',
+    'subjectMapping.mappings.pdpAttributeOptional': 'PDP Attribute (optional)',
+    'subjectMapping.mappings.mapPdpAttribute': 'Map to a different PDP attribute',
+    'subjectMapping.mappings.thunderIdPlaceholder': 'e.g. email',
+    'subjectMapping.mappings.add': 'Add Mapping',
+    'subjectMapping.mappings.user': 'User mappings',
+    'subjectMapping.mappings.agent': 'Agent mappings',
+    'subjectMapping.mappings.addUser': 'Add User Mapping',
+    'subjectMapping.mappings.addAgent': 'Add Agent Mapping',
+    'subjectMapping.mappings.loadingTypes': 'Loading user and agent types...',
+    'subjectMapping.mappings.loadTypesError': 'Failed to load user and agent types.',
+    'subjectMapping.mappings.remove': 'Remove',
+    'subjectMapping.mappings.duplicateAttribute':
+      'Each ThunderID attribute can be mapped only once for an entity type.',
+    'subjectMapping.mappings.unresolved.warning':
+      'These mappings could not be matched to exactly one user or agent type. Remove them before saving this connection.',
+    'subjectMapping.mappings.unresolved.entityType': 'Entity type: {{entityType}}',
+    'subjectMapping.mappings.unresolved.attributes': 'Attributes: {{attributes}}',
+    'form.fields.smtpHost.label': 'Host',
+    'form.fields.smtpHost.hint': 'Hostname of the SMTP server email is sent through.',
+    'form.fields.smtpPort.label': 'Port',
+    'form.fields.smtpPort.hint': 'Port of the SMTP server. Typically 587 for STARTTLS or 465 for implicit TLS.',
+    'form.fields.smtpFromAddress.label': 'From address',
+    'form.fields.smtpFromAddress.hint': 'Address recipients see the email come from.',
+    'form.fields.smtpFromName.label': 'Sender name',
+    'form.fields.smtpFromName.hint':
+      'Optional name shown beside the address, for example Acme Support. Leave blank to show the address alone.',
+    'form.fields.smtpTls.label': 'Transport security',
+    'form.fields.smtpTls.hint':
+      'How the connection is secured. STARTTLS upgrades a plain connection, implicit TLS connects over TLS directly. None sends email unencrypted.',
+    'form.fields.authenticationType.label': 'Authentication method',
+    'form.fields.authenticationType.hint': 'How {{productName}} signs in to this server when sending.',
     'form.keyValue.name': 'Name',
     'form.keyValue.value': 'Value',
+    'form.keyValue.showValue': 'Show value',
+    'form.keyValue.hideValue': 'Hide value',
     'form.keyValue.add': 'Add',
     'form.keyValue.remove': 'Remove',
+    'form.sections.authentication': 'Authentication',
+    'form.authentication.loadError': 'Failed to load authentication methods',
     'form.sections.federation': 'Federation',
     'form.secret.update': 'Update',
     'form.secret.keepHelp': 'Leave unchanged to keep the stored secret.',
+    'form.headers.configuredName': 'Configured header name',
+    'form.headers.configuredValue': 'Configured header value',
+    'form.headers.keepHelp': 'Leave unchanged to keep the configured headers.',
     'form.copy': 'Copy',
     'form.copied': 'Copied to clipboard',
     'form.actions.create': 'Create connection',
@@ -2013,6 +2128,62 @@ const translations = {
     'attributeMapping.linking.addAttribute': 'Add Attribute',
     'attributeMapping.linking.and': 'AND',
 
+    // Authorization mapping (federated role, group, and permission assignment)
+    'authorizationMapping.title': 'Authorization Mapping',
+    'authorizationMapping.description':
+      'Map values this provider asserts, such as group membership, to local roles, groups, or permissions.',
+    'authorizationMapping.advanced.toggle.label': 'Advanced Rules',
+    'authorizationMapping.advanced.toggle.helper':
+      'By default, each value is matched by name against an existing role, group, or permission. Turn ' +
+      'this on to compare values against explicit rules and grant different targets per value.',
+
+    'authorizationRules.claim.label': 'Key',
+    'authorizationRules.claim.placeholder': 'e.g. groups',
+    'authorizationRules.valueType.label': 'Value Type',
+    'authorizationRules.valueType.string': 'String',
+    'authorizationRules.valueType.number': 'Number',
+    'authorizationRules.valueType.boolean': 'Boolean',
+    'authorizationRules.valueType.array': 'Array',
+    'authorizationRules.delimiter.label': 'Delimiter',
+    'authorizationRules.delimiter.preset.none': 'No delimiter (single value)',
+    'authorizationRules.delimiter.preset.space': 'Space',
+    'authorizationRules.delimiter.preset.comma': 'Comma ( , )',
+    'authorizationRules.delimiter.preset.semicolon': 'Semicolon ( ; )',
+    'authorizationRules.delimiter.preset.pipe': 'Pipe ( | )',
+    'authorizationRules.delimiter.preset.custom': 'Custom…',
+    'authorizationRules.delimiter.custom.label': 'Custom delimiter',
+    'authorizationRules.delimiter.custom.placeholder': 'Enter a delimiter',
+    'authorizationRules.mapping.add': 'Add Mapping',
+    'authorizationRules.mapping.remove': 'Remove Mapping',
+    'authorizationRules.values.title': 'Values',
+    'authorizationRules.values.helper': "If the key's value satisfies a rule below, grant everything listed under it.",
+    'authorizationRules.value.label': 'External Value',
+    'authorizationRules.value.placeholder': 'e.g. engineering',
+    'authorizationRules.value.add': 'Add Value',
+    'authorizationRules.value.remove': 'Remove Value',
+    'authorizationRules.value.boolean.true': 'True',
+    'authorizationRules.value.boolean.false': 'False',
+    'authorizationRules.operator.label': 'Operator',
+    'authorizationRules.operator.equals': 'Equals',
+    'authorizationRules.operator.not_equals': 'Not Equals',
+    'authorizationRules.operator.greater_than': 'Greater Than',
+    'authorizationRules.operator.less_than': 'Less Than',
+    'authorizationRules.operator.greater_than_or_equal': 'Greater Than or Equal',
+    'authorizationRules.operator.less_than_or_equal': 'Less Than or Equal',
+    'authorizationRules.operator.includes': 'Includes',
+    'authorizationRules.operator.not_includes': 'Not Includes',
+    'authorizationRules.target.sectionLabel': 'Targets',
+    'authorizationRules.target.type.role': 'Role',
+    'authorizationRules.target.type.group': 'Group',
+    'authorizationRules.target.type.permission': 'Permission',
+    'authorizationRules.target.role.label': 'Role',
+    'authorizationRules.target.role.placeholder': 'Select a role',
+    'authorizationRules.target.group.label': 'Group',
+    'authorizationRules.target.group.placeholder': 'Select a group',
+    'authorizationRules.target.resourceServer.label': 'Resource Server',
+    'authorizationRules.target.resourceServer.placeholder': 'Select a resource server',
+    'authorizationRules.targetType.label': 'Target Type',
+
     // Delete dialog
     'delete.title': 'Delete connection',
     'delete.message': 'Are you sure you want to delete “{{name}}”? This action cannot be undone.',
@@ -2033,12 +2204,20 @@ const translations = {
     'error.loadFailed': 'Failed to load connection.',
     'validation.required': 'This field is required.',
     'validation.url': 'Enter a valid URL.',
+    'validation.authenticatedEndpointHttps':
+      'Use HTTPS for authenticated PDP endpoints. HTTP is allowed only for localhost and loopback IP addresses.',
+    'validation.positiveInteger': 'Enter a positive integer.',
+    'validation.nonNegativeInteger': 'Enter zero or a positive integer.',
     'validation.accountSid': 'Enter a valid Account SID: “AC” followed by 32 hexadecimal characters.',
+    'validation.emailAddress': 'Enter a valid email address.',
+    'validation.tlsRequiredForAuthentication':
+      'Credentials cannot be sent over an unencrypted connection. Choose STARTTLS or implicit TLS, or set the authentication method to None.',
 
     // Error codes (backend)
     'errors.CON-1001': 'The requested connection category is not supported.',
     'errors.CON-1002': 'The limit parameter must be a positive integer.',
     'errors.CON-1003': 'The offset parameter must be a non-negative integer.',
+    'errors.CON-1005': 'The selected authentication method is not supported by this deployment.',
     'errors.IDP-1001': 'This identity provider no longer exists. It may have already been deleted.',
     'errors.IDP-1002': 'The identity provider ID is invalid or missing.',
     'errors.IDP-1003': 'The identity provider name is invalid or missing.',
@@ -2794,6 +2973,7 @@ const translations = {
     'edit.page.unsavedChanges': 'Unsaved changes',
     'edit.page.validation.missingRedirectUri': 'A redirect URI is required.',
     'edit.page.validation.missingCertificate': 'A certificate is required.',
+    'edit.page.validation.invalidBackchannelLogoutUri': 'The back-channel logout URI is not valid.',
     'edit.page.reset': 'Reset',
     'edit.page.save': 'Save',
     'edit.page.saving': 'Saving...',
@@ -2905,6 +3085,18 @@ const translations = {
     'edit.general.postLogoutRedirectUris.sameAsRedirect.title': 'Use the same URLs for post-logout redirect',
     'edit.general.postLogoutRedirectUris.sameAsRedirect.description':
       'Reuse the redirect URIs above instead of maintaining a separate list',
+    'edit.general.backchannelLogoutUri.title': 'Back-Channel Logout URI',
+    'edit.general.backchannelLogoutUri.description':
+      'Endpoint that receives a logout token when a session this client took part in ends. Leave empty to turn off notifications. By default the server refuses localhost and private network addresses.',
+    'edit.general.backchannelLogoutUri.error.invalid':
+      'Enter an absolute http or https URL with a host, and no user info, fragment, or wildcard.',
+    'edit.general.backchannelLogoutUri.error.requiresHttps': 'A public client must use an https URL.',
+    'edit.general.backchannelLogoutUri.error.privateHost':
+      'The server refused the back-channel logout URI because it points to localhost or a private network address. Use a publicly reachable address.',
+    'edit.general.backchannelLogoutUri.error.serverRequiresHttps':
+      'The server refused the back-channel logout URI because a public client must use an https URL.',
+    'edit.general.backchannelLogoutUri.error.serverInvalid':
+      'The server refused the back-channel logout URI. Enter an absolute http or https URL with a host, and no user info, fragment, or wildcard.',
     'onboarding.configure.details.devServer.banner': 'Using {{label}}? Its dev server runs on',
     'onboarding.configure.details.devServer.byDefault': 'by default.',
     'onboarding.configure.details.devServer.addToRedirectAndCors': 'Add it to redirect URIs & CORS origins',
@@ -3579,6 +3771,7 @@ const translations = {
     'core.executions.names.httpRequest': 'HTTP Request',
     'core.executions.names.ouCreation': 'OU Creation',
     'core.executions.names.userTypeResolver': 'User Type Resolver',
+    'core.executions.names.agentTypeResolver': 'Agent Type Resolver',
 
     // OTP executor
     'core.executions.otp.description': 'Configure the OTP executor settings.',
@@ -3671,21 +3864,23 @@ const translations = {
     'core.executions.email.description': 'Configure the email executor settings.',
     'core.executions.email.emailTemplate.label': 'Email Template',
     'core.executions.email.emailTemplate.placeholder': 'Select an email template',
-    'core.executions.email.emailTemplate.hint': 'The email template scenario to use when sending the email.',
+    'core.executions.email.emailTemplate.hint': 'The email template to use when sending the email.',
+    'core.executions.email.emailTemplate.noTemplates':
+      'No email templates available. Please create an email template first.',
+    'core.executions.email.emailTemplate.loadError': 'Failed to load email templates. Please try again.',
+    'core.executions.email.sender.label': 'Email Provider',
+    'core.executions.email.sender.placeholder': 'Select an email provider',
+    'core.executions.email.sender.hint': 'The email provider used to deliver this email.',
+    'core.executions.email.sender.noSenders': 'No email providers available. Please create an email provider first.',
+    'core.executions.email.sender.loadError': 'Failed to load email providers',
 
     // SMS executor
     'core.executions.sms.description': 'Configure the SMS executor settings.',
     'core.executions.sms.smsTemplate.label': 'SMS Template',
     'core.executions.sms.smsTemplate.placeholder': 'Select an SMS template',
-    'core.executions.sms.smsTemplate.hint': 'The SMS template scenario to use when sending the message.',
-
-    // Template scenarios shared by the Email and SMS executors
-    'core.executions.templateScenarios.userInvite': 'User Invite',
-    'core.executions.templateScenarios.magicLink': 'Magic Link',
-    'core.executions.templateScenarios.selfRegistration': 'Self Registration',
-    'core.executions.templateScenarios.otp': 'OTP Verification',
-    'core.executions.templateScenarios.passwordRecovery': 'Password Recovery',
-    'core.executions.templateScenarios.cibaNotification': 'CIBA Notification',
+    'core.executions.sms.smsTemplate.hint': 'The SMS template to use when sending the message.',
+    'core.executions.sms.smsTemplate.noTemplates': 'No SMS templates available. Please create an SMS template first.',
+    'core.executions.sms.smsTemplate.loadError': 'Failed to load SMS templates. Please try again.',
 
     // OpenID4VP verifier executor
     'core.executions.openid4vp.description':
@@ -3737,6 +3932,12 @@ const translations = {
     'core.executions.provisioning.assignGroup.placeholder': 'Comma-separated group IDs to assign',
     'core.executions.provisioning.assignRole.label': 'Assign Role',
     'core.executions.provisioning.assignRole.placeholder': 'Comma-separated role IDs to assign',
+    'core.executions.provisioning.seedGroupsFromMapping.label': 'Seed Groups From Authorization Mapping',
+    'core.executions.provisioning.seedGroupsFromMapping.hint':
+      "Assign groups the connection's authorization mapping resolved for this subject.",
+    'core.executions.provisioning.seedRolesFromMapping.label': 'Seed Roles From Authorization Mapping',
+    'core.executions.provisioning.seedRolesFromMapping.hint':
+      "Assign roles the connection's authorization mapping resolved for this subject.",
 
     // Session sign out executor
     'core.executions.sessionSignOut.description': 'Configure the session sign out executor settings.',
@@ -3757,7 +3958,25 @@ const translations = {
     'core.executions.userTypeResolver.allowedUserTypes.label': 'Allowed User Types',
     'core.executions.userTypeResolver.allowedUserTypes.placeholder': 'e.g., employee, customer',
     'core.executions.userTypeResolver.allowedUserTypes.hint':
-      'Comma-separated list of allowed user type names to filter available types.',
+      'Comma-separated list of allowed user type handles to filter available types.',
+
+    // Entity category shared by mode-driven executors
+    'core.executions.entityMode.user': 'User',
+    'core.executions.entityMode.agent': 'Agent',
+
+    // Attribute uniqueness validator executor
+    'core.executions.attributeUniquenessValidator.description':
+      'Check the unique attributes of the entity being created against existing records.',
+    'core.executions.attributeUniquenessValidator.mode.label': 'Entity Category',
+    'core.executions.attributeUniquenessValidator.mode.hint':
+      'Which kind of entity the uniqueness check runs against. Must match the provisioning node in the same flow.',
+
+    // Agent type resolver executor
+    'core.executions.agentTypeResolver.description': 'Configure the agent type resolver settings.',
+    'core.executions.agentTypeResolver.allowedAgentTypes.label': 'Allowed Agent Types',
+    'core.executions.agentTypeResolver.allowedAgentTypes.placeholder': 'e.g., default',
+    'core.executions.agentTypeResolver.allowedAgentTypes.hint':
+      'Comma-separated list of allowed agent type handles to filter available types.',
 
     // HTTP Request executor
     'core.executions.httpRequest.description': 'Configure the HTTP request executor settings.',
@@ -3891,6 +4110,10 @@ const translations = {
     // Validation messages - phone number input
     'core.validation.fields.phoneNumberInput.label': 'Phone number label is required',
     'core.validation.fields.phoneNumberInput.ref': 'Phone number attribute is required',
+
+    // Validation messages - email
+    'core.validation.fields.email.noSender':
+      'Email executor <code>{{id}}</code> has no email provider selected. Select an email provider so the step can send.',
 
     // Validation messages - form
     'core.validation.fields.form.noSubmitButton':
@@ -4886,6 +5109,14 @@ const translations = {
     'edit.advanced.identifier.placeholderMcp': 'https://mcp.example.com',
     'edit.advanced.identifier.saved': 'Identifier saved.',
     'edit.advanced.identifier.saveError': 'Failed to save identifier.',
+    'edit.advanced.authorizationEngine.label': 'Authorization engine',
+    'edit.advanced.authorizationEngine.option.rbac': 'Local - Role Based Access Control',
+    'edit.advanced.authorizationEngine.option.selectedPDP': 'Selected PDP',
+    'edit.advanced.authorizationEngine.loadPDPError': 'Failed to load AuthZEN PDP connections.',
+    'edit.advanced.authorizationEngine.noPDPConnections': 'No external PDP connections are available.',
+    'edit.advanced.authorizationEngine.createPDPConnection': 'Create a PDP connection',
+    'edit.advanced.authorizationEngine.hint':
+      'Choose Local - Role Based Access Control or a configured PDP connection for this resource server.',
     'edit.dangerZone.title': 'Danger Zone',
     'edit.dangerZone.description': 'Irreversible actions for this resource server.',
     'edit.dangerZone.descriptionMcp': 'Irreversible actions for this MCP server.',

@@ -95,6 +95,18 @@ Create your new Vue 3 app using Vite:
     cd my-vue-app
     pnpm install
   </CodeBlock>
+
+  <CodeBlock lang="bash" label="Bun">
+    bun create vite my-vue-app --template vue
+    cd my-vue-app
+    bun install
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Deno">
+    deno run -A npm:create-vite@latest my-vue-app --template vue
+    cd my-vue-app
+    deno install
+  </CodeBlock>
 </CodeGroup>
 
 ## Install @thunderid/vue
@@ -116,6 +128,10 @@ Install the <ProductName /> Vue SDK in your project:
 
   <CodeBlock lang="bash" label="Bun">
     bun add @thunderid/vue
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Deno">
+    deno add npm:@thunderid/vue
   </CodeBlock>
 </CodeGroup>
 
@@ -186,6 +202,14 @@ Start the development server:
   <CodeBlock lang="bash" label="pnpm">
     pnpm run dev
   </CodeBlock>
+
+  <CodeBlock lang="bash" label="Bun">
+    bun run dev
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Deno">
+    deno task dev
+  </CodeBlock>
 </CodeGroup>
 
 :::note Test credentials
@@ -204,5 +228,5 @@ You should see the `<SignInButton />`. Click it to be redirected to the <Product
 
 <NextSteps>
   <NextStepsCard title="Upgrade the Sign-In Flow" href="../../../guides/flows/what-are-flows" description="Add MFA, passkeys, or social login to your flow: no app code changes required." cta="Flow Designer" />
-  <NextStepsCard title="Vue SDK Reference" href="../../../sdks/vue/overview" description="Explore the full API reference for the Vue SDK." cta="API Reference" />
+  <NextStepsCard title="Vue SDK Reference" href="../../../sdks-and-tools/vue/overview" description="Explore the full API reference for the Vue SDK." cta="API Reference" />
 </NextSteps>

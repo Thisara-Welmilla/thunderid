@@ -13,6 +13,8 @@ const (
 
 	// ComponentAuthHandler identifies events from authentication handlers.
 	ComponentAuthHandler = "AuthHandler"
+	// ComponentBackchannelLogout identifies the back-channel logout dispatcher.
+	ComponentBackchannelLogout = "BackchannelLogout"
 )
 
 // Authentication and Authorization Event Types
@@ -34,6 +36,12 @@ const (
 	// EventTypeRuntimePersistentDBUnavailable is triggered when the runtime persistent database backing the
 	// deny-list (revocation) check becomes unavailable and enforcement fails closed.
 	EventTypeRuntimePersistentDBUnavailable providers.EventType = "RUNTIME_PERSISTENT_DB_UNAVAILABLE"
+
+	// Back-Channel Logout Events
+	// EventTypeBackchannelLogoutDelivered is triggered when a relying party accepts a logout token.
+	EventTypeBackchannelLogoutDelivered providers.EventType = "BACKCHANNEL_LOGOUT_DELIVERED"
+	// EventTypeBackchannelLogoutFailed is triggered when a logout token delivery attempt fails or is abandoned.
+	EventTypeBackchannelLogoutFailed providers.EventType = "BACKCHANNEL_LOGOUT_FAILED"
 
 	// Flow Execution Events
 

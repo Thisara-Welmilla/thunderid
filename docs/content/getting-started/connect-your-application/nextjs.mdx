@@ -92,6 +92,16 @@ Create your new Next.js app:
     pnpm create next-app my-nextjs-app
     cd my-nextjs-app
   </CodeBlock>
+
+  <CodeBlock lang="bash" label="Bun">
+    bunx create-next-app@latest my-nextjs-app
+    cd my-nextjs-app
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Deno">
+    deno run -A npm:create-next-app@latest my-nextjs-app
+    cd my-nextjs-app
+  </CodeBlock>
 </CodeGroup>
 
 When prompted, select the **App Router** option (the default).
@@ -111,6 +121,14 @@ Install the <ProductName /> Next.js SDK in your project:
 
   <CodeBlock lang="bash" label="pnpm">
     pnpm add @thunderid/nextjs
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Bun">
+    bun add @thunderid/nextjs
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Deno">
+    deno add npm:@thunderid/nextjs
   </CodeBlock>
 </CodeGroup>
 
@@ -281,6 +299,14 @@ Start the development server:
   <CodeBlock lang="bash" label="pnpm">
     pnpm dev
   </CodeBlock>
+
+  <CodeBlock lang="bash" label="Bun">
+    bun dev
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Deno">
+    deno task dev
+  </CodeBlock>
 </CodeGroup>
 
 Visit your app at [http://localhost:3000](http://localhost:3000)
@@ -295,5 +321,5 @@ You should see the sign-in button. Click it, you'll land on your application's o
 
 <NextSteps>
   <NextStepsCard title="Upgrade the Sign-In Flow" href="../../../guides/flows/what-are-flows" description="Add MFA, passkeys, or social login to your flow. No app code changes required." cta="Flow Designer" />
-  <NextStepsCard title="Next.js SDK Reference" href="../../../sdks/nextjs/overview" description="Explore the full API reference for the Next.js SDK." cta="API Reference" />
+  <NextStepsCard title="Next.js SDK Reference" href="../../../sdks-and-tools/nextjs/overview" description="Explore the full API reference for the Next.js SDK." cta="API Reference" />
 </NextSteps>

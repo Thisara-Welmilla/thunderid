@@ -21,12 +21,14 @@ import (
 // FlowExecutionHandler handles flow execution requests.
 type flowExecutionHandler struct {
 	flowExecService FlowExecServiceInterface
-	ssoTransport    session.HandleTransport
-	// ssoHandleTTL bounds the per-flow SSO handle cookie to the session's configured absolute lifetime.
+	// ssoTransport carries the SSO handle to and from the client. It is nil when the deployment has
+	// no SSO session store.
+	ssoTransport session.HandleTransportInterface
+	// ssoHandleTTL bounds the per-flow SSO handle to the session's configured absolute lifetime.
 	ssoHandleTTL time.Duration
 }
 
-func newFlowExecutionHandler(flowExecService FlowExecServiceInterface, ssoTransport session.HandleTransport,
+func newFlowExecutionHandler(flowExecService FlowExecServiceInterface, ssoTransport session.HandleTransportInterface,
 	ssoHandleTTL time.Duration) *flowExecutionHandler {
 	return &flowExecutionHandler{
 		flowExecService: flowExecService,
@@ -57,14 +59,27 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 	flowSecret := sysutils.SanitizeString(r.Header.Get(serverconst.FlowSecretHeaderName))
 	attestationToken := sysutils.SanitizeString(r.Header.Get(serverconst.AttestationTokenHeaderName))
 
-	// Read the inbound SSO transport inputs (per-flow handle cookies) and make
-	// them available to the flow service, which selects the handle once the flow is known.
-	ctx := session.WithInbound(r.Context(), h.ssoTransport.Read(r))
+	// Read the inbound SSO transport inputs and make them available to the flow service, which
+	// selects the handle once the flow is known.
+	ctx := r.Context()
+	ssoExchange := &session.Exchange{Request: r, Response: w}
+	if h.ssoTransport != nil {
+		ctx = session.WithInbound(ctx, h.ssoTransport.Read(ssoExchange))
+	}
 
 	// Carry the current step's request headers and query params so flow executors can publish them
 	// via {{request(flow.*)}} placeholders. Credential-bearing headers are stripped at this boundary.
+	// Go carries the inbound host on r.Host rather than r.Header, so surface it under the Host key on
+	// a clone so {{request(flow.header.Host)}} resolves without mutating the request.
+	currentHeaders := r.Header.Clone()
+	if currentHeaders == nil {
+		currentHeaders = make(http.Header)
+	}
+	if r.Host != "" {
+		currentHeaders.Set(serverconst.HostHeaderName, r.Host)
+	}
 	ctx = withCurrentRequest(ctx, &providers.InitiatorRequest{
-		Headers:     sysutils.FilterSensitiveHeaders(r.Header),
+		Headers:     sysutils.FilterSensitiveHeaders(currentHeaders),
 		QueryParams: r.URL.Query(),
 	})
 
@@ -95,18 +110,18 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 		stepErrorResp = &resp
 	}
 
-	// Emit the per-flow SSO handle cookie when the flow minted a new session handle. This must
-	// happen before the response body is written.
-	if flowStep.SSOHandleOut != "" && flowStep.SSOFlowID != "" {
-		// The handle has no TTL of its own; bound the cookie to the session's configured absolute
-		// lifetime.
-		h.ssoTransport.Write(w, session.CookieName(flowStep.SSOFlowID), flowStep.SSOHandleOut,
-			h.ssoHandleTTL)
-	}
+	if h.ssoTransport != nil {
+		// Emit the per-flow SSO handle when the flow minted a new session handle. This must happen
+		// before the response body is written.
+		if flowStep.SSOHandleOut != "" && flowStep.SSOFlowID != "" {
+			// The handle has no TTL of its own; bound it to the session's configured absolute lifetime.
+			h.ssoTransport.Write(ssoExchange, flowStep.SSOFlowID, flowStep.SSOHandleOut, h.ssoHandleTTL)
+		}
 
-	// Clear the per-flow SSO cookie when the flow terminated the session (sign-out).
-	if flowStep.SSOClearFlowID != "" {
-		h.ssoTransport.Clear(w, session.CookieName(flowStep.SSOClearFlowID))
+		// Clear the per-flow SSO handle when the flow terminated the session (sign-out).
+		if flowStep.SSOClearFlowID != "" {
+			h.ssoTransport.Clear(ssoExchange, flowStep.SSOClearFlowID)
+		}
 	}
 
 	flowResp := FlowResponse{

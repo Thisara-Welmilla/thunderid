@@ -116,7 +116,8 @@ var (
 	}
 
 	testUserType = testutils.UserType{
-		Name: "test-user-type",
+		Handle:      "test-user-type",
+		DisplayName: "Test User Type",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
@@ -147,8 +148,8 @@ var (
 
 type BasicRegistrationFlowTestSuite struct {
 	suite.Suite
-	config           *common.TestSuiteConfig
-	entityTypeID     string
+	config             *common.TestSuiteConfig
+	entityTypeID       string
 	testAppID          string
 	testOUID           string
 	testUserTypeName   string
@@ -178,7 +179,7 @@ func (ts *BasicRegistrationFlowTestSuite) SetupSuite() {
 		ts.T().Fatalf("Failed to create test user type during setup: %v", err)
 	}
 	ts.entityTypeID = schemaID
-	ts.testUserTypeName = testUserType.Name
+	ts.testUserTypeName = testUserType.Handle
 
 	// Create the registration flow
 	flowID, err := testutils.CreateFlow(testRegFlow)
@@ -205,7 +206,7 @@ func (ts *BasicRegistrationFlowTestSuite) SetupSuite() {
 		ClientID:                  "reg_flow_test_client",
 		ClientSecret:              "reg_flow_test_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{testUserType.Name},
+		AllowedUserTypes:          []string{testUserType.Handle},
 		AssertionConfig: map[string]interface{}{
 			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
 		},
@@ -325,7 +326,7 @@ func (ts *BasicRegistrationFlowTestSuite) TestBasicRegistrationFlowSuccess() {
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
 
 	// Validate JWT contains expected user type and OU ID
-	ts.Require().Equal(testUserType.Name, jwtClaims.UserType, "Expected userType to match created schema")
+	ts.Require().Equal(testUserType.Handle, jwtClaims.UserType, "Expected userType to match created schema")
 	ts.Require().Equal(ts.testOUID, jwtClaims.OUID, "Expected ouId to match the created organization unit")
 	ts.Require().Equal(ts.testAppID, jwtClaims.Aud, "Expected aud to match the application ID")
 	ts.Require().NotEmpty(jwtClaims.Sub, "JWT subject should not be empty")
@@ -347,7 +348,7 @@ func (ts *BasicRegistrationFlowTestSuite) TestBasicRegistrationFlowDuplicateUser
 	// Create a test user first
 	testUser := testutils.User{
 		OUID: ts.testOUID,
-		Type: testUserType.Name,
+		Type: testUserType.Handle,
 		Attributes: json.RawMessage(`{
 			"username": "duplicateuser",
 			"password": "testpassword",
@@ -385,7 +386,8 @@ func (ts *BasicRegistrationFlowTestSuite) TestBasicRegistrationFlowDuplicateUser
 	ts.Require().Equal("ERROR", completeFlowStep.FlowStatus, "Expected flow status to be ERROR")
 	ts.Require().Empty(completeFlowStep.Assertion, "No JWT assertion should be returned for failed registration")
 	ts.Require().NotNil(completeFlowStep.Error, "Error should be provided for duplicate user")
-	ts.Equal("User already exists", completeFlowStep.Error.Message.DefaultValue,
+	// The message names the entity category, so a duplicate agent reads "The agent already exists".
+	ts.Equal("The user already exists", completeFlowStep.Error.Message.DefaultValue,
 		"Error message should indicate duplicate username")
 }
 
@@ -455,7 +457,7 @@ func (ts *BasicRegistrationFlowTestSuite) TestBasicRegistrationFlowInitialInvali
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
 
 	// Validate JWT contains expected user type and OU ID
-	ts.Require().Equal(testUserType.Name, jwtClaims.UserType, "Expected userType to match created schema")
+	ts.Require().Equal(testUserType.Handle, jwtClaims.UserType, "Expected userType to match created schema")
 	ts.Require().Equal(ts.testOUID, jwtClaims.OUID, "Expected ouId to match the created organization unit")
 	ts.Require().Equal(ts.testAppID, jwtClaims.Aud, "Expected aud to match the application ID")
 	ts.Require().NotEmpty(jwtClaims.Sub, "JWT subject should not be empty")
@@ -503,7 +505,7 @@ func (ts *BasicRegistrationFlowTestSuite) TestBasicRegistrationFlowSingleRequest
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
 
 	// Validate JWT contains expected user type and OU ID
-	ts.Require().Equal(testUserType.Name, jwtClaims.UserType, "Expected userType to match created schema")
+	ts.Require().Equal(testUserType.Handle, jwtClaims.UserType, "Expected userType to match created schema")
 	ts.Require().Equal(ts.testOUID, jwtClaims.OUID, "Expected ouId to match the created organization unit")
 	ts.Require().Equal(ts.testAppID, jwtClaims.Aud, "Expected aud to match the application ID")
 	ts.Require().NotEmpty(jwtClaims.Sub, "JWT subject should not be empty")
@@ -535,7 +537,7 @@ func (ts *BasicRegistrationFlowTestSuite) TestBasicRegistrationFlow_WithoutToken
 		ClientID:                  "reg_flow_test_client_no_token_config",
 		ClientSecret:              "reg_flow_test_secret_no_token_config",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{testUserType.Name},
+		AllowedUserTypes:          []string{testUserType.Handle},
 		// TokenConfig is nil - not specified
 	}
 
@@ -604,7 +606,7 @@ func (ts *BasicRegistrationFlowTestSuite) TestBasicRegistrationFlow_WithEmptyUse
 		ClientID:                  "reg_flow_test_client_empty_attrs",
 		ClientSecret:              "reg_flow_test_secret_empty_attrs",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{testUserType.Name},
+		AllowedUserTypes:          []string{testUserType.Handle},
 		AssertionConfig: map[string]interface{}{
 			"userAttributes": []string{}, // Empty array
 		},
@@ -849,7 +851,7 @@ func (ts *BasicRegistrationFlowTestSuite) TestSchemaDriverInputs_OptionalAttrPro
 		ClientID:                  "optional_attr_test_client",
 		ClientSecret:              "optional_attr_test_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{testUserType.Name},
+		AllowedUserTypes:          []string{testUserType.Handle},
 		RegistrationFlowID:        flowID,
 		AuthFlowID:                ts.isolatedAuthFlowID,
 	})
@@ -994,8 +996,9 @@ func (ts *BasicRegistrationFlowTestSuite) TestSchemaDriverInputs_VerboseMeta_NoD
 // the displayName as the label, not the attribute identifier.
 func (ts *BasicRegistrationFlowTestSuite) TestSchemaDriverInputs_DisplayNameUsedAsMetaLabel() {
 	schemaWithDisplayName := testutils.UserType{
-		Name: "dn-label-test-type",
-		OUID: ts.testOUID,
+		Handle:      "dn-label-test-type",
+		DisplayName: "Dn Label Test Type",
+		OUID:        ts.testOUID,
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{"type": "string"},
 			"password": map[string]interface{}{"type": "string", "credential": true},
@@ -1032,7 +1035,7 @@ func (ts *BasicRegistrationFlowTestSuite) TestSchemaDriverInputs_DisplayNameUsed
 		ClientID:         "dn_label_test_client",
 		ClientSecret:     "dn_label_test_secret",
 		RedirectURIs:     []string{"http://localhost:3000/callback"},
-		AllowedUserTypes: []string{schemaWithDisplayName.Name},
+		AllowedUserTypes: []string{schemaWithDisplayName.Handle},
 	})
 	ts.Require().NoError(err, "Failed to create displayName test app")
 	defer func() {

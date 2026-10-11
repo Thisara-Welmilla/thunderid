@@ -14,17 +14,24 @@ import (
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/system/sysauthz"
 )
 
 // Initialize wires the agent service, registers HTTP routes and returns the service and exporter.
+//
+// valueCapturer is optional. Given one, the service hands it every agent it creates or changes, so the
+// values the agent's export refers to are kept where a reference finds them.
 func Initialize(
 	mux *http.ServeMux,
 	entityService entity.EntityServiceInterface,
 	inboundClientService inboundclient.InboundClientServiceInterface,
 	ouService oupkg.OrganizationUnitServiceInterface,
 	roleService role.RoleServiceInterface,
+	authzService sysauthz.SystemAuthorizationServiceInterface,
+	valueCapturer declarativeresource.ValueCapturer,
 ) (AgentServiceInterface, declarativeresource.ResourceExporter, error) {
-	service := newAgentService(entityService, inboundClientService, ouService, roleService)
+	service := newAgentService(authzService, entityService, inboundClientService, ouService, roleService,
+		valueCapturer)
 
 	storeMode := getAgentStoreMode()
 	if storeMode == serverconst.StoreModeComposite || storeMode == serverconst.StoreModeDeclarative {

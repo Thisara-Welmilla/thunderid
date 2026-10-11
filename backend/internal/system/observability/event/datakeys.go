@@ -47,6 +47,11 @@ var DataKey = struct {
 	GrantType        string
 	JTI              string
 	RevocationReason string
+	AccessingOUID    string
+
+	// Session & Delivery Keys
+	SessionID  string
+	HTTPStatus string
 
 	// Event Metadata Keys
 	Message       string
@@ -91,6 +96,11 @@ var DataKey = struct {
 	GrantType:        "grant_type",
 	JTI:              "jti",
 	RevocationReason: "revocation_reason",
+	AccessingOUID:    "accessing_ou_id",
+
+	// Session & Delivery Keys
+	SessionID:  "session_id",
+	HTTPStatus: "http_status",
 
 	// Event Metadata Keys
 	Message:       "message",

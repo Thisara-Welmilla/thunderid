@@ -146,6 +146,39 @@ func (suite *SessionExecutorTestSuite) TestFreshSave() {
 	suite.True(resp.AuthUser.IsAuthenticated())
 }
 
+// TestFreshSave_PublishesAuthTime covers the save path publishing the session's authentication
+// time. Without it resolveAuthTime falls back to the clock, so the id_token minted by the login
+// reports a different auth_time than a later authorization that reuses the same session.
+func (suite *SessionExecutorTestSuite) TestFreshSave_PublishesAuthTime() {
+	sso := sessionmock.NewServiceMock(suite.T())
+	var in session.SaveCheckpointInput
+	captureSave(sso, &in, session.SaveCheckpointResult{
+		Handle:          "handle-xyz",
+		Created:         true,
+		AuthenticatedAt: time.Unix(1700000000, 0).UTC(),
+	})
+	exec := suite.newExecutor(sso, suite.saveAuthnMock())
+
+	resp, err := exec.Execute(freshCtx())
+	suite.Require().NoError(err)
+
+	suite.Equal("1700000000", resp.RuntimeData[common.RuntimeKeyAuthTime])
+}
+
+// TestFreshSave_NoAuthTimeWhenUnset covers a result carrying no authentication time: the key is
+// left unset so resolveAuthTime keeps its own fallback rather than publishing a zero timestamp.
+func (suite *SessionExecutorTestSuite) TestFreshSave_NoAuthTimeWhenUnset() {
+	sso := sessionmock.NewServiceMock(suite.T())
+	var in session.SaveCheckpointInput
+	captureSave(sso, &in, session.SaveCheckpointResult{Handle: "handle-xyz", Created: true})
+	exec := suite.newExecutor(sso, suite.saveAuthnMock())
+
+	resp, err := exec.Execute(freshCtx())
+	suite.Require().NoError(err)
+
+	suite.NotContains(resp.RuntimeData, common.RuntimeKeyAuthTime)
+}
+
 // TestFreshSave_AttachNoCookie covers attaching to an existing session (service reports
 // Created=false): the handle is recorded on RuntimeData but no cookie is emitted.
 func (suite *SessionExecutorTestSuite) TestFreshSave_AttachNoCookie() {
@@ -449,4 +482,91 @@ func (suite *SessionExecutorTestSuite) TestSanitizeSnapshotRuntimeData_DropsRequ
 	_, hasSilent := sanitized[common.RuntimeKeySilentAuthOnly]
 	suite.False(hasSilent, "the silent marker belongs to one request and must not be persisted")
 	suite.Equal("value", sanitized["keep_me"], "unrelated runtime data must still be snapshotted")
+}
+
+// TestFreshSave_PublishesSessionID verifies a save publishes the session id on RuntimeData, and not
+// on the transport channel the handle uses.
+func (suite *SessionExecutorTestSuite) TestFreshSave_PublishesSessionID() {
+	sso := sessionmock.NewServiceMock(suite.T())
+	var in session.SaveCheckpointInput
+	captureSave(sso, &in, session.SaveCheckpointResult{Handle: "handle-xyz", SessionID: "sess-1", Created: true})
+	exec := suite.newExecutor(sso, suite.saveAuthnMock())
+
+	resp, err := exec.Execute(freshCtx())
+	suite.Require().NoError(err)
+
+	suite.Equal("sess-1", resp.RuntimeData[common.RuntimeKeySSOSessionID])
+	suite.NotContains(resp.EngineData, common.RuntimeKeySSOSessionID)
+}
+
+// TestFreshSave_Idempotent_RepublishesSessionID covers a re-executed join: the service is not called,
+// yet the session id resolved earlier in this execution is still published.
+func (suite *SessionExecutorTestSuite) TestFreshSave_Idempotent_RepublishesSessionID() {
+	sso := sessionmock.NewServiceMock(suite.T())
+	exec := suite.newExecutor(sso, suite.saveAuthnMock())
+	ctx := freshCtx()
+	ctx.RuntimeData[common.SSOCheckpointKey(common.RuntimeKeySSOSessionSaved, "session")] = "existing-handle"
+	ctx.RuntimeData[common.RuntimeKeySSOSessionID] = "sess-earlier"
+
+	resp, err := exec.Execute(ctx)
+	suite.Require().NoError(err)
+
+	suite.Equal("sess-earlier", resp.RuntimeData[common.RuntimeKeySSOSessionID])
+}
+
+// TestSSOLoad_PublishesSessionIDFromSessionNotSnapshot verifies the load path publishes the id of the
+// session in force, overriding any copy replayed from the snapshot.
+func (suite *SessionExecutorTestSuite) TestSSOLoad_PublishesSessionIDFromSessionNotSnapshot() {
+	snapAuthUser := `{"default":{"entityReference":{"entityId":"user-2","ouId":"ou-9","type":"person"},` +
+		`"attributes":{"attributes":{"email":{"value":"bob@example.com"}}}}}`
+	sso := sessionmock.NewServiceMock(suite.T())
+	sso.EXPECT().LoadCheckpoint(mock.Anything, mock.Anything).Return(
+		&session.Session{
+			SessionID: "sess-live", SubjectID: "user-2", HandleID: "handle-abc",
+			AuthenticatedAt: time.Unix(1700000000, 0).UTC(),
+		},
+		&session.SessionContext{
+			SessionID: "sess-live",
+			RuntimeData: map[string]string{
+				"email":                       "bob@example.com",
+				common.RuntimeKeySSOSessionID: "sess-stale",
+			},
+			AuthUser:       json.RawMessage(snapAuthUser),
+			ContextVersion: 1,
+		}, nil)
+	exec := suite.newExecutor(sso, managermock.NewAuthnProviderManagerMock(suite.T()))
+
+	resp, err := exec.Execute(ssoLoadCtx())
+	suite.Require().NoError(err)
+
+	suite.Equal("sess-live", resp.RuntimeData[common.RuntimeKeySSOSessionID])
+}
+
+// TestSanitizeSnapshotRuntimeData_DropsSSOSessionID verifies the session id never enters a snapshot.
+func (suite *SessionExecutorTestSuite) TestSanitizeSnapshotRuntimeData_DropsSSOSessionID() {
+	sanitized := sanitizeSnapshotRuntimeData(map[string]string{
+		common.RuntimeKeySSOSessionID: "sess-1",
+		"keep_me":                     "value",
+	})
+
+	suite.NotContains(sanitized, common.RuntimeKeySSOSessionID)
+	suite.Equal("value", sanitized["keep_me"])
+}
+
+// TestFreshSave_SkippedClearsCarriedSessionID covers a save declined for a subject mismatch: a session
+// id carried from an earlier node is blanked (not dropped, since the engine merges by overwriting).
+func (suite *SessionExecutorTestSuite) TestFreshSave_SkippedClearsCarriedSessionID() {
+	sso := sessionmock.NewServiceMock(suite.T())
+	sso.EXPECT().SaveCheckpoint(mock.Anything, mock.Anything).
+		Return(session.SaveCheckpointResult{Skipped: true}, nil)
+	exec := suite.newExecutor(sso, suite.saveAuthnMock())
+	ctx := freshCtx()
+	ctx.RuntimeData[common.RuntimeKeySSOSessionID] = "sess-other-subject"
+
+	resp, err := exec.Execute(ctx)
+	suite.Require().NoError(err)
+
+	published, present := resp.RuntimeData[common.RuntimeKeySSOSessionID]
+	suite.True(present, "the key must be republished so the merge overwrites the carried value")
+	suite.Empty(published)
 }

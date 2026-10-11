@@ -153,7 +153,7 @@ func (s *parService) HandlePushedAuthorizationRequest(
 	// authorize/CIBA capture paths so the deny-list cannot drift between them.
 	initiatorQueryParams := make(map[string][]string, len(params)+1)
 	for k, v := range params {
-		if oauth2utils.SensitiveQueryParams[k] {
+		if oauth2utils.IsSensitiveQueryParam(k) {
 			continue
 		}
 		initiatorQueryParams[k] = []string{v}

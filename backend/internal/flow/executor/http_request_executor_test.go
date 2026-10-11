@@ -21,7 +21,7 @@ import (
 	sysContext "github.com/thunder-id/thunderid/internal/system/context"
 	"github.com/thunder-id/thunderid/tests/mocks/authnprovider/managermock"
 	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
-	"github.com/thunder-id/thunderid/tests/mocks/oumock"
+	"github.com/thunder-id/thunderid/tests/mocks/ouprovidermock"
 )
 
 type HTTPRequestExecutorTestSuite struct {
@@ -818,7 +818,7 @@ func (suite *HTTPRequestExecutorTestSuite) TestEnrichOURuntimeData_OUIDFromEntit
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	mockOUService := oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
+	mockOUService := ouprovidermock.NewOrganizationUnitProviderMock(suite.T())
 	mockOUService.On("GetOrganizationUnit", mock.Anything, "ou-auth-123").
 		Return(providers.OrganizationUnit{
 			ID:          "ou-auth-123",
@@ -876,7 +876,7 @@ func (suite *HTTPRequestExecutorTestSuite) TestEnrichOURuntimeData_OUIDFromRunti
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	mockOUService := oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
+	mockOUService := ouprovidermock.NewOrganizationUnitProviderMock(suite.T())
 	mockOUService.On("GetOrganizationUnit", mock.Anything, "ou-runtime-456").
 		Return(providers.OrganizationUnit{
 			ID:          "ou-runtime-456",
@@ -935,7 +935,7 @@ func (suite *HTTPRequestExecutorTestSuite) TestEnrichOURuntimeData_RuntimeDataPr
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	mockOUService := oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
+	mockOUService := ouprovidermock.NewOrganizationUnitProviderMock(suite.T())
 	mockOUService.On("GetOrganizationUnit", mock.Anything, "ou-runtime-primary").
 		Return(providers.OrganizationUnit{
 			ID:     "ou-runtime-primary",
@@ -989,7 +989,7 @@ func (suite *HTTPRequestExecutorTestSuite) TestEnrichOURuntimeData_OverwritesExi
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	mockOUService := oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
+	mockOUService := ouprovidermock.NewOrganizationUnitProviderMock(suite.T())
 	mockOUService.On("GetOrganizationUnit", mock.Anything, "ou-overwrite-test").
 		Return(providers.OrganizationUnit{
 			ID:     "ou-overwrite-test",
@@ -1044,7 +1044,7 @@ func (suite *HTTPRequestExecutorTestSuite) TestEnrichOURuntimeData_OULookupFailu
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	mockOUService := oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
+	mockOUService := ouprovidermock.NewOrganizationUnitProviderMock(suite.T())
 	mockOUService.On("GetOrganizationUnit", mock.Anything, "ou-not-found").
 		Return(providers.OrganizationUnit{}, &tidcommon.ServiceError{
 			Error:            tidcommon.I18nMessage{DefaultValue: "ou_not_found"},

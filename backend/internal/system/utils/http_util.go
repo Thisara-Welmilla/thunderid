@@ -528,6 +528,8 @@ var sensitiveHeaders = map[string]bool{
 	strings.ToLower(constants.CookieHeaderName):             true,
 	strings.ToLower(constants.SetCookieHeaderName):          true,
 	strings.ToLower(constants.ProxyAuthorizationHeaderName): true,
+	strings.ToLower(constants.FlowSecretHeaderName):         true,
+	strings.ToLower(constants.AttestationTokenHeaderName):   true,
 }
 
 // FilterSensitiveHeaders returns a copy of the header map with credential-bearing headers removed.

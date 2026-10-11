@@ -21,6 +21,7 @@ import (
 	oauthconfig "github.com/thunder-id/thunderid/internal/oauth/config"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/authz/requestvalidator"
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/jti"
 	oauth2model "github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/par"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/resourceindicators"
@@ -59,6 +60,9 @@ type authorizeService struct {
 	flowExecService flowexec.FlowExecServiceInterface
 	transactioner   providers.Transactioner
 	criteriaRevoker revocation.CriteriaRevokerInterface
+	// jtiStore makes a redeemed assertion single-use. It shares a namespace with the token endpoint,
+	// so an assertion spent here cannot afterwards be exchanged there, and vice versa.
+	jtiStore jti.JTIStoreInterface
 	// ssoSession resolves an existing SSO session so prompt=none can be answered from it, and
 	// flowProvider supplies the client's authentication flow, whose id names the session's cookie
 	// and whose active version the session must match. Both are nil in deployments without a
@@ -82,6 +86,7 @@ func newAuthorizeService(
 	ssoSession flowsession.Service,
 	flowProvider providers.FlowProvider,
 	cfg oauthconfig.Config,
+	jtiStore jti.JTIStoreInterface,
 ) AuthorizeServiceInterface {
 	return &authorizeService{
 		cfg:             cfg,
@@ -97,6 +102,7 @@ func newAuthorizeService(
 		criteriaRevoker: criteriaRevoker,
 		ssoSession:      ssoSession,
 		flowProvider:    flowProvider,
+		jtiStore:        jtiStore,
 		logger:          log.GetLogger().With(log.String(log.LoggerKeyComponentName, "AuthorizeService")),
 	}
 }
@@ -155,9 +161,22 @@ func (as *authorizeService) subjectFromIDTokenHint(ctx context.Context, idTokenH
 	if svcErr := as.jwtService.VerifyJWTSignature(ctx, idTokenHint); svcErr != nil {
 		return "", errors.New("id_token_hint signature is not valid")
 	}
+	// A hint must carry the generic JWT type ID tokens use, which keeps out access, refresh and logout tokens.
+	header, err := jwt.DecodeJWTHeader(idTokenHint)
+	if err != nil {
+		return "", errors.New("id_token_hint could not be decoded")
+	}
+	if typ, _ := header["typ"].(string); typ != jwt.TokenTypeJWT {
+		return "", errors.New("id_token_hint is not an ID token")
+	}
 	payload, err := jwt.DecodeJWTPayload(idTokenHint)
 	if err != nil {
 		return "", errors.New("id_token_hint could not be decoded")
+	}
+	// Refresh tokens minted before rt+jwt share the generic type with ID tokens; this claim marks them.
+	// TODO: Remove on the next major version, once no pre-rt+jwt refresh token can still be valid.
+	if _, isRefreshToken := payload[oauth2const.ClaimAccessTokenSubject]; isRefreshToken {
+		return "", errors.New("id_token_hint is not an ID token")
 	}
 	if iss, _ := payload[oauth2const.ClaimIss].(string); iss != as.cfg.JWT.Issuer {
 		return "", errors.New("id_token_hint was not issued by this server")
@@ -602,7 +621,8 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 	// against its own clock. Both comparisons are strictly greater against a fresh time.Now(), so a
 	// session exactly on the boundary passes here and could fail there, prompting a request that
 	// forbids prompting.
-	if slices.Contains(strings.Fields(oauthParams.Prompt), oauth2const.PromptNone) {
+	promptNone := slices.Contains(strings.Fields(oauthParams.Prompt), oauth2const.PromptNone)
+	if promptNone {
 		runtimeData[flowcm.RuntimeKeySilentAuthOnly] = runtimeDataTrue
 	}
 	if oauthParams.MaxAge != "" {
@@ -626,6 +646,15 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 			ClientRedirectURI: oauthParams.RedirectURI,
 			State:             oauthParams.State,
 		}
+	}
+
+	// prompt=none must not load the login page, so complete it here.
+	if promptNone {
+		redirectURI, authErr := as.tryCompleteWithSSOSession(ctx, oauthParams, app, identifier, executionID)
+		if authErr != nil {
+			return nil, authErr
+		}
+		return &AuthorizationInitResult{RedirectURI: redirectURI}, nil
 	}
 
 	// Build query parameters for login page redirect.
@@ -655,6 +684,75 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 	}
 
 	return &AuthorizationInitResult{QueryParams: queryParams}, nil
+}
+
+// tryCompleteWithSSOSession runs the flow from the SSO session and returns the client redirect
+// with the code. A failure the client may receive is returned as mapped; anything else, including
+// a flow that needs the user, is answered with login_required.
+func (as *authorizeService) tryCompleteWithSSOSession(
+	ctx context.Context, oauthParams *oauth2model.OAuthParameters, app *providers.OAuthClient,
+	authID, executionID string,
+) (string, *AuthorizationError) {
+	step, svcErr := as.flowExecService.Execute(ctx, app.ID, executionID,
+		string(providers.FlowTypeAuthentication), false, "", nil, "", "", "")
+	completed := svcErr == nil && step != nil && step.Status == providers.FlowStatusComplete &&
+		step.Assertion != ""
+	if !completed {
+		// The login page is never seen on this path, so any failure that would be shown there is
+		// answered with login_required instead.
+		if step != nil && step.ErrorAssertion != "" {
+			// The callback maps the flow failure and consumes the request.
+			_, authErr := as.HandleAuthorizationCallback(ctx, authID, step.ErrorAssertion)
+			if authErr != nil && authErr.SendErrorToClient {
+				return "", authErr
+			}
+		}
+		// authID never leaves the server on this path, so nothing can resume the request. This also
+		// covers a callback that rejected the assertion before consuming it.
+		if err := as.authReqStore.ClearRequest(ctx, authID); err != nil {
+			as.logger.Error(ctx, "Failed to clear authorization request", log.Error(err))
+		}
+		if svcErr != nil {
+			as.logger.Error(ctx, "Failed to execute authentication flow", log.String("error_code", svcErr.Code))
+			if as.cfg.OAuth.SendServerErrorsToClientEnabled() {
+				return "", clientAuthorizationError(oauthParams, oauth2const.ErrorServerError,
+					"Failed to process authorization request")
+			}
+		}
+		as.logger.Debug(ctx, "Flow cannot complete without the user; prompt=none requires login")
+		return "", clientAuthorizationError(oauthParams, oauth2const.ErrorLoginRequired,
+			"User authentication is required")
+	}
+
+	redirectURI, authErr := as.HandleAuthorizationCallback(ctx, authID, step.Assertion)
+	if authErr != nil {
+		// The callback may reject the assertion before consuming the request.
+		if err := as.authReqStore.ClearRequest(ctx, authID); err != nil {
+			as.logger.Error(ctx, "Failed to clear authorization request", log.Error(err))
+		}
+		if authErr.Code == oauth2const.ErrorServerError && !as.cfg.OAuth.SendServerErrorsToClientEnabled() {
+			return "", clientAuthorizationError(oauthParams, oauth2const.ErrorLoginRequired,
+				"User authentication is required")
+		}
+		authErr.SendErrorToClient = oauthParams.RedirectURI != ""
+		authErr.ClientRedirectURI = oauthParams.RedirectURI
+		authErr.State = oauthParams.State
+		return "", authErr
+	}
+	return redirectURI, nil
+}
+
+// clientAuthorizationError builds an error that is sent back to the client's redirect URI.
+func clientAuthorizationError(
+	oauthParams *oauth2model.OAuthParameters, code, message string,
+) *AuthorizationError {
+	return &AuthorizationError{
+		Code:              code,
+		Message:           message,
+		SendErrorToClient: oauthParams.RedirectURI != "",
+		ClientRedirectURI: oauthParams.RedirectURI,
+		State:             oauthParams.State,
+	}
 }
 
 // HandleAuthorizationCallback processes the callback assertion from the flow engine. The assertion is
@@ -737,6 +835,21 @@ func (as *authorizeService) handleSuccessCallback(ctx context.Context, authID st
 				State:             authRequestCtx.OAuthParameters.State,
 			}
 			return errors.New("assertion not bound to authorization request")
+		}
+
+		// Spend the assertion. Recorded under the namespace the token endpoint also uses, so an
+		// assertion redeemed for a code here cannot afterwards be exchanged there. Done only once the
+		// assertion is known to belong to this request, so a misdirected one is not destroyed.
+		if consumeErr := as.consumeAssertion(ctx, claims); consumeErr != nil {
+			as.logger.Debug(ctx, "Assertion could not be consumed", log.Error(consumeErr))
+			authErr = &AuthorizationError{
+				Code:              oauth2const.ErrorAccessDenied,
+				Message:           "Assertion has already been used",
+				SendErrorToClient: true,
+				ClientRedirectURI: authRequestCtx.OAuthParameters.RedirectURI,
+				State:             authRequestCtx.OAuthParameters.State,
+			}
+			return consumeErr
 		}
 
 		if claims.userID == "" {
@@ -908,6 +1021,17 @@ func (as *authorizeService) loadAuthRequestContext(ctx context.Context, authID s
 	return &authRequestCtx, nil
 }
 
+// consumeAssertion records the assertion's jti so it can be redeemed only once. The namespace is
+// shared with the token endpoint, so an assertion spent for an authorization code here is no longer
+// exchangeable there.
+//
+// A store failure rejects the assertion rather than admitting it: an unavailable replay store must not
+// degrade into unlimited replay.
+func (as *authorizeService) consumeAssertion(ctx context.Context, claims assertionClaims) error {
+	return oauth2utils.ConsumeAuthAssertion(
+		ctx, as.jtiStore, claims.jti, claims.expiresAt, as.cfg.JWT.Leeway)
+}
+
 // verifyAssertion verifies the JWT assertion.
 func (as *authorizeService) verifyAssertion(ctx context.Context, assertion string) error {
 	if err := as.jwtService.VerifyJWT(ctx, assertion, "", ""); err != nil {
@@ -936,8 +1060,20 @@ func decodeAttributesFromAssertion(assertion string) (assertionClaims, time.Time
 		claims.authorizedPermissions = v
 	}
 
+	if v, ok := payload[oauth2const.ClaimJTI].(string); ok {
+		claims.jti = v
+	}
+
+	if v, ok := payload[oauth2const.ClaimExp].(float64); ok {
+		claims.expiresAt = time.Unix(int64(v), 0)
+	}
+
 	if v, ok := payload[oauth2const.ClaimTokenFamilyID].(string); ok {
 		claims.tokenFamilyID = v
+	}
+
+	if v, ok := payload[oauth2const.ClaimSessionID].(string); ok {
+		claims.sessionID = v
 	}
 
 	if v, ok := payload[oauth2const.ClaimCorrelationID].(string); ok {
@@ -1052,6 +1188,7 @@ func createAuthorizationCode(
 		CorrelationID:       claims.correlationID,
 		SubjectID:           claims.subjectID,
 		SubjectCategory:     claims.subjectCategory,
+		SessionID:           claims.sessionID,
 	}, nil
 }
 

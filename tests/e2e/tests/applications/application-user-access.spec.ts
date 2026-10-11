@@ -6,7 +6,7 @@
  *
  * Covers the Create Application wizard's default "allow all user types" path: the master
  * "Allow all user types to access this application" checkbox (see
- * frontend/apps/console/src/features/applications/components/create-application/UserAccessSection.tsx),
+ * frontend/packages/configure-applications/src/components/create-application/UserAccessSection.tsx),
  * left unchecked by every other applications spec so those specs can't race with tests that
  * create/delete user types (see application-onboarding.spec.ts TC002/TC005).
  *
@@ -78,10 +78,10 @@ test.describe("Application User Access", () => {
     await test.step("Verify every user type was granted via the application detail API", async () => {
       // Read after creation - this test is ordered last precisely so nothing else can create or
       // delete a user type between the wizard's own read and this one.
-      const userTypeNames = (await userTypesApi.list()).map(userType => userType.name);
+      const userTypeHandles = (await userTypesApi.list()).map(userType => userType.handle);
       const app = await applicationsApi.get(createdAppIds[createdAppIds.length - 1]);
-      expect([...(app.allowedUserTypes ?? [])].sort()).toEqual([...userTypeNames].sort());
-      console.log("Application allows every user type in the system — correct:", userTypeNames);
+      expect([...(app.allowedUserTypes ?? [])].sort()).toEqual([...userTypeHandles].sort());
+      console.log("Application allows every user type in the system, correct:", userTypeHandles);
     });
   });
 });

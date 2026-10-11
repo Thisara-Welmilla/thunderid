@@ -10,12 +10,15 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/thunder-id/thunderid/internal/connection/authzenpdp"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/notification"
 	ncommon "github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/system/cmodels"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
@@ -30,6 +33,73 @@ type ServiceTestSuite struct {
 	mockNotif *notificationmock.NotificationSenderMgtSvcInterfaceMock
 }
 
+type testResourceServerLister struct {
+	resource.ResourceServiceInterface
+	lists  map[int]*resource.ResourceServerList
+	err    *tidcommon.ServiceError
+	called []int
+}
+
+type authZENPDPServiceStub struct {
+	authzenpdp.AuthZENPDPServiceInterface
+	createRequest authzenpdp.ConnectionRequest
+	createResult  *authzenpdp.AuthZENPDPConnection
+	createErr     *tidcommon.ServiceError
+	connections   []authzenpdp.AuthZENPDPConnection
+	connection    *authzenpdp.AuthZENPDPConnection
+	updateResult  *authzenpdp.AuthZENPDPConnection
+	updateErr     *tidcommon.ServiceError
+	deleteErr     *tidcommon.ServiceError
+}
+
+func (s *authZENPDPServiceStub) CreateAuthZENPDPConnection(
+	_ context.Context,
+	request authzenpdp.ConnectionRequest,
+) (*authzenpdp.AuthZENPDPConnection, *tidcommon.ServiceError) {
+	s.createRequest = request
+	return s.createResult, s.createErr
+}
+
+func (s *authZENPDPServiceStub) GetAuthZENPDP(
+	context.Context,
+	string,
+) (*authzenpdp.AuthZENPDPConnection, *tidcommon.ServiceError) {
+	return s.connection, nil
+}
+
+func (s *authZENPDPServiceStub) ListAuthZENPDPs(
+	context.Context,
+) ([]authzenpdp.AuthZENPDPConnection, *tidcommon.ServiceError) {
+	return s.connections, nil
+}
+
+func (s *authZENPDPServiceStub) DeleteAuthZENPDPConnection(context.Context, string) *tidcommon.ServiceError {
+	return s.deleteErr
+}
+
+func (s *authZENPDPServiceStub) UpdateAuthZENPDPConnection(
+	context.Context,
+	string,
+	authzenpdp.ConnectionRequest,
+) (*authzenpdp.AuthZENPDPConnection, *tidcommon.ServiceError) {
+	return s.updateResult, s.updateErr
+}
+
+func (l *testResourceServerLister) GetResourceServerList(
+	_ context.Context,
+	_ int,
+	offset int,
+) (*resource.ResourceServerList, *tidcommon.ServiceError) {
+	l.called = append(l.called, offset)
+	if l.err != nil {
+		return nil, l.err
+	}
+	if list, ok := l.lists[offset]; ok {
+		return list, nil
+	}
+	return &resource.ResourceServerList{}, nil
+}
+
 func TestServiceSuite(t *testing.T) {
 	suite.Run(t, new(ServiceTestSuite))
 }
@@ -38,7 +108,8 @@ func (s *ServiceTestSuite) SetupTest() {
 	initConfigWithTestCryptoKey(s.T())
 	s.mockIDP = idpmock.NewIDPServiceInterfaceMock(s.T())
 	s.mockNotif = notificationmock.NewNotificationSenderMgtSvcInterfaceMock(s.T())
-	s.svc = newService(s.mockIDP, s.mockNotif)
+	s.svc = newService(s.mockIDP, s.mockNotif, &testResourceServerLister{},
+		&authZENPDPServiceStub{})
 }
 
 func (s *ServiceTestSuite) TearDownTest() {
@@ -69,6 +140,78 @@ func (s *ServiceTestSuite) TestListByTypeError() {
 	s.NotNil(svcErr)
 }
 
+func (s *ServiceTestSuite) TestCreateAuthZENPDPStoresConfiguredEndpoints() {
+	pdpService := &authZENPDPServiceStub{
+		createResult: &authzenpdp.AuthZENPDPConnection{
+			ID: "pdp-1", Name: "PDP",
+			Endpoint:      "https://pdp.example.com/access/v1/evaluation",
+			BatchEndpoint: "https://pdp.example.com/access/v1/evaluations",
+		},
+	}
+	s.svc = newService(s.mockIDP, s.mockNotif, &testResourceServerLister{},
+		pdpService)
+
+	created, svcErr := s.svc.createAuthZENPDP(context.Background(), authzenpdp.ConnectionRequest{
+		Name:          "PDP",
+		Endpoint:      " https://pdp.example.com/access/v1/evaluation ",
+		BatchEndpoint: " https://pdp.example.com/access/v1/evaluations ",
+	})
+
+	s.Nil(svcErr)
+	s.Require().NotNil(created)
+	s.Equal("https://pdp.example.com/access/v1/evaluation", created.Endpoint)
+	s.Equal("https://pdp.example.com/access/v1/evaluations", created.BatchEndpoint)
+	s.Equal(" https://pdp.example.com/access/v1/evaluation ", pdpService.createRequest.Endpoint)
+	s.Equal(" https://pdp.example.com/access/v1/evaluations ", pdpService.createRequest.BatchEndpoint)
+}
+
+func (s *ServiceTestSuite) TestCreateAuthZENPDPRejectsDuplicateName() {
+	s.svc = newService(s.mockIDP, s.mockNotif, &testResourceServerLister{},
+		&authZENPDPServiceStub{createErr: &authzenpdp.ErrorAlreadyExists})
+
+	created, svcErr := s.svc.createAuthZENPDP(context.Background(), authzenpdp.ConnectionRequest{
+		Name:          "PDP",
+		Endpoint:      "https://pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://pdp.example.com/access/v1/evaluations",
+	})
+
+	s.Nil(created)
+	s.Equal(authzenpdp.ErrorAlreadyExists.Code, svcErr.Code)
+}
+
+func (s *ServiceTestSuite) TestUpdateAuthZENPDPStoresConfiguredEndpoints() {
+	pdpService := &authZENPDPServiceStub{updateResult: &authzenpdp.AuthZENPDPConnection{
+		ID:            "pdp-1",
+		Name:          "New PDP",
+		Endpoint:      "https://new-pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://new-pdp.example.com/access/v1/evaluations",
+	}}
+	s.svc = newService(s.mockIDP, s.mockNotif, &testResourceServerLister{},
+		pdpService)
+
+	updated, svcErr := s.svc.updateAuthZENPDP(context.Background(), "pdp-1", authzenpdp.ConnectionRequest{
+		Name:          "New PDP",
+		Endpoint:      "https://new-pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://new-pdp.example.com/access/v1/evaluations",
+	})
+
+	s.Nil(svcErr)
+	s.Require().NotNil(updated)
+	s.Equal("https://new-pdp.example.com/access/v1/evaluation", updated.Endpoint)
+	s.Equal("https://new-pdp.example.com/access/v1/evaluations", updated.BatchEndpoint)
+}
+
+func (s *ServiceTestSuite) TestUpdateAuthZENPDPPropagatesDomainError() {
+	s.svc = newService(s.mockIDP, s.mockNotif, &testResourceServerLister{}, &authZENPDPServiceStub{
+		updateErr: &authzenpdp.ErrorAlreadyExists,
+	})
+
+	updated, svcErr := s.svc.updateAuthZENPDP(context.Background(), "pdp-1", authzenpdp.ConnectionRequest{})
+
+	s.Nil(updated)
+	s.Equal(authzenpdp.ErrorAlreadyExists.Code, svcErr.Code)
+}
+
 func (s *ServiceTestSuite) TestListInstancesAllCategories() {
 	s.mockIDP.On("GetIdentityProviderList", mock.Anything).Return([]idp.BasicIDPDTO{
 		{ID: "1", Name: "google B", Type: providers.IDPTypeGoogle},
@@ -78,8 +221,10 @@ func (s *ServiceTestSuite) TestListInstancesAllCategories() {
 	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeMessage).
 		Return([]ncommon.NotificationSenderDTO{
 			{ID: "s1", Name: "SMS", Type: ncommon.NotificationSenderTypeMessage,
-				Provider: ncommon.MessageProviderTypeCustom},
+				Provider: ncommon.NotificationProviderTypeCustom},
 		}, (*tidcommon.ServiceError)(nil))
+	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeEmail).
+		Return([]ncommon.NotificationSenderDTO{}, (*tidcommon.ServiceError)(nil))
 
 	got, svcErr := s.svc.listInstances(context.Background(), "", serverconst.DefaultPageSize, 0)
 	s.Nil(svcErr)
@@ -155,6 +300,8 @@ func (s *ServiceTestSuite) TestListInstancesOffsetPastEnd() {
 	}, (*tidcommon.ServiceError)(nil))
 	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeMessage).
 		Return([]ncommon.NotificationSenderDTO{}, (*tidcommon.ServiceError)(nil))
+	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeEmail).
+		Return([]ncommon.NotificationSenderDTO{}, (*tidcommon.ServiceError)(nil))
 
 	got, svcErr := s.svc.listInstances(context.Background(), "", serverconst.DefaultPageSize, 10)
 	s.Nil(svcErr)
@@ -193,7 +340,7 @@ func (s *ServiceTestSuite) TestListInstancesSMSSkipsIdPs() {
 	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeMessage).
 		Return([]ncommon.NotificationSenderDTO{
 			{ID: "s1", Name: "SMS", Type: ncommon.NotificationSenderTypeMessage,
-				Provider: ncommon.MessageProviderTypeTwilio},
+				Provider: ncommon.NotificationProviderTypeTwilio},
 		}, (*tidcommon.ServiceError)(nil))
 
 	got, svcErr := s.svc.listInstances(context.Background(), categorySMSProvider,
@@ -208,9 +355,9 @@ func (s *ServiceTestSuite) TestListInstancesSkipsUnregisteredSenderProvider() {
 	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeMessage).
 		Return([]ncommon.NotificationSenderDTO{
 			{ID: "s1", Name: "SMS", Type: ncommon.NotificationSenderTypeMessage,
-				Provider: ncommon.MessageProviderTypeTwilio},
+				Provider: ncommon.NotificationProviderTypeTwilio},
 			{ID: "s2", Name: "Unregistered", Type: ncommon.NotificationSenderTypeMessage,
-				Provider: ncommon.MessageProviderType("unregistered-provider")},
+				Provider: ncommon.NotificationProviderType("unregistered-provider")},
 		}, (*tidcommon.ServiceError)(nil))
 
 	got, svcErr := s.svc.listInstances(context.Background(), categorySMSProvider,
@@ -227,18 +374,14 @@ func (s *ServiceTestSuite) TestListInstancesSortsByIDWhenTypeAndNameTie() {
 	}, (*tidcommon.ServiceError)(nil))
 	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeMessage).
 		Return([]ncommon.NotificationSenderDTO{}, (*tidcommon.ServiceError)(nil))
+	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeEmail).
+		Return([]ncommon.NotificationSenderDTO{}, (*tidcommon.ServiceError)(nil))
 
 	got, svcErr := s.svc.listInstances(context.Background(), "", serverconst.DefaultPageSize, 0)
 	s.Nil(svcErr)
 	s.Require().Len(got.Connections, 2)
 	s.Equal("1", got.Connections[0].ID)
 	s.Equal("2", got.Connections[1].ID)
-}
-
-func (s *ServiceTestSuite) TestSMSVendorNameUnregisteredProviderReturnsFalse() {
-	name, ok := smsVendorName(ncommon.MessageProviderType("unregistered-provider"))
-	s.False(ok)
-	s.Empty(name)
 }
 
 func (s *ServiceTestSuite) TestListInstancesError() {
@@ -354,12 +497,13 @@ func (s *ServiceTestSuite) authToken(value string) []cmodels.Property {
 func (s *ServiceTestSuite) TestListSMSByProviderFilters() {
 	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeMessage).
 		Return([]ncommon.NotificationSenderDTO{
-			{ID: "1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeTwilio},
-			{ID: "2", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeVonage},
-			{ID: "3", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeTwilio},
+			{ID: "1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeTwilio},
+			{ID: "2", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeVonage},
+			{ID: "3", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeTwilio},
 		}, (*tidcommon.ServiceError)(nil))
 
-	got, svcErr := s.svc.listSMSByProvider(context.Background(), ncommon.MessageProviderTypeTwilio)
+	got, svcErr := s.svc.listSendersByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio)
 	s.Nil(svcErr)
 	s.Len(got, 2)
 }
@@ -368,16 +512,18 @@ func (s *ServiceTestSuite) TestListSMSByProviderError() {
 	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeMessage).
 		Return(([]ncommon.NotificationSenderDTO)(nil), &tidcommon.InternalServerError)
 
-	_, svcErr := s.svc.listSMSByProvider(context.Background(), ncommon.MessageProviderTypeTwilio)
+	_, svcErr := s.svc.listSendersByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio)
 	s.NotNil(svcErr)
 }
 
 func (s *ServiceTestSuite) TestGetSMSByProviderMismatchReturnsNotFound() {
 	s.mockNotif.On("GetSender", mock.Anything, "x").Return(&ncommon.NotificationSenderDTO{
-		ID: "x", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeVonage,
+		ID: "x", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeVonage,
 	}, (*tidcommon.ServiceError)(nil))
 
-	_, svcErr := s.svc.getSMSByProvider(context.Background(), ncommon.MessageProviderTypeTwilio, "x")
+	_, svcErr := s.svc.getSenderByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "x")
 	s.Require().NotNil(svcErr)
 	s.Equal(notification.ErrorSenderNotFound.Code, svcErr.Code)
 }
@@ -386,23 +532,48 @@ func (s *ServiceTestSuite) TestGetSMSByProviderError() {
 	s.mockNotif.On("GetSender", mock.Anything, "missing").
 		Return((*ncommon.NotificationSenderDTO)(nil), &notification.ErrorSenderNotFound)
 
-	_, svcErr := s.svc.getSMSByProvider(context.Background(), ncommon.MessageProviderTypeTwilio, "missing")
+	_, svcErr := s.svc.getSenderByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "missing")
 	s.Require().NotNil(svcErr)
 	s.Equal(notification.ErrorSenderNotFound.Code, svcErr.Code)
 }
 
-func (s *ServiceTestSuite) TestDeleteSMSByProviderGetFails() {
+func (s *ServiceTestSuite) TestDeleteSMSByProviderMissingIsNoOp() {
 	s.mockNotif.On("GetSender", mock.Anything, "missing").
 		Return((*ncommon.NotificationSenderDTO)(nil), &notification.ErrorSenderNotFound)
 
-	svcErr := s.svc.deleteSMSByProvider(context.Background(), ncommon.MessageProviderTypeTwilio, "missing")
+	svcErr := s.svc.deleteSenderByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "missing")
+	s.Nil(svcErr)
+	s.mockNotif.AssertNotCalled(s.T(), "DeleteSender", mock.Anything, mock.Anything)
+}
+
+func (s *ServiceTestSuite) TestDeleteSMSByProviderGetFails() {
+	s.mockNotif.On("GetSender", mock.Anything, "tw-1").
+		Return((*ncommon.NotificationSenderDTO)(nil), &tidcommon.InternalServerError)
+
+	svcErr := s.svc.deleteSenderByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "tw-1")
 	s.Require().NotNil(svcErr)
+	s.Equal(tidcommon.InternalServerError.Code, svcErr.Code)
+	s.mockNotif.AssertNotCalled(s.T(), "DeleteSender", mock.Anything, mock.Anything)
+}
+
+func (s *ServiceTestSuite) TestDeleteSMSByProviderMismatch() {
+	s.mockNotif.On("GetSender", mock.Anything, "x").Return(&ncommon.NotificationSenderDTO{
+		ID: "x", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeVonage,
+	}, (*tidcommon.ServiceError)(nil))
+
+	svcErr := s.svc.deleteSenderByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "x")
+	s.Require().NotNil(svcErr)
+	s.Equal(notification.ErrorSenderNotFound.Code, svcErr.Code)
 	s.mockNotif.AssertNotCalled(s.T(), "DeleteSender", mock.Anything, mock.Anything)
 }
 
 func (s *ServiceTestSuite) TestUpdateSMSOmittedSecretKeepsStored() {
 	s.mockNotif.On("GetSender", mock.Anything, "tw-1").Return(&ncommon.NotificationSenderDTO{
-		ID: "tw-1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeTwilio,
+		ID: "tw-1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeTwilio,
 		Properties: s.authToken("stored"),
 	}, (*tidcommon.ServiceError)(nil))
 
@@ -413,9 +584,10 @@ func (s *ServiceTestSuite) TestUpdateSMSOmittedSecretKeepsStored() {
 
 	// Update carries no secret property at all → the stored secret is preserved.
 	dto := ncommon.NotificationSenderDTO{
-		Name: "tw", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeTwilio,
+		Name: "tw", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeTwilio,
 	}
-	_, svcErr := s.svc.updateSMS(context.Background(), ncommon.MessageProviderTypeTwilio, "tw-1", dto)
+	_, svcErr := s.svc.updateSender(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "tw-1", dto)
 
 	s.Nil(svcErr)
 	s.Require().Len(captured.Properties, 1)
@@ -426,13 +598,14 @@ func (s *ServiceTestSuite) TestUpdateSMSOmittedSecretKeepsStored() {
 
 func (s *ServiceTestSuite) TestUpdateSMSProviderMismatch() {
 	s.mockNotif.On("GetSender", mock.Anything, "x").Return(&ncommon.NotificationSenderDTO{
-		ID: "x", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeVonage,
+		ID: "x", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeVonage,
 	}, (*tidcommon.ServiceError)(nil))
 
 	dto := ncommon.NotificationSenderDTO{
-		Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeTwilio,
+		Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeTwilio,
 	}
-	_, svcErr := s.svc.updateSMS(context.Background(), ncommon.MessageProviderTypeTwilio, "x", dto)
+	_, svcErr := s.svc.updateSender(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "x", dto)
 	s.Require().NotNil(svcErr)
 	s.Equal(notification.ErrorSenderNotFound.Code, svcErr.Code)
 	s.mockNotif.AssertNotCalled(s.T(), "UpdateSender", mock.Anything, mock.Anything, mock.Anything)
@@ -440,11 +613,12 @@ func (s *ServiceTestSuite) TestUpdateSMSProviderMismatch() {
 
 func (s *ServiceTestSuite) TestDeleteSMSByProviderDelegates() {
 	s.mockNotif.On("GetSender", mock.Anything, "tw-1").Return(&ncommon.NotificationSenderDTO{
-		ID: "tw-1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeTwilio,
+		ID: "tw-1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeTwilio,
 	}, (*tidcommon.ServiceError)(nil))
 	s.mockNotif.On("DeleteSender", mock.Anything, "tw-1").Return((*tidcommon.ServiceError)(nil))
 
-	svcErr := s.svc.deleteSMSByProvider(context.Background(), ncommon.MessageProviderTypeTwilio, "tw-1")
+	svcErr := s.svc.deleteSenderByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "tw-1")
 	s.Nil(svcErr)
 }
 
@@ -488,23 +662,125 @@ func (s *ServiceTestSuite) TestUsagesSMSByProviderDelegates() {
 		},
 	}
 	s.mockNotif.On("GetSender", mock.Anything, "tw-1").Return(&ncommon.NotificationSenderDTO{
-		ID: "tw-1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeTwilio,
+		ID: "tw-1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeTwilio,
 	}, (*tidcommon.ServiceError)(nil))
 	s.mockNotif.On("GetSenderUsages", mock.Anything, "tw-1").Return(usages, (*tidcommon.ServiceError)(nil))
 
-	result, svcErr := s.svc.usagesSMSByProvider(context.Background(), ncommon.MessageProviderTypeTwilio, "tw-1")
+	result, svcErr := s.svc.usagesSenderByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "tw-1")
 	s.Nil(svcErr)
 	s.Equal(usages, result)
+}
+
+func (s *ServiceTestSuite) TestUsagesAuthZENPDPReturnsReferencingResourceServers() {
+	pdpService := &authZENPDPServiceStub{connection: &authzenpdp.AuthZENPDPConnection{
+		ID:            "pdp-1",
+		Name:          "PDP",
+		Endpoint:      "https://pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://pdp.example.com/access/v1/evaluations",
+	}}
+	resourceLister := &testResourceServerLister{
+		lists: map[int]*resource.ResourceServerList{
+			0: {
+				TotalResults: 2,
+				Count:        2,
+				ResourceServers: []providers.ResourceServer{
+					{
+						ID:   "rs-1",
+						Name: "Travel API",
+						AuthorizationEngine: providers.AuthorizationEngineConfig{
+							Type: providers.AuthorizationEngineTypeAuthZENPDP,
+							Properties: providers.AuthorizationEngineProperties{
+								PDPConnectionID: " pdp-1 ",
+							},
+						},
+					},
+					{
+						ID:   "rs-2",
+						Name: "Billing API",
+						AuthorizationEngine: providers.AuthorizationEngineConfig{
+							Type: providers.AuthorizationEngineTypeAuthZENPDP,
+							Properties: providers.AuthorizationEngineProperties{
+								PDPConnectionID: "other",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	s.svc = newService(s.mockIDP, s.mockNotif, resourceLister,
+		pdpService)
+
+	result, svcErr := s.svc.usagesAuthZENPDP(context.Background(), "pdp-1")
+
+	s.Nil(svcErr)
+	s.Require().NotNil(result.TotalResults)
+	s.Equal(1, *result.TotalResults)
+	s.Equal(1, result.Count)
+	s.Equal(1, result.Summary[resourcedependency.ResourceTypeResourceServer])
+	s.Require().Len(result.Usages, 1)
+	s.Equal("rs-1", result.Usages[0].ID)
+	s.Equal("Travel API", result.Usages[0].DisplayName)
+	s.Equal(resourcedependency.BehaviorRestrict, result.Usages[0].BehaviorOnDelete)
+}
+
+func (s *ServiceTestSuite) TestDeleteAuthZENPDPBlocksWhenResourceServerReferencesIt() {
+	pdpService := &authZENPDPServiceStub{connection: &authzenpdp.AuthZENPDPConnection{
+		ID:            "pdp-1",
+		Name:          "PDP",
+		Endpoint:      "https://pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://pdp.example.com/access/v1/evaluations",
+	}}
+	s.svc = newService(s.mockIDP, s.mockNotif, &testResourceServerLister{
+		lists: map[int]*resource.ResourceServerList{
+			0: {
+				TotalResults: 1,
+				Count:        1,
+				ResourceServers: []providers.ResourceServer{
+					{
+						ID:   "rs-1",
+						Name: "Travel API",
+						AuthorizationEngine: providers.AuthorizationEngineConfig{
+							Type: providers.AuthorizationEngineTypeAuthZENPDP,
+							Properties: providers.AuthorizationEngineProperties{
+								PDPConnectionID: " pdp-1 ",
+							},
+						},
+					},
+				},
+			},
+		},
+	}, pdpService)
+
+	svcErr := s.svc.deleteAuthZENPDP(context.Background(), "pdp-1")
+
+	s.Require().NotNil(svcErr)
+	s.Equal(authzenpdp.ErrorHasBlockingDependencies.Code, svcErr.Code)
+}
+
+func (s *ServiceTestSuite) TestDeleteAuthZENPDPRejectsImmutableConnection() {
+	pdpService := &authZENPDPServiceStub{
+		connection: &authzenpdp.AuthZENPDPConnection{ID: "pdp-1", Name: "PDP"},
+		deleteErr:  &declarativeresource.ErrorDeclarativeResourceDeleteOperation,
+	}
+	s.svc = newService(s.mockIDP, s.mockNotif, &testResourceServerLister{}, pdpService)
+
+	svcErr := s.svc.deleteAuthZENPDP(context.Background(), "pdp-1")
+
+	s.Require().NotNil(svcErr)
+	s.Equal(declarativeresource.ErrorDeclarativeResourceDeleteOperation.Code, svcErr.Code)
 }
 
 // TestUsagesSMSByProviderWrongProvider verifies a sender of another provider is not exposed
 // through a vendor's usages endpoint.
 func (s *ServiceTestSuite) TestUsagesSMSByProviderWrongProvider() {
 	s.mockNotif.On("GetSender", mock.Anything, "vo-1").Return(&ncommon.NotificationSenderDTO{
-		ID: "vo-1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.MessageProviderTypeVonage,
+		ID: "vo-1", Type: ncommon.NotificationSenderTypeMessage, Provider: ncommon.NotificationProviderTypeVonage,
 	}, (*tidcommon.ServiceError)(nil))
 
-	result, svcErr := s.svc.usagesSMSByProvider(context.Background(), ncommon.MessageProviderTypeTwilio, "vo-1")
+	result, svcErr := s.svc.usagesSenderByProvider(context.Background(), ncommon.NotificationSenderTypeMessage,
+		ncommon.NotificationProviderTypeTwilio, "vo-1")
 	s.Require().NotNil(svcErr)
 	s.Nil(result)
 	s.mockNotif.AssertNotCalled(s.T(), "GetSenderUsages", mock.Anything, mock.Anything)

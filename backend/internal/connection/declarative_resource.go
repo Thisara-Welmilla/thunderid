@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/thunder-id/thunderid/internal/connection/authzenpdp"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/notification"
 	ncommon "github.com/thunder-id/thunderid/internal/notification/common"
@@ -16,6 +17,7 @@ import (
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/outboundauth"
 	"github.com/thunder-id/thunderid/internal/system/security"
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
@@ -34,23 +36,30 @@ const (
 // that matches the /connections API and console — replacing the legacy "identity_provider" and
 // "notification_sender" resource types.
 type connectionExporter struct {
-	idpService    idp.IDPServiceInterface
-	senderService notification.NotificationSenderMgtSvcInterface
+	idpService        idp.IDPServiceInterface
+	senderService     notification.NotificationSenderMgtSvcInterface
+	authZENPDPService authzenpdp.AuthZENPDPServiceInterface
 }
 
 // newConnectionExporter creates a new connection exporter.
 func newConnectionExporter(idpService idp.IDPServiceInterface,
-	senderService notification.NotificationSenderMgtSvcInterface) *connectionExporter {
-	return &connectionExporter{idpService: idpService, senderService: senderService}
+	senderService notification.NotificationSenderMgtSvcInterface,
+	authZENPDPService authzenpdp.AuthZENPDPServiceInterface) *connectionExporter {
+	return &connectionExporter{
+		idpService:        idpService,
+		senderService:     senderService,
+		authZENPDPService: authZENPDPService,
+	}
 }
 
 // NewConnectionExporterForTest creates a new connection exporter for testing purposes.
 func NewConnectionExporterForTest(idpService idp.IDPServiceInterface,
-	senderService notification.NotificationSenderMgtSvcInterface) *connectionExporter {
+	senderService notification.NotificationSenderMgtSvcInterface,
+	authZENPDPService authzenpdp.AuthZENPDPServiceInterface) *connectionExporter {
 	if !testing.Testing() {
 		panic("only for tests!")
 	}
-	return newConnectionExporter(idpService, senderService)
+	return newConnectionExporter(idpService, senderService, authZENPDPService)
 }
 
 // GetResourceType returns the resource type for connections.
@@ -83,11 +92,27 @@ func (e *connectionExporter) GetAllResourceIDs(ctx context.Context) ([]string, *
 		return nil, svcErr
 	}
 	for _, sender := range senders {
-		if sender.Type != ncommon.NotificationSenderTypeMessage {
-			continue
+		switch sender.Type {
+		case ncommon.NotificationSenderTypeMessage:
+			if _, ok := smsVendorName(sender.Provider); ok {
+				ids = append(ids, sender.ID)
+			}
+		case ncommon.NotificationSenderTypeEmail:
+			if _, ok := emailVendorName(sender.Provider); ok {
+				ids = append(ids, sender.ID)
+			}
 		}
-		if _, ok := smsVendorName(sender.Provider); ok {
-			ids = append(ids, sender.ID)
+	}
+
+	if e.authZENPDPService != nil {
+		pdpConnections, svcErr := e.authZENPDPService.ListAuthZENPDPs(ctx)
+		if svcErr != nil {
+			return nil, svcErr
+		}
+		for _, connection := range pdpConnections {
+			if !connection.IsReadOnly {
+				ids = append(ids, connection.ID)
+			}
 		}
 	}
 
@@ -117,14 +142,29 @@ func (e *connectionExporter) GetResourceByID(ctx context.Context, id string) (
 	}
 
 	senderDTO, svcErr := e.senderService.GetSender(ctx, id)
-	if svcErr != nil {
+	if svcErr == nil {
+		model, err := connectionModelFromSenderDTO(*senderDTO)
+		if err != nil {
+			return nil, "", &tidcommon.InternalServerError
+		}
+		return &model, model.Name, nil
+	}
+	if svcErr.Code != notification.ErrorSenderNotFound.Code {
 		return nil, "", svcErr
 	}
-	model, err := connectionModelFromSenderDTO(*senderDTO)
-	if err != nil {
-		return nil, "", &tidcommon.InternalServerError
+
+	if e.authZENPDPService != nil {
+		pdpConnection, svcErr := e.authZENPDPService.GetAuthZENPDP(ctx, id)
+		if svcErr != nil {
+			return nil, "", svcErr
+		}
+		if pdpConnection != nil {
+			model := connectionModelFromAuthZENPDP(*pdpConnection)
+			return &model, model.Name, nil
+		}
 	}
-	return &model, model.Name, nil
+
+	return nil, "", svcErr
 }
 
 // ValidateResource validates a connection resource prior to export.
@@ -164,29 +204,54 @@ func (e *connectionExporter) GetResourceRulesForResource(
 		if model.ClientSecret == "" {
 			return &declarativeresource.ResourceRules{}
 		}
-		return &declarativeresource.ResourceRules{Variables: []string{"ClientSecret"}}
+		return &declarativeresource.ResourceRules{SecretVariables: []string{"ClientSecret"}}
 	}
 
 	switch model.Type {
 	case "twilio":
-		return &declarativeresource.ResourceRules{Variables: []string{"AuthToken"}}
+		return &declarativeresource.ResourceRules{SecretVariables: []string{"AuthToken"}}
 	case "vonage":
-		return &declarativeresource.ResourceRules{Variables: []string{"APISecret"}}
+		return &declarativeresource.ResourceRules{SecretVariables: []string{"APISecret"}}
+	case emailSMTPVendorName:
+		return authenticationResourceRules(model.Authentication)
 	default:
-		// sms-gateway (and any future no-secret vendor) has nothing to externalize.
+		// Any future vendor with no secret of its own has nothing to externalize.
 		return &declarativeresource.ResourceRules{}
 	}
 }
 
-// isIDPBackedVendorName reports whether name is a registered IdP-backed vendor's connection
-// name (e.g. "google"), as opposed to an SMS-backed vendor name.
-func isIDPBackedVendorName(name string) bool {
-	for _, vendor := range idpBackedVendors {
-		if vendor.name == name {
-			return true
+// authenticationResourceRules externalizes each secret field of a connection's outbound
+// authentication to a template variable. The field names are not statically known, since they
+// come from the registered method, so the paths are derived rather than hardcoded. That is what
+// keeps a new authentication method from needing a change here.
+func authenticationResourceRules(
+	auth *outboundauth.Authentication) *declarativeresource.ResourceRules {
+	if auth == nil {
+		return &declarativeresource.ResourceRules{}
+	}
+
+	authType, ok := outboundauth.ParseType(auth.Type)
+	if !ok {
+		return &declarativeresource.ResourceRules{}
+	}
+	method, ok := outboundauth.GetMethod(authType)
+	if !ok {
+		return &declarativeresource.ResourceRules{}
+	}
+
+	var variables []string
+	for _, field := range method.Fields {
+		// An empty value has nothing to externalize, matching how an unset vendor secret is
+		// left out rather than exported as a blank variable.
+		if field.Credential && auth.Properties[field.Key] != "" {
+			variables = append(variables, "Authentication.Properties."+field.Key)
 		}
 	}
-	return false
+	if len(variables) == 0 {
+		return &declarativeresource.ResourceRules{}
+	}
+
+	return &declarativeresource.ResourceRules{SecretVariables: variables}
 }
 
 // rawPropertyValues returns a name->value map for the given properties WITHOUT masking secret
@@ -247,8 +312,10 @@ func connectionModelFromIDPDTO(dto providers.IDPDTO) (connectionExportModel, err
 func connectionModelFromSenderDTO(dto ncommon.NotificationSenderDTO) (connectionExportModel, error) {
 	vendor, ok := smsVendorName(dto.Provider)
 	if !ok {
-		return connectionExportModel{}, fmt.Errorf(
-			"unsupported message provider for connection export: %s", dto.Provider)
+		if vendor, ok = emailVendorName(dto.Provider); !ok {
+			return connectionExportModel{}, fmt.Errorf(
+				"unsupported notification provider for connection export: %s", dto.Provider)
+		}
 	}
 	values, err := rawPropertyValues(dto.Properties)
 	if err != nil {
@@ -262,21 +329,44 @@ func connectionModelFromSenderDTO(dto ncommon.NotificationSenderDTO) (connection
 		Description: dto.Description,
 	}
 	switch dto.Provider {
-	case ncommon.MessageProviderTypeTwilio:
+	case ncommon.NotificationProviderTypeTwilio:
 		model.AccountSID = values[ncommon.TwilioPropKeyAccountSID]
 		model.AuthToken = values[ncommon.TwilioPropKeyAuthToken]
 		model.SenderID = values[ncommon.TwilioPropKeySenderID]
-	case ncommon.MessageProviderTypeVonage:
+	case ncommon.NotificationProviderTypeVonage:
 		model.APIKey = values[ncommon.VonagePropKeyAPIKey]
 		model.APISecret = values[ncommon.VonagePropKeyAPISecret]
 		model.SenderID = values[ncommon.VonagePropKeySenderID]
-	case ncommon.MessageProviderTypeCustom:
+	case ncommon.NotificationProviderTypeCustom:
 		model.URL = values[ncommon.CustomPropKeyURL]
 		model.HTTPMethod = values[ncommon.CustomPropKeyHTTPMethod]
 		model.HTTPHeaders = values[ncommon.CustomPropKeyHTTPHeaders]
 		model.ContentType = values[ncommon.CustomPropKeyContentType]
+	case ncommon.NotificationProviderTypeSMTP:
+		model.Host = values[ncommon.SMTPPropKeyHost]
+		model.Port, _ = strconv.Atoi(values[ncommon.SMTPPropKeyPort])
+		model.FromAddress = values[ncommon.SMTPPropKeyFromAddress]
+		model.FromName = values[ncommon.SMTPPropKeyFromName]
+		model.TLS = values[ncommon.SMTPPropKeyTLS]
+		auth := outboundauth.AuthenticationFromValues(values)
+		model.Authentication = &auth
 	}
 	return model, nil
+}
+
+// connectionModelFromAuthZENPDP builds the unified export model from an AuthZEN PDP connection.
+func connectionModelFromAuthZENPDP(connection authzenpdp.AuthZENPDPConnection) connectionExportModel {
+	return connectionExportModel{
+		ID:                       connection.ID,
+		Type:                     "authzen-pdp",
+		Name:                     connection.Name,
+		Description:              connection.Description,
+		AuthZENPDPEndpoint:       connection.Endpoint,
+		AuthZENPDPBatchEndpoint:  connection.BatchEndpoint,
+		AuthZENPDPTimeoutMS:      connection.TimeoutMS,
+		AuthZENPDPRetryCount:     &connection.RetryCount,
+		SubjectAttributeMappings: connection.SubjectAttributeMappings,
+	}
 }
 
 // connectionModelToDTO converts a parsed connection document into the underlying
@@ -365,9 +455,38 @@ func connectionModelToDTO(model connectionExportModel) (*providers.IDPDTO, *ncom
 		}
 		dto.ID = model.ID
 		return nil, dto, nil
+	case emailSMTPVendorName:
+		dto, err := emailSMTPToSenderDTO(emailSMTPConnectionRequest{
+			Name: model.Name, Description: model.Description, Host: model.Host, Port: model.Port,
+			FromAddress: model.FromAddress, FromName: model.FromName, TLS: model.TLS,
+			Authentication: model.Authentication,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		dto.ID = model.ID
+		return nil, dto, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported connection vendor: %s", model.Type)
 	}
+}
+
+// connectionModelToAuthZENPDP converts the unified connection export model into an AuthZEN PDP connection.
+func connectionModelToAuthZENPDP(model connectionExportModel) *authzenpdp.AuthZENPDPConnection {
+	connection := authzenpdp.AuthZENPDPConnection{
+		ID:                       model.ID,
+		Name:                     model.Name,
+		Description:              model.Description,
+		Endpoint:                 model.AuthZENPDPEndpoint,
+		BatchEndpoint:            model.AuthZENPDPBatchEndpoint,
+		TimeoutMS:                model.AuthZENPDPTimeoutMS,
+		RetryCount:               -1,
+		SubjectAttributeMappings: model.SubjectAttributeMappings,
+	}
+	if model.AuthZENPDPRetryCount != nil {
+		connection.RetryCount = *model.AuthZENPDPRetryCount
+	}
+	return &connection
 }
 
 // ParseConnectionFromNode decodes a yaml.Node into the underlying identity-provider or
@@ -381,12 +500,27 @@ func ParseConnectionFromNode(node *yaml.Node) (*providers.IDPDTO, *ncommon.Notif
 	return connectionModelToDTO(model)
 }
 
+// ParseAuthZENPDPConnectionFromNode decodes an AuthZEN PDP connection document.
+func ParseAuthZENPDPConnectionFromNode(node *yaml.Node) (*authzenpdp.AuthZENPDPConnection, error) {
+	var model connectionExportModel
+	if err := node.Decode(&model); err != nil {
+		return nil, fmt.Errorf("failed to parse connection document: %w", err)
+	}
+	if model.Type != "authzen-pdp" {
+		return nil, nil
+	}
+	return connectionModelToAuthZENPDP(model), nil
+}
+
 // parseToConnectionDTOWrapper wraps connectionModelToDTO to match ResourceConfig.Parser,
 // returning whichever of the two underlying DTOs the document's vendor maps to.
 func parseToConnectionDTOWrapper(data []byte) (interface{}, error) {
 	var model connectionExportModel
 	if err := yaml.Unmarshal(data, &model); err != nil {
 		return nil, err
+	}
+	if model.Type == "authzen-pdp" {
+		return connectionModelToAuthZENPDP(model), nil
 	}
 	idpDTO, senderDTO, err := connectionModelToDTO(model)
 	if err != nil {
@@ -406,6 +540,8 @@ func connectionResourceID(dto interface{}) string {
 		return d.ID
 	case *ncommon.NotificationSenderDTO:
 		return d.ID
+	case *authzenpdp.AuthZENPDPConnection:
+		return d.ID
 	default:
 		return ""
 	}
@@ -413,9 +549,10 @@ func connectionResourceID(dto interface{}) string {
 
 // validateConnectionDTOWrapper validates a parsed connection DTO before it is stored declaratively.
 // IdP DTOs go through idp.ValidateIDP, the same required-property and type-default checks the live
-// /connections create/update API runs. Notification-sender DTOs only get a name presence check —
-// full semantic validation for senders (e.g. a custom sender's required URL) is deferred to
-// runtime use, matching the legacy declarative notification-sender behavior.
+// /connections create/update API runs. Email senders go through the same validation as the API,
+// so a provider that cannot deliver fails the load rather than every send. Message senders only
+// get a name presence check; their full semantic validation (e.g. a custom sender's required URL)
+// is deferred to runtime use, matching the legacy declarative notification-sender behavior.
 //
 // idpService may be nil, in which case the schema-aware defaults the live API applies are skipped
 // and the declarative document stands entirely on its own.
@@ -441,24 +578,28 @@ func validateConnectionDTOWrapper(dto interface{}, idpService idp.IDPServiceInte
 		if d.Name == "" {
 			return fmt.Errorf("connection resource %q is missing a name", d.ID)
 		}
+		if d.Type == ncommon.NotificationSenderTypeEmail {
+			if err := notification.ValidateNotificationSender(*d); err != nil {
+				return fmt.Errorf("connection resource %q is invalid: %w", d.ID, err)
+			}
+		}
+	case *authzenpdp.AuthZENPDPConnection:
+		if d.Name == "" || d.Endpoint == "" {
+			return fmt.Errorf("connection resource %q requires a name and endpoint", d.ID)
+		}
 	}
 	return nil
 }
 
-// connectionDeclarativeStore dispatches a parsed connection resource to the identity-provider or
-// notification-sender file-based backing store, based on the concrete DTO type returned by
-// parseToConnectionDTOWrapper. Both target stores share their underlying storage with the ones
-// the idp/notification services read via composite/declarative store modes — see
-// declarativeresource.GenericFileBasedStore, keyed by entity.KeyTypeIDP / KeyTypeNotificationSender.
+// connectionDeclarativeStore dispatches parsed connections to their file-based stores.
 type connectionDeclarativeStore struct {
-	idpStore    *declarativeresource.GenericFileBasedStore
-	senderStore *declarativeresource.GenericFileBasedStore
+	idpStore        *declarativeresource.GenericFileBasedStore
+	senderStore     *declarativeresource.GenericFileBasedStore
+	authZENPDPStore *declarativeresource.GenericFileBasedStore
 }
 
 // Create implements declarativeresource.Storer, routing to the store matching the DTO type.
-// IdP-typed documents are skipped when the identity-provider package's own per-service store
-// mode (identity_provider.store) resolves to mutable, even though the global declarative flag
-// that gates loadDeclarativeResources is enabled.
+// Connections whose resolved store mode is mutable are skipped.
 func (s *connectionDeclarativeStore) Create(id string, data interface{}) error {
 	switch dto := data.(type) {
 	case *providers.IDPDTO:
@@ -468,26 +609,29 @@ func (s *connectionDeclarativeStore) Create(id string, data interface{}) error {
 		return s.idpStore.Create(id, dto)
 	case *ncommon.NotificationSenderDTO:
 		return s.senderStore.Create(id, dto)
+	case *authzenpdp.AuthZENPDPConnection:
+		if !authzenpdp.ShouldLoadDeclarativeAuthZENPDPResources() {
+			return nil
+		}
+		dto.ID = id
+		return s.authZENPDPStore.Create(id, dto)
 	default:
 		return fmt.Errorf("unsupported connection resource type: %T", data)
 	}
 }
 
-// loadDeclarativeResources loads declarative connection resources from config/resources/connections
-// (or the single-file/root-dir equivalents), dispatching each parsed document to the
-// identity-provider or notification-sender backing store by vendor. A no-op when neither the
-// global declarative flag nor the identity-provider package's own per-service store mode
-// (identity_provider.store) calls for loading, or when no connection files are present.
-// connectionDeclarativeStore.Create further gates IdP-typed documents individually so a
-// composite/declarative identity_provider.store is honored even when the global flag is off.
+// loadDeclarativeResources loads connection files when a connection file store is enabled.
 func loadDeclarativeResources(idpService idp.IDPServiceInterface) error {
-	if !declarativeresource.IsDeclarativeModeEnabled() && !idp.ShouldLoadDeclarativeIDPResources() {
+	if !declarativeresource.IsDeclarativeModeEnabled() &&
+		!idp.ShouldLoadDeclarativeIDPResources() &&
+		!authzenpdp.ShouldLoadDeclarativeAuthZENPDPResources() {
 		return nil
 	}
 
 	storer := &connectionDeclarativeStore{
-		idpStore:    declarativeresource.NewGenericFileBasedStore(entity.KeyTypeIDP),
-		senderStore: declarativeresource.NewGenericFileBasedStore(entity.KeyTypeNotificationSender),
+		idpStore:        declarativeresource.NewGenericFileBasedStore(entity.KeyTypeIDP),
+		senderStore:     declarativeresource.NewGenericFileBasedStore(entity.KeyTypeNotificationSender),
+		authZENPDPStore: declarativeresource.NewGenericFileBasedStore(entity.KeyTypeAuthZENPDP),
 	}
 	resourceConfig := declarativeresource.ResourceConfig{
 		ResourceType:  paramTypeConnection,

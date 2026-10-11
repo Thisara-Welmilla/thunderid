@@ -1,4 +1,4 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package export
@@ -89,13 +89,13 @@ func (suite *ExportServiceTestSuite) SetupTest() {
 	// Create exporters
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(suite.appServiceMock),
-		connection.NewConnectionExporterForTest(suite.idpServiceMock, suite.mockNotificationService),
+		connection.NewConnectionExporterForTest(suite.idpServiceMock, suite.mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(suite.mockEntityTypeService, entitytype.TypeCategoryUser),
 		flowmgt.NewFlowGraphExporterForTest(suite.mockFlowService),
 	}
 
 	// Create parameterizer instance
-	parameterizer := newParameterizer(templatingRules{})
+	parameterizer := newParameterizer(templatingRules{}, TemplatePlaceholders)
 
 	suite.exportService = newExportService(exporters, parameterizer)
 }
@@ -1229,16 +1229,24 @@ type MockParameterizer struct {
 
 func (m *MockParameterizer) ToParameterizedYAML(_ context.Context, obj interface{},
 	resourceType string, resourceName string,
-	rules *declarativeresource.ResourceRules) (string, map[string]string, error) {
+	rules *declarativeresource.ResourceRules) (string, map[string]string, map[string]bool, error) {
 	if m.shouldFail {
-		return "", nil, fmt.Errorf("%s", m.errorMsg)
+		return "", nil, nil, fmt.Errorf("%s", m.errorMsg)
 	}
 	// Return minimal valid YAML
-	return "id: test\nname: test\n", nil, nil
+	return "id: test\nname: test\n", nil, nil, nil
+}
+
+func (m *MockParameterizer) PlaceholderValues(_ context.Context, _ interface{}, _ string, _ string,
+	_ *declarativeresource.ResourceRules) (map[string]string, map[string]string, error) {
+	if m.shouldFail {
+		return nil, nil, fmt.Errorf("%s", m.errorMsg)
+	}
+	return map[string]string{}, map[string]string{}, nil
 }
 
 func (m *MockParameterizer) VarPrefix(resourceName string) string {
-	return newParameterizer(templatingRules{}).VarPrefix(resourceName)
+	return newParameterizer(templatingRules{}, TemplatePlaceholders).VarPrefix(resourceName)
 }
 
 // TestExportResources_TemplateGenerationError tests the error path in generateTemplateFromStruct.
@@ -1272,7 +1280,7 @@ func (suite *ExportServiceTestSuite) TestExportResources_TemplateGenerationError
 	// Create exporters with the test services
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(suite.appServiceMock),
-		connection.NewConnectionExporterForTest(suite.idpServiceMock, suite.mockNotificationService),
+		connection.NewConnectionExporterForTest(suite.idpServiceMock, suite.mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(suite.mockEntityTypeService, entitytype.TypeCategoryUser),
 	}
 
@@ -1392,7 +1400,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_Success() {
 		ID:          "sender1",
 		Name:        "Test Sender",
 		Description: "Test notification sender",
-		Provider:    common.MessageProviderTypeTwilio,
+		Provider:    common.NotificationProviderTypeTwilio,
 		Properties:  []cmodels.Property{*mockProperty},
 	}
 
@@ -1419,7 +1427,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_Multiple() {
 	mockSender1 := &common.NotificationSenderDTO{
 		ID:         "sender1",
 		Name:       "Twilio Sender",
-		Provider:   common.MessageProviderTypeTwilio,
+		Provider:   common.NotificationProviderTypeTwilio,
 		Properties: []cmodels.Property{*mockProperty1},
 	}
 
@@ -1427,7 +1435,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_Multiple() {
 	mockSender2 := &common.NotificationSenderDTO{
 		ID:         "sender2",
 		Name:       "Vonage Sender",
-		Provider:   common.MessageProviderTypeVonage,
+		Provider:   common.NotificationProviderTypeVonage,
 		Properties: []cmodels.Property{*mockProperty2},
 	}
 
@@ -1459,7 +1467,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_Wildcard() {
 		ID:         "sender1",
 		Name:       "Twilio Sender",
 		Type:       common.NotificationSenderTypeMessage,
-		Provider:   common.MessageProviderTypeTwilio,
+		Provider:   common.NotificationProviderTypeTwilio,
 		Properties: []cmodels.Property{*mockProperty1},
 	}
 
@@ -1468,7 +1476,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_Wildcard() {
 		ID:         "sender2",
 		Name:       "Vonage Sender",
 		Type:       common.NotificationSenderTypeMessage,
-		Provider:   common.MessageProviderTypeVonage,
+		Provider:   common.NotificationProviderTypeVonage,
 		Properties: []cmodels.Property{*mockProperty2},
 	}
 
@@ -1528,7 +1536,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_EmptyName() {
 	mockSender := &common.NotificationSenderDTO{
 		ID:         "sender-no-name",
 		Name:       "", // Empty name
-		Provider:   common.MessageProviderTypeTwilio,
+		Provider:   common.NotificationProviderTypeTwilio,
 		Properties: []cmodels.Property{*mockProperty},
 	}
 
@@ -1555,7 +1563,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_NoProperties(
 	mockSender := &common.NotificationSenderDTO{
 		ID:         "sender-no-props",
 		Name:       "Empty Sender",
-		Provider:   common.MessageProviderTypeTwilio,
+		Provider:   common.NotificationProviderTypeTwilio,
 		Properties: []cmodels.Property{}, // Empty properties
 	}
 
@@ -1588,7 +1596,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_WildcardParti
 		ID:         "sender1",
 		Name:       "Twilio Sender",
 		Type:       common.NotificationSenderTypeMessage,
-		Provider:   common.MessageProviderTypeTwilio,
+		Provider:   common.NotificationProviderTypeTwilio,
 		Properties: []cmodels.Property{*mockProperty1},
 	}
 
@@ -1596,7 +1604,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_WildcardParti
 		ID:       "sender2",
 		Name:     "Failing Sender",
 		Type:     common.NotificationSenderTypeMessage,
-		Provider: common.MessageProviderTypeVonage,
+		Provider: common.NotificationProviderTypeVonage,
 	}
 
 	mockProperty3, _ := cmodels.NewProperty("api_key", "key3", true)
@@ -1604,7 +1612,7 @@ func (suite *ExportServiceTestSuite) TestExportNotificationSenders_WildcardParti
 		ID:         "sender3",
 		Name:       "Vonage Sender",
 		Type:       common.NotificationSenderTypeMessage,
-		Provider:   common.MessageProviderTypeVonage,
+		Provider:   common.NotificationProviderTypeVonage,
 		Properties: []cmodels.Property{*mockProperty3},
 	}
 
@@ -1645,7 +1653,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Success() {
 
 	mockSchema := &entitytype.EntityType{
 		ID:                    "schema1",
-		Name:                  "Test Schema",
+		Handle:                "test-schema",
+		DisplayName:           "Test Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object","properties":{"email":{"type":"string"}}}`),
@@ -1664,7 +1673,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Success() {
 	assert.Contains(suite.T(), result.Summary.ResourceTypes, "user_type")
 	assert.Equal(suite.T(), "Test_Schema.yaml", result.Files[0].FileName)
 	assert.Equal(suite.T(), "user_type", result.Files[0].ResourceType)
-	assert.Contains(suite.T(), result.Files[0].Content, "name: Test Schema")
+	assert.Contains(suite.T(), result.Files[0].Content, "handle: test-schema")
+	assert.Contains(suite.T(), result.Files[0].Content, "displayName: Test Schema")
 }
 
 // TestExportEntityTypes_Multiple tests exporting multiple entity types.
@@ -1678,7 +1688,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Multiple() {
 
 	mockSchema1 := &entitytype.EntityType{
 		ID:                    "schema1",
-		Name:                  "Customer Schema",
+		Handle:                "customer-schema",
+		DisplayName:           "Customer Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object","properties":{"email":{"type":"string"}}}`),
@@ -1686,7 +1697,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Multiple() {
 
 	mockSchema2 := &entitytype.EntityType{
 		ID:                    "schema2",
-		Name:                  "Employee Schema",
+		Handle:                "employee-schema",
+		DisplayName:           "Employee Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: false,
 		Schema:                []byte(`{"type":"object","properties":{"empId":{"type":"string"}}}`),
@@ -1719,7 +1731,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Wildcard() {
 
 	mockSchema1 := &entitytype.EntityType{
 		ID:                    "schema1",
-		Name:                  "Customer Schema",
+		Handle:                "customer-schema",
+		DisplayName:           "Customer Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object","properties":{"email":{"type":"string"}}}`),
@@ -1727,7 +1740,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Wildcard() {
 
 	mockSchema2 := &entitytype.EntityType{
 		ID:                    "schema2",
-		Name:                  "Employee Schema",
+		Handle:                "employee-schema",
+		DisplayName:           "Employee Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: false,
 		Schema:                []byte(`{"type":"object","properties":{"empId":{"type":"string"}}}`),
@@ -1737,8 +1751,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Wildcard() {
 		TotalResults: 2,
 		Count:        2,
 		Types: []entitytype.EntityTypeListItem{
-			{ID: "schema1", Name: "Customer Schema", OUID: "ou1"},
-			{ID: "schema2", Name: "Employee Schema", OUID: "ou1"},
+			{ID: "schema1", Handle: "customer-schema", DisplayName: "Customer Schema", OUID: "ou1"},
+			{ID: "schema2", Handle: "employee-schema", DisplayName: "Employee Schema", OUID: "ou1"},
 		},
 	}
 
@@ -1799,7 +1813,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_EmptyName() {
 
 	mockSchema := &entitytype.EntityType{
 		ID:                    "schema-no-name",
-		Name:                  "", // Empty name
+		Handle:                "schema-no-name",
+		DisplayName:           "", // Empty name
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object"}`),
@@ -1828,7 +1843,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_NoSchema() {
 
 	mockSchema := &entitytype.EntityType{
 		ID:                    "schema-no-def",
-		Name:                  "Empty Schema",
+		Handle:                "empty-schema",
+		DisplayName:           "Empty Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte{}, // Empty schema
@@ -1846,7 +1862,7 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_NoSchema() {
 	assert.NotNil(suite.T(), result)
 	assert.Len(suite.T(), result.Files, 1)
 	assert.Equal(suite.T(), 1, result.Summary.TotalFiles)
-	assert.Contains(suite.T(), result.Files[0].Content, "name: Empty Schema")
+	assert.Contains(suite.T(), result.Files[0].Content, "displayName: Empty Schema")
 }
 
 // TestExportEntityTypes_WildcardPartialFailure tests wildcard export with partial failures.
@@ -1860,7 +1876,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_WildcardPartialFailur
 
 	mockSchema1 := &entitytype.EntityType{
 		ID:                    "schema1",
-		Name:                  "Customer Schema",
+		Handle:                "customer-schema",
+		DisplayName:           "Customer Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object"}`),
@@ -1868,7 +1885,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_WildcardPartialFailur
 
 	mockSchema3 := &entitytype.EntityType{
 		ID:                    "schema3",
-		Name:                  "Partner Schema",
+		Handle:                "partner-schema",
+		DisplayName:           "Partner Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: false,
 		Schema:                []byte(`{"type":"object"}`),
@@ -1878,9 +1896,9 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_WildcardPartialFailur
 		TotalResults: 3,
 		Count:        3,
 		Types: []entitytype.EntityTypeListItem{
-			{ID: "schema1", Name: "Customer Schema"},
-			{ID: "schema2", Name: "Employee Schema"},
-			{ID: "schema3", Name: "Partner Schema"},
+			{ID: "schema1", Handle: "customer-schema", DisplayName: "Customer Schema"},
+			{ID: "schema2", Handle: "employee-schema", DisplayName: "Employee Schema"},
+			{ID: "schema3", Handle: "partner-schema", DisplayName: "Partner Schema"},
 		},
 	}
 
@@ -2247,7 +2265,7 @@ func (suite *ExportServiceTestSuite) TestExportResourcesWithExporter_Notificatio
 	mockSender := &common.NotificationSenderDTO{
 		ID:         senderID,
 		Name:       "Test Sender",
-		Provider:   common.MessageProviderTypeTwilio,
+		Provider:   common.NotificationProviderTypeTwilio,
 		Properties: []cmodels.Property{*mockProperty},
 	}
 
@@ -2277,7 +2295,8 @@ func (suite *ExportServiceTestSuite) TestExportResourcesWithExporter_EntityType(
 	schemaID := "schema-test-id"
 	mockSchema := &entitytype.EntityType{
 		ID:                    schemaID,
-		Name:                  "Test Schema",
+		Handle:                "test-schema",
+		DisplayName:           "Test Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object","properties":{"email":{"type":"string"}}}`),

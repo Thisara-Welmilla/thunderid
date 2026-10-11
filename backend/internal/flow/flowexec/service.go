@@ -289,7 +289,6 @@ func validateAdministrationCaller(ctx context.Context, flowType providers.FlowTy
 	return nil
 }
 
-// applyInboundSSO selects the SSO handle carried for this flow from the request-scoped
 // currentRequestCtxKey is the context key under which the current flow step's HTTP request is
 // carried from the handler to the flow service.
 type currentRequestCtxKey struct{}
@@ -320,6 +319,7 @@ func applyCurrentRequest(engineCtx *EngineContext, ctx context.Context) {
 	}
 }
 
+// applyInboundSSO selects the SSO handle carried for this flow from the request-scoped
 // transport inputs and stashes it on the engine context for the SSO-Check node to consume.
 // It is a no-op when no inbound transport is present.
 func applyInboundSSO(engineCtx *EngineContext, ctx context.Context) {

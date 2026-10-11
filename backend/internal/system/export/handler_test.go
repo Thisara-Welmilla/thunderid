@@ -55,10 +55,10 @@ func (suite *HandlerTestSuite) SetupTest() {
 	suite.mockEntityTypeService = entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(suite.mockAppService),
-		connection.NewConnectionExporterForTest(suite.mockIDPService, suite.mockNotificationService),
+		connection.NewConnectionExporterForTest(suite.mockIDPService, suite.mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(suite.mockEntityTypeService, entitytype.TypeCategoryUser),
 	}
-	parameterizer := newParameterizer(templatingRules{})
+	parameterizer := newParameterizer(templatingRules{}, TemplatePlaceholders)
 	suite.exportService = newExportService(exporters, parameterizer)
 	suite.handler = newExportHandler(suite.exportService)
 }
@@ -79,10 +79,10 @@ func TestNewExportHandler(t *testing.T) {
 	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(t)
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(mockAppService),
-		connection.NewConnectionExporterForTest(mockIDPService, mockNotificationService),
+		connection.NewConnectionExporterForTest(mockIDPService, mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(mockEntityTypeService, entitytype.TypeCategoryUser),
 	}
-	parameterizer := newParameterizer(templatingRules{})
+	parameterizer := newParameterizer(templatingRules{}, TemplatePlaceholders)
 	exportService := newExportService(exporters, parameterizer)
 
 	handler := newExportHandler(exportService)
@@ -124,6 +124,8 @@ func (suite *HandlerTestSuite) TestHandleExportRequest_Success() {
 	// Assert response
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
 	assert.Equal(suite.T(), "application/json", w.Header().Get("Content-Type"))
+	assert.Equal(suite.T(), "no-store", w.Header().Get("Cache-Control"),
+		"exported secrets must not be cached")
 
 	var response JSONExportResponse
 	err := json.Unmarshal(w.Body.Bytes(), &response)
@@ -433,10 +435,10 @@ func setupBenchmarkTest(b *testing.B) (*exportHandler, []byte) {
 	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(b)
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(mockAppService),
-		connection.NewConnectionExporterForTest(mockIDPService, mockNotificationService),
+		connection.NewConnectionExporterForTest(mockIDPService, mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(mockEntityTypeService, entitytype.TypeCategoryUser),
 	}
-	parameterizer := newParameterizer(templatingRules{})
+	parameterizer := newParameterizer(templatingRules{}, TemplatePlaceholders)
 	exportService := newExportService(exporters, parameterizer)
 	handler := newExportHandler(exportService)
 

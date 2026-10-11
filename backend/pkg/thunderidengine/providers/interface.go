@@ -26,12 +26,20 @@ type AuthnProviderManager interface {
 		authUser AuthUser) (AuthUser, AuthenticatedClaims, *common.ServiceError)
 	GetEntityReference(ctx context.Context, authUser AuthUser) (
 		AuthUser, *EntityReference, *common.ServiceError)
+	// ResolveLinkCandidates returns the entities the AuthUser's pending identity matches on its
+	// account-linking attributes, or nil when nothing matches.
+	ResolveLinkCandidates(ctx context.Context, authUser AuthUser) (
+		*LinkCandidates, *common.ServiceError)
 	GetUserAvailableAttributes(ctx context.Context,
 		authUser AuthUser) (*AttributesResponse, *common.ServiceError)
 	GetUserAttributes(ctx context.Context,
 		requestedAttributes *RequestedAttributes,
 		metadata *GetAttributesMetadata,
 		authUser AuthUser) (AuthUser, *AttributesResponse, *common.ServiceError)
+	// LinkAccount records a linked account against the user the AuthUser names, on the provider
+	// that authenticated that user.
+	LinkAccount(ctx context.Context, authUser AuthUser,
+		idpID, sub string) *common.ServiceError
 }
 
 // AuthnProviderInterface defines the interface for authentication providers.
@@ -49,6 +57,15 @@ type AuthnProviderInterface interface {
 		metadata *AuthnMetadata) (any, *common.ServiceError)
 	Enroll(ctx context.Context, identifiers, credentials map[string]interface{},
 		metadata *AuthnMetadata) (*AuthnResult, *common.ServiceError)
+	// StoreAccountLink records that the referenced entity authenticates as the given subject at the
+	// given connection. The token is this provider's entity reference token, or {"userID": "<entity id>"}
+	// once the entity is resolved. A provider that does not store links returns ErrorCodeNotImplemented.
+	StoreAccountLink(ctx context.Context, entityReferenceToken any,
+		idpID, sub string) *common.ServiceError
+	// SearchEntityReferences returns every entity an attribute lookup matches. A provider that cannot
+	// list the matches returns ErrorCodeNotImplemented.
+	SearchEntityReferences(ctx context.Context, filters map[string]interface{}) (
+		[]EntityReference, *common.ServiceError)
 }
 
 // ActorProvider resolves inbound actors and exposes their OAuth and membership data.
@@ -56,30 +73,40 @@ type ActorProvider interface {
 	GetOAuthClientByClientID(
 		ctx context.Context, clientID string,
 	) (*OAuthClient, *common.ServiceError)
+	// GetOAuthClientByID returns the runtime OAuth client of the application or agent with the given
+	// entity id, so a caller that knows only the application can address its OAuth configuration. A
+	// missing client is a nil client with no error, as in GetOAuthClientByClientID.
+	GetOAuthClientByID(
+		ctx context.Context, id string,
+	) (*OAuthClient, *common.ServiceError)
 	GetOAuthProfileByID(
 		ctx context.Context, id string,
 	) (*OAuthProfile, *common.ServiceError)
 	GetInboundClientByID(
 		ctx context.Context, id string,
 	) (*InboundClient, *common.ServiceError)
+	IsOAuthClientAccessibleFromOU(ctx context.Context, client *OAuthClient, ouID string) (bool, *common.ServiceError)
 	AuthenticateActor(
 		ctx context.Context, identifiers, credentials map[string]interface{},
 	) *common.ServiceError
 	GetActor(actorID string) (*Entity, *common.ServiceError)
 	GetActorGroups(actorID string) ([]EntityGroup, *common.ServiceError)
 	GetActorRoles(actorID string, groupIDs []string) ([]string, *common.ServiceError)
+	GetTransitiveGroupAncestors(groupID string) ([]string, *common.ServiceError)
 }
 
 // AgentMgtProvider provisions agents on behalf of runtime capabilities. The rules and semantics of an
 // agent remain owned by the agent management service; this exposes only what the runtime needs.
 type AgentMgtProvider interface {
-	// CreateAgent provisions an agent. The returned agent carries the generated identifier and, on
-	// InboundAuthConfig, the generated client credentials, alongside the request fields the agent
-	// service echoes on a create response. Fields it does not echo come back zero, so the result is
-	// not a full round-trip of the request. Owner is required: unlike the Agent API, the runtime
-	// carries no dependable caller identity to fall back on. Errors from the agent service are
-	// returned unchanged so callers can distinguish the actual failure.
-	CreateAgent(ctx context.Context, agent *Agent) (*Agent, *common.ServiceError)
+	// CreateAgent provisions the supplied agent, deriving its inbound auth profile and OAuth client
+	// configuration. Redirect URIs are the one OAuth value a caller may supply; any other
+	// authentication field left unset is the provider's to fill. Delegated is separate because it
+	// selects the authentication shape rather than describing the agent.
+	//
+	// The returned agent carries the generated identifier and, on InboundAuthConfig, the generated
+	// client credentials. Fields the agent service does not echo come back zero, so the result is
+	// not a full round-trip. Owner falls back to the authenticated caller when unset.
+	CreateAgent(ctx context.Context, agent *Agent, delegated bool) (*Agent, *common.ServiceError)
 }
 
 // UserMgtProvider provisions users on behalf of runtime capabilities. The rules and semantics of a
@@ -110,9 +137,6 @@ type DesignProvider interface {
 // OrganizationUnitProvider defines the interface for the organization unit provider.
 type OrganizationUnitProvider interface {
 	GetOrganizationUnit(ctx context.Context, id string) (OrganizationUnit, *common.ServiceError)
-	GetOrganizationUnitList(
-		ctx context.Context, limit, offset int, f *common.FilterGroup,
-	) (*OrganizationUnitListResponse, *common.ServiceError)
 	CreateOrganizationUnit(
 		ctx context.Context, request OrganizationUnitRequestWithID,
 	) (OrganizationUnit, *common.ServiceError)
@@ -148,6 +172,9 @@ type IDPProvider interface {
 	GetIdentityProvidersByProperty(ctx context.Context, propertyKey,
 		propertyValue string) ([]IDPDTO, *common.ServiceError)
 	GetIdentityProvider(ctx context.Context, idpID string) (*IDPDTO, *common.ServiceError)
+	GetDirectAuthorizationTargets(
+		ctx context.Context, idp *IDPDTO, claims map[string]interface{},
+	) ([]AuthorizationTarget, *common.ServiceError)
 }
 
 // ConsentProvider provides functionality to resolve consent requirements and

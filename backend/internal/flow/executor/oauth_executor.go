@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
@@ -17,7 +16,6 @@ import (
 	authnprovidercm "github.com/thunder-id/thunderid/internal/authnprovider/common"
 	"github.com/thunder-id/thunderid/internal/flow/common"
 	"github.com/thunder-id/thunderid/internal/flow/core"
-	"github.com/thunder-id/thunderid/internal/idp"
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	systemutils "github.com/thunder-id/thunderid/internal/system/utils"
@@ -37,9 +35,6 @@ type OAuthTokenResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
-// userInfoSkipAttributes contains the list of user info attributes to skip when mapping to context user.
-var userInfoSkipAttributes = []string{"username", "sub", "id"}
-
 // oAuthExecutorInterface defines the interface for OAuth authentication executors.
 type oAuthExecutorInterface interface {
 	providers.Executor
@@ -54,7 +49,7 @@ type oAuthExecutor struct {
 	authService   authnoauth.OAuthAuthnCoreServiceInterface
 	authnProvider providers.AuthnProviderManager
 	idpType       providers.IDPType
-	idpService    idp.IDPServiceInterface
+	idpService    providers.IDPProvider
 	logger        *log.Logger
 }
 
@@ -65,7 +60,7 @@ func newOAuthExecutor(
 	name string,
 	defaultInputs, prerequisites []providers.Input,
 	flowFactory core.FlowFactoryInterface,
-	idpService idp.IDPServiceInterface,
+	idpService providers.IDPProvider,
 	authService authnoauth.OAuthAuthnCoreServiceInterface,
 	authnProvider providers.AuthnProviderManager,
 	idpType providers.IDPType,
@@ -225,7 +220,9 @@ func (o *oAuthExecutor) ProcessAuthFlowResponse(ctx *providers.NodeContext,
 		} else {
 			execResp.AuthUser = authUser
 			for key, value := range attributes.Attributes {
-				existingCtxUserAttributes[key] = value
+				if value != nil {
+					existingCtxUserAttributes[key] = value.Value
+				}
 			}
 		}
 	}
@@ -256,20 +253,21 @@ func (o *oAuthExecutor) ProcessAuthFlowResponse(ctx *providers.NodeContext,
 	}
 	execResp.AuthUser = authUser
 
-	if !validateFederatedIdentifierConsistency(ctx, federatedAttributes, existingCtxUserAttributes) {
+	if !validateFederatedIdentifierConsistency(ctx, idpID, federatedAttributes, existingCtxUserAttributes) {
 		execResp.Status = providers.ExecFailure
 		execResp.Error = &ErrInvalidFederatedUser
 		return nil
 	}
 
-	if len(federatedAttributes) > 0 {
-		if execResp.RuntimeData == nil {
-			execResp.RuntimeData = make(map[string]string)
-		}
-		for key, value := range federatedAttributes {
-			execResp.RuntimeData[key] = systemutils.ConvertInterfaceValueToString(value)
-		}
+	// Keep the connection id with the subject: the idpId runtime entry is overwritten by any later node
+	// with its own connection, so only this pairing tells linking and provisioning which connection
+	// asserted the subject.
+	sub := systemutils.ConvertInterfaceValueToString(federatedAttributes[userAttributeSub])
+	if err := setExternalIdentity(execResp, idpID, sub, federatedAttributes); err != nil {
+		return err
 	}
+
+	resolveAndSetMappedAuthorizationTargets(ctx.Context, execResp, o.idpService, idpID, federatedAttributes, logger)
 
 	setFederatedEntityState(ctx.Context, execResp, o.authnProvider)
 
@@ -327,28 +325,4 @@ func (o *oAuthExecutor) getIDPName(ctx context.Context, idpID string) (string, e
 	}
 
 	return idp.Name, nil
-}
-
-// getContextUserAttributes extracts and returns user attributes from the user info map.
-// TODO: Need to convert attributes as per the IDP to local attribute mapping when the support is implemented.
-func (o *oAuthExecutor) getContextUserAttributes(execResp *providers.ExecutorResponse,
-	userInfo map[string]string) map[string]interface{} {
-	attributes := make(map[string]interface{})
-	for key, value := range userInfo {
-		if !slices.Contains(userInfoSkipAttributes, key) {
-			attributes[key] = value
-		}
-	}
-
-	// Append email to runtime data if available.
-	if email, ok := attributes[userAttributeEmail]; ok {
-		if emailStr, ok := email.(string); ok && emailStr != "" {
-			if execResp.RuntimeData == nil {
-				execResp.RuntimeData = make(map[string]string)
-			}
-			execResp.RuntimeData[userAttributeEmail] = emailStr
-		}
-	}
-
-	return attributes
 }

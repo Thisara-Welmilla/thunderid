@@ -22,7 +22,41 @@ func (c *SecurityConfig) Validate() error {
 	if err := c.TokenRevocation.Validate(); err != nil {
 		return err
 	}
+	if err := c.REST.Validate(); err != nil {
+		return err
+	}
+	if err := c.MCP.Validate(); err != nil {
+		return err
+	}
 	return c.TrustedIssuer.Validate()
+}
+
+// Validate checks the REST API gate configuration; an absent audience leaves it unchecked.
+func (c *RESTConfig) Validate() error {
+	return validateOptionalAudience("server.security.rest.audience", c.Audience,
+		"omit it to leave the audience unchecked")
+}
+
+// Validate checks the MCP configuration; an absent audience falls back to the derived identifier.
+func (c *MCPConfig) Validate() error {
+	return validateOptionalAudience("server.security.mcp.audience", c.Audience,
+		"omit it to use the server's own MCP resource identifier")
+}
+
+// validateOptionalAudience normalises and checks a configured audience; absent is always valid.
+// Surrounding whitespace is trimmed rather than rejected, since it is never meaningful in an
+// identifier. Only an empty value is an error, and only because it is the one that fails open: it
+// leaves the gate unenforced. A merely malformed audience needs no check here, because it fails
+// closed — no token can carry it, so every request is rejected until it is corrected.
+func validateOptionalAudience(field string, audience *string, omitHint string) error {
+	if audience == nil {
+		return nil
+	}
+	*audience = strings.TrimSpace(*audience)
+	if *audience == "" {
+		return fmt.Errorf("%s must not be empty; %s", field, omitHint)
+	}
+	return nil
 }
 
 // Validate checks the token-revocation configuration. It runs only when the feature is enabled: an
@@ -41,6 +75,53 @@ func (c *TokenRevocationConfig) Validate() error {
 		return fmt.Errorf(
 			"server.security.token_revocation.source %q is not supported (supported: %q)",
 			c.Source, tokenRevocationSourceDB)
+	}
+	return nil
+}
+
+// Upper bounds for the back-channel logout retry settings. The retry wait doubles per attempt, so
+// without them a large max_attempts or retry_delay overflows the wait to zero or less and the
+// remaining attempts fire back to back. At the bounds the longest wait is 60s x 2^8, about 4.3 hours.
+const (
+	maxBackchannelRequestTimeout = 30
+	maxBackchannelMaxAttempts    = 10
+	maxBackchannelRetryDelay     = 60
+)
+
+// Validate checks the back-channel logout configuration when delivery is enabled: every tuning
+// value must be positive, and the retry settings must stay within their upper bounds.
+func (c *BackchannelLogoutConfig) Validate() error {
+	if !c.IsEnabled() {
+		return nil
+	}
+	positive := []struct {
+		name  string
+		value int64
+	}{
+		{"token_validity_period", c.TokenValidityPeriod},
+		{"request_timeout", c.RequestTimeout},
+		{"max_attempts", int64(c.MaxAttempts)},
+		{"retry_delay", c.RetryDelay},
+		{"max_in_flight", int64(c.MaxInFlight)},
+		{"queue_size", int64(c.QueueSize)},
+	}
+	for _, f := range positive {
+		if f.value <= 0 {
+			return fmt.Errorf("oauth.logout.backchannel.%s must be positive (got %d)", f.name, f.value)
+		}
+	}
+	bounded := []struct {
+		name       string
+		value, max int64
+	}{
+		{"request_timeout", c.RequestTimeout, maxBackchannelRequestTimeout},
+		{"max_attempts", int64(c.MaxAttempts), maxBackchannelMaxAttempts},
+		{"retry_delay", c.RetryDelay, maxBackchannelRetryDelay},
+	}
+	for _, f := range bounded {
+		if f.value > f.max {
+			return fmt.Errorf("oauth.logout.backchannel.%s must be at most %d (got %d)", f.name, f.max, f.value)
+		}
 	}
 	return nil
 }
@@ -81,6 +162,25 @@ func (c *DPoPConfig) Validate() error {
 		if _, ok := supported[alg]; !ok {
 			return fmt.Errorf("oauth.dpop.allowed_algs contains unsupported or symmetric algorithm: %q", alg)
 		}
+	}
+	return nil
+}
+
+// IsConfigured reports whether any ClientAssertion field has been set.
+func (c *ClientAssertionConfig) IsConfigured() bool {
+	return c.MaxLifetime != 0 || c.MaxIatAge != 0
+}
+
+// Validate ensures the client assertion validation policy values are within accepted bounds.
+func (c *ClientAssertionConfig) Validate() error {
+	if !c.IsConfigured() {
+		return nil
+	}
+	if c.MaxLifetime <= 0 {
+		return fmt.Errorf("oauth.client_assertion.max_lifetime must be greater than 0")
+	}
+	if c.MaxIatAge <= 0 {
+		return fmt.Errorf("oauth.client_assertion.max_iat_age must be greater than 0")
 	}
 	return nil
 }

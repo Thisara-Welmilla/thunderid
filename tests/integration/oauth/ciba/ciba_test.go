@@ -129,8 +129,9 @@ func (ts *CIBATestSuite) SetupSuite() {
 	// User type + user. mobile_number is the recipient the SMS executor resolves from the
 	// identified user; username/password back the credential confirmation step.
 	userTypeID, err := testutils.CreateUserType(testutils.UserType{
-		Name: "ciba-test-person",
-		OUID: ts.ouID,
+		Handle:      "ciba-test-person",
+		DisplayName: "Ciba Test Person",
+		OUID:        ts.ouID,
 		Schema: map[string]interface{}{
 			"username":      map[string]interface{}{"type": "string"},
 			"password":      map[string]interface{}{"type": "string", "credential": true},
@@ -452,8 +453,8 @@ func (ts *CIBATestSuite) TestCIBAExpiredRequestRejectsPolling() {
 
 // TestCIBAUnknownLoginHintReturnsUnknownUserID verifies that a login_hint matching no user maps to
 // unknown_user_id (CIBA Core 1.0 ​§7.3), not server_error. mapFlowErrorToCIBAError switches on the
-// literal flow-engine failure string "User not found"; the unit tests mock the flow entirely, so this
-// coupling between the flow engine's wording and the CIBA error mapping is otherwise unverified.
+// flow executor's error code, FET-1001; the unit tests mock the flow entirely, so this coupling
+// between the flow engine's codes and the CIBA error mapping is otherwise unverified.
 func (ts *CIBATestSuite) TestCIBAUnknownLoginHintReturnsUnknownUserID() {
 	status, bcResp := ts.cibaBackchannelAuthorize("no_such_ciba_user_xyz", "openid")
 	ts.Require().Equal(http.StatusBadRequest, status)
@@ -1004,7 +1005,7 @@ func cibaAuthFlowNodes(loginHintAttribute, senderID string, withAuthzCheck bool)
 			"type": "TASK_EXECUTION",
 			"properties": map[string]interface{}{
 				"senderId":    senderID,
-				"smsTemplate": "CIBA_NOTIFICATION",
+				"smsTemplate": "ciba-notification",
 			},
 			"executor": map[string]interface{}{
 				"name": "SMSExecutor",

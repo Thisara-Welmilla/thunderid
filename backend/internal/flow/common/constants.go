@@ -76,6 +76,12 @@ const (
 	DataEmailSent = "emailSent"
 	// DataSMSSent is the key used to indicate that an SMS was sent successfully in the flow response.
 	DataSMSSent = "smsSent"
+	// DataAgentID is the key used for a provisioned agent's identifier in the flow response.
+	DataAgentID = "agentId"
+	// DataAgentClientID is the key used for a provisioned agent's OAuth client ID.
+	DataAgentClientID = "clientId"
+	// DataAgentClientSecret is the key used for a provisioned agent's generated OAuth client secret.
+	DataAgentClientSecret = "clientSecret"
 	// DataRootOUID is the key used to pass the root OU ID to the frontend for the OU tree picker.
 	DataRootOUID = "rootOuId"
 	// DataPromptMessage is the key used to pass a message to be displayed in the prompt node.
@@ -237,6 +243,11 @@ const (
 	// RuntimeKeyEntityState holds the entity existence state, set by the IdentifyingExecutor in
 	// check_state mode or by the federated auth executors from their account-linking result.
 	RuntimeKeyEntityState = "entityState"
+	// RuntimeKeyExternalIdentity holds what an external party asserted, as the JSON encoding of
+	// core.ExternalIdentity: the connection and subject of a federated authentication, and the claims.
+	// Set by the federated auth executors and the OpenID4VP verifier. Claims live only here, never
+	// under their own names, so no claim can stand in for the state executors keep in RuntimeData.
+	RuntimeKeyExternalIdentity = "externalIdentity"
 	// RuntimeKeyAuthorizationRequestID holds the auth request identifier bound to the current flow
 	// execution (the OAuth authorize authId or the CIBA auth_req_id), if applicable.
 	RuntimeKeyAuthorizationRequestID = "authorizationRequestId"
@@ -262,6 +273,12 @@ const (
 	// to the transport layer for the per-flow cookie. Using the generic EngineData channel keeps SSO
 	// concepts out of the reusable engine contract.
 	RuntimeKeySSOSessionHandle = "ssoSessionHandle"
+	// RuntimeKeySSOSessionID carries the SSO session's id across nodes so the auth assertion can stamp
+	// it as the OIDC sid claim. It is the session id, not the handle: the handle is a bearer credential
+	// that would let any relying party resume the session, while the id confers nothing and no API
+	// accepts it. Like RuntimeKeyTokenFamilyID it is excluded from the session snapshot, because a
+	// value replayed from a snapshot could name a session other than the one now in force.
+	RuntimeKeySSOSessionID = "ssoSessionId"
 	// RuntimeKeySSOSessionCleared is the ExecutorResponse EngineData signal the session sign-out node
 	// raises once it has terminated the session, telling the transport layer to clear the per-flow
 	// cookie. Like RuntimeKeySSOSessionHandle it rides the engine-only EngineData channel, keeping SSO
@@ -277,6 +294,15 @@ const (
 	// requested without a valid id_token_hint. A sign-out flow's session sign-out node reads it to
 	// decide whether the End-User must confirm the logout before the session is terminated.
 	RuntimeKeyLogoutPromptRequired = "logoutPromptRequired"
+	// RuntimeKeyMappedRoleIDs holds the space-separated role IDs a federated login's authorization
+	// mapping (rule-based or direct) resolved.
+	RuntimeKeyMappedRoleIDs = "mapped_role_ids"
+	// RuntimeKeyMappedGroupIDs holds the space-separated group IDs a federated login's authorization
+	// mapping (rule-based or direct) resolved.
+	RuntimeKeyMappedGroupIDs = "mapped_group_ids"
+	// RuntimeKeyMappedPermissions holds the JSON-encoded []providers.AuthorizationTarget permission
+	// targets a federated login's authorization mapping (rule-based or direct) resolved.
+	RuntimeKeyMappedPermissions = "mapped_permissions"
 )
 
 // SSOCheckpointKey scopes a per-checkpoint SSO control key (RuntimeKeySSOSessionPresent,

@@ -4,34 +4,23 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
-import androidSdkSidebar from './content/sdks/android/sidebar';
-import browserSdkSidebar from './content/sdks/browser/sidebar';
-import expressSdkSidebar from './content/sdks/express/sidebar';
-import flutterSdkSidebar from './content/sdks/flutter/sidebar';
-import iosSdkSidebar from './content/sdks/ios/sidebar';
-import javascriptSdkSidebar from './content/sdks/javascript/sidebar';
-import nextjsSdkSidebar from './content/sdks/nextjs/sidebar';
-import nodeSdkSidebar from './content/sdks/node/sidebar';
-import nuxtSdkSidebar from './content/sdks/nuxt/sidebar';
-import reactSdkSidebar from './content/sdks/react/sidebar';
-import reactRouterSdkSidebar from './content/sdks/react-router/sidebar';
-import springSecurityIntegrationSidebar from './content/sdks/spring-security/sidebar';
-import tanstackRouterSdkSidebar from './content/sdks/tanstack-router/sidebar';
-import vueSdkSidebar from './content/sdks/vue/sidebar';
-import productConfig from './docusaurus.product.config';
+import androidSdkSidebar from './content/sdks-and-tools/android/sidebar';
+import browserSdkSidebar from './content/sdks-and-tools/browser/sidebar';
+import expressSdkSidebar from './content/sdks-and-tools/express/sidebar';
+import flutterSdkSidebar from './content/sdks-and-tools/flutter/sidebar';
+import iosSdkSidebar from './content/sdks-and-tools/ios/sidebar';
+import javascriptSdkSidebar from './content/sdks-and-tools/javascript/sidebar';
+import nextjsSdkSidebar from './content/sdks-and-tools/nextjs/sidebar';
+import nodeSdkSidebar from './content/sdks-and-tools/node/sidebar';
+import nuxtSdkSidebar from './content/sdks-and-tools/nuxt/sidebar';
+import reactSdkSidebar from './content/sdks-and-tools/react/sidebar';
+import reactRouterSdkSidebar from './content/sdks-and-tools/react-router/sidebar';
+import springSecurityIntegrationSidebar from './content/sdks-and-tools/spring-security/sidebar';
+import tanstackRouterSdkSidebar from './content/sdks-and-tools/tanstack-router/sidebar';
+import vueSdkSidebar from './content/sdks-and-tools/vue/sidebar';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 // TODO: Use `@wso2/oxygen-ui-icons` in the sidebar. Currently, there's only a React wrapper available, so we need to create custom SVG icons for the sidebar until we have a web component version of the icons.
-
-// Raw HTML sidebar items are emitted verbatim, so Docusaurus does not prepend the
-// site baseUrl to asset URLs inside them. Derive it the same way docusaurus.config.ts
-// does and interpolate it, so icons resolve on base-path deployments too.
-const baseUrl =
-  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-  process.env.DOCUSAURUS_BASE_URL ||
-  (productConfig.documentation.deployment.production.baseUrl
-    ? `/${productConfig.documentation.deployment.production.baseUrl}/`
-    : '/');
 
 /**
  * Creating a sidebar enables you to:
@@ -90,11 +79,12 @@ const sidebars: SidebarsConfig = {
           label: 'AI Agent',
           className: 'connect-section connect-section--agent',
           collapsible: true,
+          link: {type: 'doc', id: 'getting-started/connect-your-agent/index'},
           items: [
             {type: 'doc', id: 'getting-started/connect-your-agent/langchain', label: 'LangChain', customProps: {icon: 'langchain'}},
-            {type: 'html', className: 'menu__list-item', value: `<div class="sidebar-coming-soon"><span class="sidebar-cs-icon"><img src="${baseUrl}assets/images/agent/google-adk.svg" alt="" aria-hidden="true" /></span>Google ADK<span class="sidebar-coming-soon-badge">Soon</span></div>`},
-            {type: 'html', className: 'menu__list-item', value: '<div class="sidebar-coming-soon"><span class="sidebar-cs-icon"><svg viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><path d="M256 48 496 464H16Z"/></svg></span>Vercel AI SDK<span class="sidebar-coming-soon-badge">Soon</span></div>'},
-            {type: 'html', className: 'menu__list-item', value: `<div class="sidebar-coming-soon"><span class="sidebar-cs-icon"><img src="${baseUrl}assets/images/agent/crewai.svg" alt="" aria-hidden="true" /></span>CrewAI<span class="sidebar-coming-soon-badge">Soon</span></div>`},
+            {type: 'doc', id: 'getting-started/connect-your-agent/google-adk', label: 'Google ADK', customProps: {icon: 'google-adk'}},
+            {type: 'doc', id: 'getting-started/connect-your-agent/vercel-ai-sdk', label: 'Vercel AI SDK', customProps: {icon: 'vercel'}},
+            {type: 'doc', id: 'getting-started/connect-your-agent/crewai', label: 'CrewAI', customProps: {icon: 'crewai'}},
           ],
         },
         {
@@ -169,9 +159,10 @@ const sidebars: SidebarsConfig = {
                 {type: 'doc', id: 'use-cases/b2c/build-environment', label: 'Set Up Your Environment'},
                 {type: 'doc', id: 'use-cases/b2c/build-users', label: 'Model Your Users'},
                 {type: 'doc', id: 'use-cases/b2c/build-access', label: 'Define Access'},
-                {type: 'doc', id: 'use-cases/b2c/build-flows', label: 'Build the Sign-In Flows'},
+                {type: 'doc', id: 'use-cases/b2c/build-flows', label: 'Build the Flows'},
                 {type: 'doc', id: 'use-cases/b2c/build-application', label: 'Register the Application'},
                 {type: 'doc', id: 'use-cases/b2c/build-onboarding', label: 'Onboard Internal Staff'},
+                {type: 'doc', id: 'use-cases/b2c/build-sessions', label: 'Keep Them Signed In'},
                 {type: 'doc', id: 'use-cases/b2c/build-run', label: 'How It All Runs'},
               ],
             },
@@ -212,6 +203,8 @@ const sidebars: SidebarsConfig = {
                 {type: 'doc', id: 'use-cases/b2c/integration-patterns', label: 'Choose Integration'},
                 {type: 'doc', id: 'use-cases/b2c/identity-sources', label: 'Identity Sources'},
                 {type: 'doc', id: 'use-cases/b2c/tokens-and-apis', label: 'Protect APIs'},
+                {type: 'doc', id: 'use-cases/b2c/sessions-and-logout', label: 'Sessions & Logout'},
+                {type: 'doc', id: 'use-cases/b2c/notification', label: 'Notification'},
                 {type: 'doc', id: 'use-cases/b2c/operations', label: 'Run & Observe'},
               ],
             },
@@ -223,6 +216,19 @@ const sidebars: SidebarsConfig = {
           collapsible: true,
           collapsed: true,
           items: [{type: 'doc', id: 'use-cases/b2b/multi-tenant-saas', label: 'Multi-Tenant SaaS'}],
+        },
+        {
+          type: 'category',
+          label: 'Managed Deployments',
+          collapsible: true,
+          collapsed: true,
+          items: [
+            {
+              type: 'doc',
+              id: 'use-cases/managed-deployments/centralized-configuration',
+              label: 'Centralized Configuration',
+            },
+          ],
         },
         {
           type: 'category',
@@ -247,6 +253,7 @@ const sidebars: SidebarsConfig = {
                   items: [
                     {type: 'doc', id: 'use-cases/ai-agents/solve-playground', label: 'Set Up the Playground'},
                     {type: 'doc', id: 'use-cases/ai-agents/solve-identity', label: 'Give the Agent an Identity'},
+                    {type: 'doc', id: 'use-cases/ai-agents/solve-sign-in', label: 'Authenticate the Agent'},
                     {type: 'doc', id: 'use-cases/ai-agents/solve-credentials', label: 'Protect Its Credential'},
                     {type: 'doc', id: 'use-cases/ai-agents/solve-access', label: 'What the Agent May Do'},
                     {type: 'doc', id: 'use-cases/ai-agents/solve-acts-for-user', label: 'Act for a User'},
@@ -495,6 +502,11 @@ const sidebars: SidebarsConfig = {
                 },
                 {
                   type: 'doc',
+                  id: 'guides/agents/authentication/agent-sign-in',
+                  label: 'Agent Sign-In',
+                },
+                {
+                  type: 'doc',
                   id: 'guides/agents/authentication/on-behalf-of-user',
                   label: 'On Behalf of a User',
                 },
@@ -623,6 +635,33 @@ const sidebars: SidebarsConfig = {
             },
             {
               type: 'category',
+              label: 'Authorization',
+              collapsed: true,
+              collapsible: true,
+              items: [
+                {
+                  type: 'doc',
+                  id: 'guides/integrations/authorization/overview',
+                  label: 'Overview',
+                  key: 'authorization-overview',
+                },
+                {
+                  type: 'category',
+                  label: 'Policy Decision Points',
+                  collapsed: true,
+                  collapsible: true,
+                  items: [
+                    {
+                      type: 'doc',
+                      id: 'guides/integrations/authorization/authzen',
+                      label: 'AuthZEN',
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              type: 'category',
               label: 'Notifications',
               collapsed: true,
               collapsible: true,
@@ -656,6 +695,30 @@ const sidebars: SidebarsConfig = {
                 {type: 'doc', id: 'guides/integrations/apim-gateways/envoy', label: 'Envoy'},
                 {type: 'doc', id: 'guides/integrations/apim-gateways/kong', label: 'Kong Konnect'},
                 {type: 'doc', id: 'guides/integrations/apim-gateways/krakend', label: 'KrakenD'},
+              ],
+            },
+            {
+              type: 'category',
+              label: 'Workload Identity Federation',
+              collapsed: true,
+              collapsible: true,
+              items: [
+                {
+                  type: 'doc',
+                  id: 'guides/integrations/workload-identity-federation/overview',
+                  label: 'Overview',
+                  key: 'wif-overview',
+                },
+                {
+                  type: 'doc',
+                  id: 'guides/integrations/workload-identity-federation/openai',
+                  label: 'OpenAI',
+                },
+                {
+                  type: 'doc',
+                  id: 'guides/integrations/workload-identity-federation/claude',
+                  label: 'Claude',
+                },
               ],
             },
           ],
@@ -963,6 +1026,11 @@ const sidebars: SidebarsConfig = {
                   id: 'guides/protocols/authzen/pdp',
                   label: 'Policy Decision Point',
                 },
+                {
+                  type: 'doc',
+                  id: 'guides/protocols/authzen/pep',
+                  label: 'Policy Enforcement Point',
+                },
               ],
             },
           ],
@@ -1056,6 +1124,16 @@ const sidebars: SidebarsConfig = {
               id: 'guides/declarative-configurations/templates',
               label: 'Template Resources',
             },
+            {
+              type: 'doc',
+              id: 'guides/declarative-configurations/value-references',
+              label: 'Value References',
+            },
+            {
+              type: 'doc',
+              id: 'guides/declarative-configurations/configuration-versions',
+              label: 'Apply Configuration Versions',
+            },
           ],
         },
       ],
@@ -1126,6 +1204,11 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'deployment/observability',
           label: 'Observability',
+        },
+        {
+          type: 'doc',
+          id: 'deployment/agent-analytics',
+          label: 'Agent Analytics',
         },
       ],
     },

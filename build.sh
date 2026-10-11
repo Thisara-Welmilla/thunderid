@@ -110,7 +110,7 @@ WAYFINDER_SAMPLE_APP_DIR=$SAMPLE_BASE_DIR/apps/wayfinder-sample
 QUICKSTART_SAMPLE_BUNDLES=(
     "wayfinder:$WAYFINDER_SAMPLE_APP_DIR/thunderid-config"
 )
-QUICKSTART_BUNDLE_STAGE_DIR="$FRONTEND_CONSOLE_APP_SOURCE_DIR/src/features/welcome/data/sample-bundles"
+QUICKSTART_BUNDLE_STAGE_DIR="$FRONTEND_CONSOLE_APP_SOURCE_DIR/src/data/sample-bundles"
 
 # Default ports
 GATE_APP_DEFAULT_PORT=5190
@@ -229,6 +229,27 @@ function clean() {
     echo "================================================================"
 }
 
+# Prints the go build flags for a backend binary. With ENABLE_COVERAGE=true they instrument every
+# backend package not excluded by .excludecoverage, so an integration run records what it executed.
+function get_build_flags() {
+    local build_flags="-x"
+    if [ "$ENABLE_COVERAGE" = "true" ]; then
+        echo "Building with coverage instrumentation enabled..." >&2
+        cd "$BACKEND_BASE_DIR" || exit 1
+        local exclude_pattern=$(get_coverage_exclusion_pattern)
+        local coverpkg
+        if [ -n "$exclude_pattern" ]; then
+            echo "Excluding coverage for patterns: $exclude_pattern" >&2
+            coverpkg=$(go list ./... | grep -v -E "$exclude_pattern" | tr '\n' ',' | sed 's/,$//')
+        else
+            coverpkg=$(go list ./... | tr '\n' ',' | sed 's/,$//')
+        fi
+        cd "$SCRIPT_DIR" || exit 1
+        build_flags="$build_flags -cover -coverpkg=$coverpkg"
+    fi
+    echo "$build_flags"
+}
+
 function build_backend() {
     echo "================================================================"
     echo "Building Go backend..."
@@ -240,23 +261,8 @@ function build_backend() {
         output_binary="${BINARY_NAME}.exe"
     fi
 
-    # Check if coverage build is requested via ENABLE_COVERAGE environment variable
-    local build_flags="-x"
-    if [ "$ENABLE_COVERAGE" = "true" ]; then
-        echo "Building with coverage instrumentation enabled..."
-        # Build coverage package list
-        cd "$BACKEND_BASE_DIR" || exit 1
-        local exclude_pattern=$(get_coverage_exclusion_pattern)
-        local coverpkg
-        if [ -n "$exclude_pattern" ]; then
-            echo "Excluding coverage for patterns: $exclude_pattern"
-            coverpkg=$(go list ./... | grep -v -E "$exclude_pattern" | tr '\n' ',' | sed 's/,$//')
-        else
-            coverpkg=$(go list ./... | tr '\n' ',' | sed 's/,$//')
-        fi
-        cd "$SCRIPT_DIR" || exit 1
-        build_flags="$build_flags -cover -coverpkg=$coverpkg"
-    fi
+    local build_flags
+    build_flags=$(get_build_flags)
 
     GOOS=$GO_OS GOARCH=$GO_ARCH CGO_ENABLED=0 go build -C "$BACKEND_BASE_DIR" \
     $build_flags -ldflags "-X \"main.version=$VERSION\" \
@@ -265,6 +271,32 @@ function build_backend() {
 
     echo "Initializing databases..."
     initialize_databases true
+    echo "================================================================"
+}
+
+function build_cp_backend() {
+    echo "================================================================"
+    echo "Building Go Control Plane backend..."
+    mkdir -p "$BUILD_DIR"
+
+    # The Control Plane ships alongside the all-in-one server rather than replacing it, so it takes
+    # its own binary name.
+    local output_binary="${BINARY_NAME}-cp"
+    if [ "$GO_OS" = "windows" ]; then
+        output_binary="${BINARY_NAME}-cp.exe"
+    fi
+
+    # Instrumented like the all-in-one server when ENABLE_COVERAGE=true, so the Control Plane
+    # integration suite records what it executed.
+    local build_flags
+    build_flags=$(get_build_flags)
+
+    GOOS=$GO_OS GOARCH=$GO_ARCH CGO_ENABLED=0 go build -C "$BACKEND_BASE_DIR" \
+    $build_flags -ldflags "-X \"main.version=$VERSION\" \
+    -X \"main.buildDate=$(date -u '+%Y-%m-%d %H:%M:%S UTC')\"" \
+    -o "../$BUILD_DIR/$output_binary" ./cmd/cpserver
+
+    echo "Control Plane binary: $BUILD_DIR/$output_binary"
     echo "================================================================"
 }
 
@@ -1198,6 +1230,9 @@ case "$1" in
         build_backend
         package
         ;;
+    build_cp_backend)
+        build_cp_backend
+        ;;
     build_frontend)
         build_frontend
         ;;
@@ -1274,6 +1309,7 @@ case "$1" in
         echo "  clean                    - Clean build artifacts"
         echo "  build                    - Build the complete ${PRODUCT_NAME} application (backend + frontend + samples)"
         echo "  build_backend            - Build only the ${PRODUCT_NAME} backend server"
+        echo "  build_cp_backend         - Build only the ${PRODUCT_NAME} Control Plane server"
         echo "  build_frontend           - Build only the Next.js frontend applications"
         echo "  build_docs               - Build only the documentation"
         echo "  tools_build              - Build all tool binaries (CLI + i18n-extractor + npm tools)"

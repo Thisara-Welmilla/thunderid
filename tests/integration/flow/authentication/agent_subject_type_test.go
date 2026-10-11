@@ -64,8 +64,9 @@ func (ts *AgentSubjectTypeTestSuite) SetupSuite() {
 	// agent_username is unique so the credentials node can identify the agent by it, and password
 	// is a credential so it is stored hashed and verified at authentication.
 	_, err = testutils.CreateAgentType(testutils.UserType{
-		Name: agentSubjectAgentType,
-		OUID: ts.ouID,
+		Handle:      agentSubjectAgentType,
+		DisplayName: "Default",
+		OUID:        ts.ouID,
 		Schema: map[string]interface{}{
 			"agent_username": map[string]interface{}{
 				"type":     "string",
@@ -122,13 +123,16 @@ func (ts *AgentSubjectTypeTestSuite) TearDownSuite() {
 		}
 	}
 	// Restore the shared agent type before deleting the OU it points at, or the singleton is left
-	// referencing a deleted OU and a later suite's restore fails.
+	// referencing a deleted OU and a later suite's restore fails. A failed restore keeps the OU:
+	// leaking one is cheaper than every later suite inheriting a dangling reference.
+	agentTypeRestored := true
 	if ts.agentTypeSnapshot != nil {
 		if err := testutils.RestoreAgentType(ts.agentTypeSnapshot); err != nil {
 			ts.T().Errorf("teardown: failed to restore the default agent type: %v", err)
+			agentTypeRestored = false
 		}
 	}
-	if ts.ouID != "" {
+	if ts.ouID != "" && agentTypeRestored {
 		if err := testutils.DeleteOrganizationUnit(ts.ouID); err != nil {
 			ts.T().Logf("teardown: failed to delete organization unit: %v", err)
 		}

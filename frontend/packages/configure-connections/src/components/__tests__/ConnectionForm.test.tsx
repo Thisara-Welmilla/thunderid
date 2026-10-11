@@ -3,7 +3,7 @@
 
 import {fireEvent, render, screen} from '@thunderid/test-utils';
 import {type ComponentProps, useState} from 'react';
-import {describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import ConnectionForm from '../ConnectionForm';
 
 /**
@@ -32,6 +32,15 @@ function ControlledConnectionForm({
 vi.mock('@thunderid/contexts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@thunderid/contexts')>()),
   useToast: () => ({showToast: vi.fn()}),
+}));
+
+const mockAuthMethods: {type: string; displayName: string}[] = [];
+const mockMetaState: {isError: boolean} = {isError: false};
+vi.mock('../../api/useConnectionMeta', () => ({
+  default: () =>
+    mockMetaState.isError
+      ? {data: undefined, isError: true}
+      : {data: {authentication: {methods: mockAuthMethods}}, isError: false},
 }));
 
 function getConnectionField(id: string): HTMLElement {
@@ -65,6 +74,35 @@ describe('ConnectionForm', () => {
     onSecretReplacingChange: vi.fn(),
   };
 
+  describe('authentication section', () => {
+    beforeEach(() => {
+      mockAuthMethods.splice(0, mockAuthMethods.length, {type: 'none', displayName: 'None'});
+    });
+    afterEach(() => {
+      mockAuthMethods.splice(0, mockAuthMethods.length);
+      mockMetaState.isError = false;
+    });
+
+    it('renders the authentication section inline by default', () => {
+      render(<ConnectionForm {...baseProps} />);
+      expect(screen.getByTestId('connection-authentication-section')).toBeInTheDocument();
+    });
+
+    // A failed metadata read is shown where the section would render, rather than the section
+    // silently disappearing as if the vendor took no authentication.
+    it('reports a failed metadata read in place of the authentication section', () => {
+      mockMetaState.isError = true;
+      render(<ConnectionForm {...baseProps} />);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.queryByTestId('connection-authentication-section')).not.toBeInTheDocument();
+    });
+
+    it('omits the authentication section when showAuthentication is false', () => {
+      render(<ConnectionForm {...baseProps} showAuthentication={false} />);
+      expect(screen.queryByTestId('connection-authentication-section')).not.toBeInTheDocument();
+    });
+  });
+
   it('shows field hints by default and replaces them with validation errors after blur', () => {
     render(<ConnectionForm {...baseProps} />);
 
@@ -86,6 +124,32 @@ describe('ConnectionForm', () => {
     });
 
     expect(onFieldChange).toHaveBeenCalledWith('clientId', 'my-client-id');
+  });
+
+  it('shows HTTPS errors immediately for authenticated remote PDP endpoints', () => {
+    render(
+      <ConnectionForm
+        {...baseProps}
+        type="authzen-pdp"
+        mode="edit"
+        values={{
+          name: 'PDP',
+          endpoint: 'http://pdp.example.com/evaluation',
+          batchEndpoint: 'http://pdp.example.com/evaluations',
+          timeoutMs: '500',
+          retryCount: '1',
+          authenticationScheme: 'BEARER',
+          bearerToken: '',
+        }}
+        vendorDisplayName="AuthZEN PDP"
+      />,
+    );
+
+    expect(
+      screen.getAllByText(
+        'Use HTTPS for authenticated PDP endpoints. HTTP is allowed only for localhost and loopback IP addresses.',
+      ),
+    ).toHaveLength(2);
   });
 
   it('does not render the redirect URI or scopes fields on create (moved to a create hint / edit view)', () => {
@@ -223,6 +287,23 @@ describe('ConnectionForm', () => {
     });
   });
 
+  describe('SMTP create', () => {
+    it('marks transport security required, since the select always holds a value', () => {
+      render(
+        <ConnectionForm
+          {...baseProps}
+          type="email-smtp"
+          vendorDisplayName="SMTP"
+          values={{name: '', host: '', port: '587', fromAddress: '', fromName: '', tls: 'starttls'}}
+        />,
+      );
+
+      expect(screen.getByTestId('connection-field-select-tls')).toHaveTextContent('STARTTLS');
+      expect(isFieldMarkedRequired('tls')).toBe(true);
+      expect(isFieldMarkedRequired('fromName')).toBe(false);
+    });
+  });
+
   describe('SMS gateway create', () => {
     const smsGatewayProps = {
       ...baseProps,
@@ -277,6 +358,7 @@ describe('ConnectionForm', () => {
 
       expect(getConnectionField('httpHeaders-name-1')).toHaveValue('X-API-Key');
       expect(getConnectionField('httpHeaders-value-1')).toHaveValue('abc123');
+      expect(getConnectionField('httpHeaders-value-1')).toHaveAttribute('type', 'text');
       expect(getConnectionField('httpHeaders-name-2')).toHaveValue('Accept');
       expect(getConnectionField('httpHeaders-value-2')).toHaveValue('application/json');
       expect(document.getElementById('connection-field-httpHeaders-name-3')).not.toBeInTheDocument();

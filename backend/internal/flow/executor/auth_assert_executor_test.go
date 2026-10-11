@@ -29,7 +29,7 @@ import (
 	"github.com/thunder-id/thunderid/tests/mocks/entityprovidermock"
 	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
 	"github.com/thunder-id/thunderid/tests/mocks/jose/jwtmock"
-	"github.com/thunder-id/thunderid/tests/mocks/oumock"
+	"github.com/thunder-id/thunderid/tests/mocks/ouprovidermock"
 	"github.com/thunder-id/thunderid/tests/mocks/rolemock"
 )
 
@@ -43,7 +43,7 @@ const (
 type AuthAssertExecutorTestSuite struct {
 	suite.Suite
 	mockJWTService        *jwtmock.JWTServiceInterfaceMock
-	mockOUService         *oumock.OrganizationUnitServiceInterfaceMock
+	mockOUService         *ouprovidermock.OrganizationUnitProviderMock
 	mockAssertGenerator   *assertmock.AuthAssertGeneratorInterfaceMock
 	mockAuthnProvider     *managermock.AuthnProviderManagerMock
 	mockEntityProvider    *entityprovidermock.EntityProviderInterfaceMock
@@ -62,7 +62,7 @@ func (suite *AuthAssertExecutorTestSuite) SetupTest() {
 	_ = initializeTestRuntime()
 
 	suite.mockJWTService = jwtmock.NewJWTServiceInterfaceMock(suite.T())
-	suite.mockOUService = oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
+	suite.mockOUService = ouprovidermock.NewOrganizationUnitProviderMock(suite.T())
 	suite.mockAssertGenerator = assertmock.NewAuthAssertGeneratorInterfaceMock(suite.T())
 	suite.mockAuthnProvider = managermock.NewAuthnProviderManagerMock(suite.T())
 	suite.mockEntityProvider = entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
@@ -204,6 +204,75 @@ func (suite *AuthAssertExecutorTestSuite) TestExecute_UserNotAuthenticated() {
 	assert.NotNil(suite.T(), resp)
 	assert.Equal(suite.T(), providers.ExecFailure, resp.Status)
 	assert.Equal(suite.T(), ErrUserNotAuthenticated.Error.DefaultValue, resp.Error.Error.DefaultValue)
+}
+
+// A provider rejecting the entity-reference fetch as a client error is the identity naming no local
+// user, which is the caller's input. It has to reach the flow as its own client error: wrapping it
+// in a plain error loses the classification and the whole execution answers 500.
+func (suite *AuthAssertExecutorTestSuite) TestExecute_EntityReferenceClientErrorFailsAsClientError() {
+	ctx := &providers.NodeContext{
+		ExecutionID:      "flow-123",
+		FlowType:         providers.FlowTypeAuthentication,
+		AuthUser:         newTestAuthenticatedAuthUser(),
+		ExecutionHistory: map[string]*providers.NodeExecutionRecord{},
+		Application:      providers.Application{},
+	}
+
+	suite.mockAuthnProvider.On("GetEntityReference", mock.Anything, mock.Anything).
+		Return(providers.AuthUser{}, (*providers.EntityReference)(nil),
+			&tidcommon.ServiceError{Type: tidcommon.ClientErrorType, Code: "AUTHN-MGR-1009"})
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err, "a client error must not escape as an executor fault")
+	assert.NotNil(suite.T(), resp)
+	assert.Equal(suite.T(), providers.ExecFailure, resp.Status)
+	assert.Equal(suite.T(), ErrFailedToIdentifyEntity.Code, resp.Error.Code)
+	assert.Equal(suite.T(), tidcommon.ClientErrorType, resp.Error.Type)
+}
+
+// A server error on the same fetch stays a server error: the execution collapsing to 500 is correct
+// there, and the classification is what tells the two apart.
+func (suite *AuthAssertExecutorTestSuite) TestExecute_EntityReferenceServerErrorStaysAFault() {
+	ctx := &providers.NodeContext{
+		ExecutionID:      "flow-123",
+		FlowType:         providers.FlowTypeAuthentication,
+		AuthUser:         newTestAuthenticatedAuthUser(),
+		ExecutionHistory: map[string]*providers.NodeExecutionRecord{},
+		Application:      providers.Application{},
+	}
+
+	suite.mockAuthnProvider.On("GetEntityReference", mock.Anything, mock.Anything).
+		Return(providers.AuthUser{}, (*providers.EntityReference)(nil),
+			&tidcommon.ServiceError{Type: tidcommon.ServerErrorType, Code: "AUTHN-MGR-5000"})
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), resp)
+}
+
+// The attribute fetch on the same path had the same collapse, so it carries its own client error too.
+func (suite *AuthAssertExecutorTestSuite) TestExecute_UserAttributesClientErrorFailsAsClientError() {
+	ctx := &providers.NodeContext{
+		ExecutionID:      "flow-123",
+		FlowType:         providers.FlowTypeAuthentication,
+		AuthUser:         newTestAuthenticatedAuthUser(),
+		ExecutionHistory: map[string]*providers.NodeExecutionRecord{},
+		Application:      providers.Application{},
+	}
+
+	suite.setupGetEntityReference("", "")
+	suite.mockAuthnProvider.On("GetUserAttributes", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(providers.AuthUser{}, (*providers.AttributesResponse)(nil),
+			&tidcommon.ServiceError{Type: tidcommon.ClientErrorType, Code: "AUTHN-MGR-1009"})
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), resp)
+	assert.Equal(suite.T(), providers.ExecFailure, resp.Status)
+	assert.Equal(suite.T(), ErrAttributeRetrievalFailed.Code, resp.Error.Code)
 }
 
 func (suite *AuthAssertExecutorTestSuite) TestExecute_WithAuthorizedPermissions() {
@@ -1426,6 +1495,28 @@ func (suite *AuthAssertExecutorTestSuite) TestResolveUserAttributes_WithGroups_E
 	suite.mockEntityProvider.AssertNotCalled(suite.T(), "GetTransitiveEntityGroups")
 }
 
+// A linked sign-in resolves to a local user, so the stored profile wins over a conflicting claim from
+// the identity provider. The claim still fills an attribute the profile does not hold.
+func (suite *AuthAssertExecutorTestSuite) TestResolveUserAttributes_StoredProfileWinsOverExternalClaim() {
+	execResp := &providers.ExecutorResponse{}
+	suite.Require().NoError(setExternalIdentity(execResp, "idp-a", "sub-1", map[string]interface{}{
+		"email":   "alice.personal@gmail.com",
+		"picture": "https://example.com/alice.png",
+	}))
+	ctx := &providers.NodeContext{
+		ExecutionID: "flow-123",
+		Context:     context.Background(),
+		RuntimeData: execResp.RuntimeData,
+	}
+
+	attrs, err := suite.executor.resolveUserAttributes(ctx, []string{"email", "picture"},
+		map[string]interface{}{"email": "alice@corp.com"}, "user-123", "", "")
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), "alice@corp.com", attrs["email"])
+	assert.Equal(suite.T(), "https://example.com/alice.png", attrs["picture"])
+}
+
 func (suite *AuthAssertExecutorTestSuite) TestResolveUserAttributes_WithUserType() {
 	ctx := &providers.NodeContext{
 		ExecutionID: "flow-123",
@@ -1858,5 +1949,94 @@ func (suite *AuthAssertExecutorTestSuite) TestExecute_ResolvesMappedSubjectFromU
 	assert.NotNil(suite.T(), resp)
 	assert.Equal(suite.T(), providers.ExecComplete, resp.Status)
 	assert.Equal(suite.T(), "jwt-token", resp.Assertion)
+	suite.mockJWTService.AssertExpectations(suite.T())
+}
+
+// The Session node publishes the SSO session id on RuntimeData; the assertion carries it as the sid
+// claim so the authorization code, and in turn the ID token, name the session for logout.
+func (suite *AuthAssertExecutorTestSuite) TestExecute_CarriesSSOSessionIDAsSidClaim() {
+	ctx := &providers.NodeContext{
+		ExecutionID:      "flow-123",
+		EntityID:         "app-123",
+		FlowType:         providers.FlowTypeAuthentication,
+		AuthUser:         newTestAuthenticatedAuthUser(),
+		ExecutionHistory: map[string]*providers.NodeExecutionRecord{},
+		Application:      providers.Application{},
+		RuntimeData:      map[string]string{common.RuntimeKeySSOSessionID: "sess-1"},
+	}
+
+	suite.setupGetEntityReference("", "")
+	suite.setupGetUserAttributesEmpty()
+
+	suite.mockJWTService.On("GenerateJWT", mock.Anything, "user-123", mock.Anything, mock.Anything,
+		mock.MatchedBy(func(claims map[string]interface{}) bool {
+			return claims[oauth2const.ClaimSessionID] == "sess-1"
+		}), mock.Anything, mock.Anything).Return("jwt-token", int64(3600), nil)
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), providers.ExecComplete, resp.Status)
+	suite.mockJWTService.AssertExpectations(suite.T())
+}
+
+// A flow with no Session node has no session to name, so the assertion carries no sid at all rather
+// than a synthesized one that no termination could ever reference.
+func (suite *AuthAssertExecutorTestSuite) TestExecute_OmitsSidClaimWithoutSession() {
+	ctx := &providers.NodeContext{
+		ExecutionID:      "flow-123",
+		EntityID:         "app-123",
+		FlowType:         providers.FlowTypeAuthentication,
+		AuthUser:         newTestAuthenticatedAuthUser(),
+		ExecutionHistory: map[string]*providers.NodeExecutionRecord{},
+		Application:      providers.Application{},
+	}
+
+	suite.setupGetEntityReference("", "")
+	suite.setupGetUserAttributesEmpty()
+
+	suite.mockJWTService.On("GenerateJWT", mock.Anything, "user-123", mock.Anything, mock.Anything,
+		mock.MatchedBy(func(claims map[string]interface{}) bool {
+			_, has := claims[oauth2const.ClaimSessionID]
+			return !has
+		}), mock.Anything, mock.Anything).Return("jwt-token", int64(3600), nil)
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), providers.ExecComplete, resp.Status)
+	suite.mockJWTService.AssertExpectations(suite.T())
+}
+
+// A schema attribute named sid must not displace the session id: it would point the ID token, and any
+// logout notification derived from it, at a session the grant does not belong to.
+func (suite *AuthAssertExecutorTestSuite) TestExecute_AttributeCannotOverwriteSidClaim() {
+	ctx := &providers.NodeContext{
+		ExecutionID:      "flow-123",
+		EntityID:         "app-123",
+		FlowType:         providers.FlowTypeAuthentication,
+		AuthUser:         newTestAuthenticatedAuthUser(),
+		ExecutionHistory: map[string]*providers.NodeExecutionRecord{},
+		Application:      providers.Application{},
+		RuntimeData: map[string]string{
+			common.RuntimeKeySSOSessionID:                "sess-1",
+			common.RuntimeKeyRequiredEssentialAttributes: oauth2const.ClaimSessionID,
+		},
+	}
+
+	suite.setupGetEntityReference("", "")
+	suite.setupGetUserAttributesWith(map[string]*providers.AttributeResponse{
+		oauth2const.ClaimSessionID: {Value: "attacker-supplied"},
+	})
+
+	suite.mockJWTService.On("GenerateJWT", mock.Anything, "user-123", mock.Anything, mock.Anything,
+		mock.MatchedBy(func(claims map[string]interface{}) bool {
+			return claims[oauth2const.ClaimSessionID] == "sess-1"
+		}), mock.Anything, mock.Anything).Return("jwt-token", int64(3600), nil)
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), providers.ExecComplete, resp.Status)
 	suite.mockJWTService.AssertExpectations(suite.T())
 }

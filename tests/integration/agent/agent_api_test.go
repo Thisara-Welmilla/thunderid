@@ -36,7 +36,8 @@ var (
 	// agentSchema is reused from the entity type subsystem. Agents need a type that maps
 	// to a user type so attribute validation and credential extraction work correctly.
 	agentSchema = testutils.UserType{
-		Name: "default",
+		Handle:      "default",
+		DisplayName: "Default",
 		Schema: map[string]interface{}{
 			"description": map[string]interface{}{"type": "string"},
 		},
@@ -150,13 +151,16 @@ func (ts *AgentAPITestSuite) TearDownSuite() {
 		}
 	}
 	// Restore the shared agent type before deleting the OU it points at, or the singleton is left
-	// referencing a deleted OU and a later suite's restore fails.
+	// referencing a deleted OU and a later suite's restore fails. A failed restore keeps the OU:
+	// leaking one is cheaper than every later suite inheriting a dangling reference.
+	agentTypeRestored := true
 	if ts.agentTypeSnapshot != nil {
 		if err := testutils.RestoreAgentType(ts.agentTypeSnapshot); err != nil {
 			ts.T().Errorf("teardown: failed to restore the default agent type: %v", err)
+			agentTypeRestored = false
 		}
 	}
-	if testOUID != "" {
+	if testOUID != "" && agentTypeRestored {
 		if err := testutils.DeleteOrganizationUnit(testOUID); err != nil {
 			ts.T().Logf("Failed to delete test organization unit during teardown: %v", err)
 		}
@@ -907,7 +911,8 @@ var (
 	}
 
 	attrAgentSchema = testutils.UserType{
-		Name: "default",
+		Handle:      "default",
+		DisplayName: "Default",
 		Schema: map[string]interface{}{
 			"region": map[string]interface{}{"type": "string"},
 			"tier":   map[string]interface{}{"type": "string"},
@@ -944,13 +949,16 @@ func (ts *AgentAttributesTestSuite) SetupSuite() {
 
 func (ts *AgentAttributesTestSuite) TearDownSuite() {
 	// Restore the shared agent type before deleting the OU it points at, or the singleton is left
-	// referencing a deleted OU and a later suite's restore fails.
+	// referencing a deleted OU and a later suite's restore fails. A failed restore keeps the OU:
+	// leaking one is cheaper than every later suite inheriting a dangling reference.
+	agentTypeRestored := true
 	if ts.agentTypeSnapshot != nil {
 		if err := testutils.RestoreAgentType(ts.agentTypeSnapshot); err != nil {
 			ts.T().Errorf("teardown: failed to restore the default agent type: %v", err)
+			agentTypeRestored = false
 		}
 	}
-	if ts.ouID != "" {
+	if ts.ouID != "" && agentTypeRestored {
 		_ = testutils.DeleteOrganizationUnit(ts.ouID)
 	}
 }

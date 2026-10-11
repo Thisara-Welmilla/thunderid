@@ -19,7 +19,17 @@ $header = @"
 server:
   hostname: localhost
   port: 8095
+  security:
+    # Exercised by tests/integration/managementapikey: a deployment pipeline authenticating to the
+    # import API without first obtaining OAuth client credentials. This is the SHA-256 digest of
+    # "integration-management-api-key"; the key itself is never configured here.
+    management_api_key_hash: "4955d93012fc5e2ee07b527f13ffe55de32900c410cc198f4d7a9971bb3a9a2d"
 
+
+gateway:
+  # The default of one gateway would refuse the second registration in every uniqueness test before
+  # the rule under test was reached.
+  max_gateways: 5
 
 tls:
   cert_file: "config/certs/server.cert"

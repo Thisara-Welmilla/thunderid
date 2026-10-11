@@ -109,7 +109,8 @@ func (h *clientCredentialsGrantHandler) HandleGrant(ctx context.Context, tokenRe
 			}
 
 			authzResp, svcErr := h.authzService.EvaluateAccessBatch(ctx,
-				buildAccessEvaluationsRequest(oauthApp.ID, groupIDs, scopes, targetRS.ID))
+				tokenservice.BuildAccessEvaluationsRequest(
+					oauthApp.ID, oauthApp.EntityCategory.String(), groupIDs, nil, scopes, targetRS.ID))
 			if svcErr != nil {
 				logger.Error(ctx, "Failed to get authorized permissions for app",
 					log.String("appID", oauthApp.ID), log.String("error", svcErr.Error.DefaultValue))
@@ -119,12 +120,24 @@ func (h *clientCredentialsGrantHandler) HandleGrant(ctx context.Context, tokenRe
 				}
 			}
 
-			scopes = filterAuthorizedScopes(scopes, authzResp.Evaluations)
+			scopes = tokenservice.FilterAuthorizedScopes(scopes, authzResp.Evaluations)
 		}
 	}
 
-	clientAttributes, clientAttrErr := tokenservice.BuildClientAttributes(ctx, oauthApp, h.ouService, h.actorProvider)
+	clientAttributes, clientAttrErr := tokenservice.BuildClientAttributes(oauthApp, h.actorProvider)
 	if clientAttrErr != nil {
+		return nil, &model.ErrorResponse{
+			Error:            constants.ErrorServerError,
+			ErrorDescription: "Failed to generate token",
+		}
+	}
+
+	// The organization claims are resolved apart from the rest and handed to the builder in a field
+	// of their own.
+	ouAttributes, ouAttrErr := tokenservice.BuildClientEffectiveOUAttributes(ctx, oauthApp, h.ouService)
+	if ouAttrErr != nil {
+		logger.Error(ctx, "Failed to resolve organization unit claims",
+			log.String("appID", oauthApp.ID), log.Error(ouAttrErr))
 		return nil, &model.ErrorResponse{
 			Error:            constants.ErrorServerError,
 			ErrorDescription: "Failed to generate token",
@@ -137,6 +150,7 @@ func (h *clientCredentialsGrantHandler) HandleGrant(ctx context.Context, tokenRe
 		ClientID:          tokenRequest.ClientID,
 		Scopes:            scopes,
 		SubjectAttributes: clientAttributes,
+		OUAttributes:      ouAttributes,
 		GrantType:         string(providers.GrantTypeClientCredentials),
 		OAuthApp:          oauthApp,
 		ValidityPeriod:    oauthApp.ClientAccessTokenConfig().ValidityPeriodOrZero(),
@@ -152,34 +166,4 @@ func (h *clientCredentialsGrantHandler) HandleGrant(ctx context.Context, tokenRe
 	return &model.TokenResponseDTO{
 		AccessToken: *accessToken,
 	}, nil
-}
-
-func buildAccessEvaluationsRequest(
-	entityID string,
-	groupIDs []string,
-	permissions []string,
-	resourceServerID string,
-) providers.AccessEvaluationsRequest {
-	evaluations := make([]providers.AccessEvaluationRequest, 0, len(permissions))
-	for _, permission := range permissions {
-		evaluations = append(evaluations, providers.AccessEvaluationRequest{
-			Subject: providers.Subject{
-				ID:       entityID,
-				GroupIDs: groupIDs,
-			},
-			ResourceServer: providers.AccessEvaluationResourceServer{ID: resourceServerID},
-			Permission:     providers.Permission{Name: permission},
-		})
-	}
-	return providers.AccessEvaluationsRequest{Evaluations: evaluations}
-}
-
-func filterAuthorizedScopes(scopes []string, evaluations []providers.AccessEvaluationResponse) []string {
-	authorizedScopes := make([]string, 0, len(evaluations))
-	for i, evaluation := range evaluations {
-		if evaluation.Decision && i < len(scopes) {
-			authorizedScopes = append(authorizedScopes, scopes[i])
-		}
-	}
-	return authorizedScopes
 }

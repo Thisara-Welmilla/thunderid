@@ -22,7 +22,6 @@ import (
 	"github.com/thunder-id/thunderid/internal/flow/common"
 	"github.com/thunder-id/thunderid/internal/flow/core"
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
-	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/role"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
 	"github.com/thunder-id/thunderid/internal/system/log"
@@ -36,7 +35,7 @@ const (
 type authAssertExecutor struct {
 	providers.Executor
 	jwtService          jwt.JWTServiceInterface
-	ouService           ou.OrganizationUnitServiceInterface
+	ouService           providers.OrganizationUnitProvider
 	authAssertGenerator assert.AuthAssertGeneratorInterface
 	authnProvider       providers.AuthnProviderManager
 	entityProvider      entityprovider.EntityProviderInterface
@@ -51,7 +50,7 @@ var _ providers.Executor = (*authAssertExecutor)(nil)
 func newAuthAssertExecutor(
 	flowFactory core.FlowFactoryInterface,
 	jwtService jwt.JWTServiceInterface,
-	ouService ou.OrganizationUnitServiceInterface,
+	ouService providers.OrganizationUnitProvider,
 	assertGenerator assert.AuthAssertGeneratorInterface,
 	authnProvider providers.AuthnProviderManager,
 	entityProvider entityprovider.EntityProviderInterface,
@@ -103,6 +102,10 @@ func (a *authAssertExecutor) Execute(ctx *providers.NodeContext) (*providers.Exe
 		}
 
 		token, err := a.generateAuthAssertion(ctx, execResp, logger)
+		// A client failure is recorded on the response; a returned error is a server fault.
+		if execResp.Status == providers.ExecFailure {
+			return execResp, nil
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -186,6 +189,7 @@ var reservedAssertionClaims = map[string]bool{
 	oauth2const.ClaimSubjectID:     true,
 	oauth2const.ClaimSubjectType:   true,
 	oauth2const.ClaimCorrelationID: true,
+	oauth2const.ClaimSessionID:     true,
 }
 
 // addSubjectIdentityClaims carries the authenticated entity's resource ID and category onto the
@@ -313,6 +317,11 @@ func (a *authAssertExecutor) generateAuthAssertion(
 		jwtClaims[oauth2const.ClaimTokenFamilyID] = tokenFamilyID
 	}
 
+	// Carry the SSO session id published by the Session node. Absent when the flow has no Session node.
+	if sessionID, exists := ctx.RuntimeData[common.RuntimeKeySSOSessionID]; exists && sessionID != "" {
+		jwtClaims[oauth2const.ClaimSessionID] = sessionID
+	}
+
 	requiredAttributes := a.getRequiredUserAttributes(ctx)
 
 	metadata := core.BuildGetAttributesMetadata(ctx)
@@ -332,7 +341,10 @@ func (a *authAssertExecutor) generateAuthAssertion(
 		if svcErr.Type == tidcommon.ServerErrorType {
 			return "", errors.New("something went wrong while fetching entity references")
 		}
-		return "", errors.New("failed to fetch entity references: " + svcErr.ErrorDescription.DefaultValue)
+		// A client error here means the identity names no local user.
+		execResp.Status = providers.ExecFailure
+		execResp.Error = errForEntityCategory(ErrFailedToIdentifyEntity, categoryUnscoped)
+		return "", nil
 	}
 
 	// Ensure the configured subject attribute for this user type is fetched
@@ -348,7 +360,9 @@ func (a *authAssertExecutor) generateAuthAssertion(
 		if svcErr.Type == tidcommon.ServerErrorType {
 			return "", errors.New("something went wrong while fetching user attributes")
 		}
-		return "", errors.New("failed to fetch user attributes: " + svcErr.ErrorDescription.DefaultValue)
+		execResp.Status = providers.ExecFailure
+		execResp.Error = &ErrAttributeRetrievalFailed
+		return "", nil
 	}
 
 	fetchedAttributes := make(map[string]interface{})
@@ -525,6 +539,7 @@ func (a *authAssertExecutor) resolveUserAttributes(
 
 	standardClaims := oauth2const.GetStandardClaims()
 
+	extIdentity := core.GetExternalIdentity(ctx.RuntimeData)
 	for _, attr := range requestedAttributes {
 		// Skip attributes that are handled separately
 		if attr == oauth2const.UserAttributeGroups ||
@@ -546,13 +561,18 @@ func (a *authAssertExecutor) resolveUserAttributes(
 			attributes[attr] = val
 			continue
 		}
-
 		// Check for the attribute in attributes fetched from user/authentication provider
 		if fetchedAttributes != nil {
 			if val, ok := fetchedAttributes[attr]; ok {
 				attributes[attr] = val
 				continue
 			}
+		}
+		// External claims are only a fallback and must never take priority over runtime data or the
+		// stored profile, since a linked sign-in resolves to a local user whose profile it must not rewrite.
+		if val, exists := extIdentity.Claim(attr); exists && val != "" {
+			attributes[attr] = val
+			continue
 		}
 	}
 

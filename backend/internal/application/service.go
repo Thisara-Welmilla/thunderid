@@ -24,6 +24,7 @@ import (
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/cors"
 	"github.com/thunder-id/thunderid/internal/system/cryptolib"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
@@ -74,6 +75,7 @@ type applicationService struct {
 	dependencyRegistry   resourcedependency.Registry
 	serverConfigService  serverconfig.ServerConfigService
 	resolveLifetime      artifactLifetimeResolver
+	valueCapturer        declarativeresource.ValueCapturer
 }
 
 // newApplicationService creates a new instance of ApplicationService.
@@ -85,6 +87,7 @@ func newApplicationService(
 	cryptoSvc providers.RuntimeCryptoProvider,
 	serverConfigSvc serverconfig.ServerConfigService,
 	artifactLifetime artifactLifetimeResolver,
+	valueCapturer declarativeresource.ValueCapturer,
 ) ApplicationServiceInterface {
 	return &applicationService{
 		logger:               log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService")),
@@ -95,6 +98,7 @@ func newApplicationService(
 		cryptoSvc:            cryptoSvc,
 		serverConfigService:  serverConfigSvc,
 		resolveLifetime:      artifactLifetime,
+		valueCapturer:        valueCapturer,
 	}
 }
 
@@ -215,6 +219,7 @@ func (as *applicationService) CreateApplication(ctx context.Context, app *model.
 		inboundAuthConfig, oauthToken, userInfo, scopeClaims)
 	// Surface the Flow Secret once, on creation only.
 	returnDTO.FlowSecret = flowSecret
+	as.captureValues(ctx, returnDTO)
 	return returnDTO, nil
 }
 
@@ -272,10 +277,13 @@ func (as *applicationService) ValidateApplication(ctx context.Context, app *mode
 	inboundClient := toInboundClient(processedDTO)
 	oauthProfile := toOAuthProfile(processedDTO)
 	var hasClientSecret bool
+	var oauthClientID string
 	if inboundAuthConfig != nil && inboundAuthConfig.OAuthConfig != nil {
 		hasClientSecret = inboundAuthConfig.OAuthConfig.ClientSecret != ""
+		oauthClientID = inboundAuthConfig.OAuthConfig.ClientID
 	}
-	if err := as.inboundClientService.Validate(ctx, &inboundClient, oauthProfile, hasClientSecret); err != nil {
+	if err := as.inboundClientService.Validate(
+		ctx, &inboundClient, oauthProfile, hasClientSecret, oauthClientID); err != nil {
 		if svcErr := as.translateInboundClientError(ctx, err); svcErr != nil {
 			return nil, nil, svcErr
 		}
@@ -392,7 +400,6 @@ func (as *applicationService) GetApplication(ctx context.Context, appID string) 
 	if svcErr != nil {
 		return nil, svcErr
 	}
-
 	return as.enrichApplicationWithCertificate(ctx, buildApplicationResponse(fullApp))
 }
 
@@ -468,8 +475,10 @@ func (as *applicationService) UpdateApplication(ctx context.Context, appID strin
 			inboundAuthConfig.OAuthConfig.Certificate = nil
 		}
 	}
-	return buildReturnApplicationDTO(appID, &appForReturn, inboundClient.Assertion, processedDTO.Metadata,
-		inboundAuthConfig, oauthToken, userInfo, scopeClaims), nil
+	returnDTO := buildReturnApplicationDTO(appID, &appForReturn, inboundClient.Assertion, processedDTO.Metadata,
+		inboundAuthConfig, oauthToken, userInfo, scopeClaims)
+	as.captureValues(ctx, returnDTO)
+	return returnDTO, nil
 }
 
 func (as *applicationService) updateEntityDataForApplicationUpdate(ctx context.Context,
@@ -1239,6 +1248,7 @@ func buildOAuthProfileFromProcessed(inboundAuth inboundmodel.InboundAuthConfigPr
 	return &providers.OAuthProfile{
 		RedirectURIs:                       oa.RedirectURIs,
 		PostLogoutRedirectURIs:             oa.PostLogoutRedirectURIs,
+		BackchannelLogoutURI:               oa.BackchannelLogoutURI,
 		GrantTypes:                         sysutils.ConvertToStringSlice(oa.GrantTypes),
 		ResponseTypes:                      sysutils.ConvertToStringSlice(oa.ResponseTypes),
 		TokenEndpointAuthMethod:            string(oa.TokenEndpointAuthMethod),
@@ -1247,6 +1257,7 @@ func buildOAuthProfileFromProcessed(inboundAuth inboundmodel.InboundAuthConfigPr
 		RequirePushedAuthorizationRequests: oa.RequirePushedAuthorizationRequests,
 		DPoPBoundAccessTokens:              oa.DPoPBoundAccessTokens,
 		IncludeActClaim:                    oa.IncludeActClaim,
+		ClientIDMetadataDocument:           oa.ClientIDMetadataDocument,
 		Scopes:                             oa.Scopes,
 		ScopeClaims:                        oa.ScopeClaims,
 		Token:                              oa.Token,
@@ -1570,7 +1581,20 @@ func (as *applicationService) translateInboundClientError(ctx context.Context, e
 	if errors.As(err, &opErr) {
 		return as.translateCertOperationError(ctx, opErr)
 	}
+	if svcErr := translateCIMDValidationError(err); svcErr != nil {
+		return svcErr
+	}
 	return nil
+}
+
+// translateCIMDValidationError maps a Client ID Metadata Document rule violation to an
+// application-service error that keeps the description of the broken rule.
+func translateCIMDValidationError(err error) *tidcommon.ServiceError {
+	var cimdErr *inboundclient.CIMDValidationError
+	if !errors.As(err, &cimdErr) {
+		return nil
+	}
+	return tidcommon.CustomServiceError(ErrorInvalidCIMDClient, cimdErr.Underlying.ErrorDescription)
 }
 
 // translateOAuthValidationError maps OAuth redirect URI, grant/response type, token endpoint
@@ -1589,6 +1613,22 @@ func translateOAuthValidationError(err error) *tidcommon.ServiceError {
 		return tidcommon.CustomServiceError(ErrorInvalidOAuthConfiguration, tidcommon.I18nMessage{
 			Key:          "error.applicationservice.auth_code_requires_redirect_uris_description",
 			DefaultValue: "authorization_code grant type requires redirect URIs",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthInvalidBackchannelLogoutURI):
+		return tidcommon.CustomServiceError(ErrorInvalidOAuthConfiguration, tidcommon.I18nMessage{
+			Key: "error.applicationservice.invalid_backchannel_logout_uri_description",
+			DefaultValue: "Backchannel logout URI must be an absolute http or https URL without userinfo, " +
+				"a fragment or a wildcard",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthBackchannelLogoutURIRequiresHTTPS):
+		return tidcommon.CustomServiceError(ErrorInvalidOAuthConfiguration, tidcommon.I18nMessage{
+			Key:          "error.applicationservice.backchannel_logout_uri_requires_https_description",
+			DefaultValue: "Backchannel logout URI must use https for a public client",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthBackchannelLogoutURIPrivateHost):
+		return tidcommon.CustomServiceError(ErrorInvalidOAuthConfiguration, tidcommon.I18nMessage{
+			Key:          "error.applicationservice.backchannel_logout_uri_private_host_description",
+			DefaultValue: "Backchannel logout URI must not name a loopback, link-local or private address",
 		})
 
 	// OAuth: grant + response type
@@ -2120,6 +2160,7 @@ func buildApplicationResponse(dto *model.ApplicationProcessedDTO) *providers.App
 					ClientID:                           oauthAppConfig.ClientID,
 					RedirectURIs:                       oauthAppConfig.RedirectURIs,
 					PostLogoutRedirectURIs:             oauthAppConfig.PostLogoutRedirectURIs,
+					BackchannelLogoutURI:               oauthAppConfig.BackchannelLogoutURI,
 					GrantTypes:                         oauthAppConfig.GrantTypes,
 					ResponseTypes:                      oauthAppConfig.ResponseTypes,
 					TokenEndpointAuthMethod:            oauthAppConfig.TokenEndpointAuthMethod,
@@ -2128,6 +2169,7 @@ func buildApplicationResponse(dto *model.ApplicationProcessedDTO) *providers.App
 					RequirePushedAuthorizationRequests: oauthAppConfig.RequirePushedAuthorizationRequests,
 					DPoPBoundAccessTokens:              oauthAppConfig.DPoPBoundAccessTokens,
 					IncludeActClaim:                    oauthAppConfig.IncludeActClaim,
+					ClientIDMetadataDocument:           oauthAppConfig.ClientIDMetadataDocument,
 					Token:                              oauthAppConfig.Token,
 					Scopes:                             oauthAppConfig.Scopes,
 					UserInfo:                           oauthAppConfig.UserInfo,
@@ -2256,6 +2298,7 @@ func buildOAuthInboundAuthConfigProcessedDTO(
 			ClientID:                           inboundAuthConfig.OAuthConfig.ClientID,
 			RedirectURIs:                       inboundAuthConfig.OAuthConfig.RedirectURIs,
 			PostLogoutRedirectURIs:             inboundAuthConfig.OAuthConfig.PostLogoutRedirectURIs,
+			BackchannelLogoutURI:               inboundAuthConfig.OAuthConfig.BackchannelLogoutURI,
 			GrantTypes:                         inboundAuthConfig.OAuthConfig.GrantTypes,
 			ResponseTypes:                      inboundAuthConfig.OAuthConfig.ResponseTypes,
 			TokenEndpointAuthMethod:            inboundAuthConfig.OAuthConfig.TokenEndpointAuthMethod,
@@ -2264,6 +2307,7 @@ func buildOAuthInboundAuthConfigProcessedDTO(
 			RequirePushedAuthorizationRequests: inboundAuthConfig.OAuthConfig.RequirePushedAuthorizationRequests,
 			DPoPBoundAccessTokens:              inboundAuthConfig.OAuthConfig.DPoPBoundAccessTokens,
 			IncludeActClaim:                    inboundAuthConfig.OAuthConfig.IncludeActClaim,
+			ClientIDMetadataDocument:           inboundAuthConfig.OAuthConfig.ClientIDMetadataDocument,
 			Token:                              oauthToken,
 			Scopes:                             inboundAuthConfig.OAuthConfig.Scopes,
 			UserInfo:                           userInfo,
@@ -2323,6 +2367,7 @@ func buildReturnApplicationDTO(
 				ClientSecret:                       inboundAuthConfig.OAuthConfig.ClientSecret,
 				RedirectURIs:                       inboundAuthConfig.OAuthConfig.RedirectURIs,
 				PostLogoutRedirectURIs:             inboundAuthConfig.OAuthConfig.PostLogoutRedirectURIs,
+				BackchannelLogoutURI:               inboundAuthConfig.OAuthConfig.BackchannelLogoutURI,
 				GrantTypes:                         inboundAuthConfig.OAuthConfig.GrantTypes,
 				ResponseTypes:                      inboundAuthConfig.OAuthConfig.ResponseTypes,
 				TokenEndpointAuthMethod:            inboundAuthConfig.OAuthConfig.TokenEndpointAuthMethod,
@@ -2331,6 +2376,7 @@ func buildReturnApplicationDTO(
 				RequirePushedAuthorizationRequests: inboundAuthConfig.OAuthConfig.RequirePushedAuthorizationRequests,
 				DPoPBoundAccessTokens:              inboundAuthConfig.OAuthConfig.DPoPBoundAccessTokens,
 				IncludeActClaim:                    inboundAuthConfig.OAuthConfig.IncludeActClaim,
+				ClientIDMetadataDocument:           inboundAuthConfig.OAuthConfig.ClientIDMetadataDocument,
 				Token:                              oauthToken,
 				Scopes:                             inboundAuthConfig.OAuthConfig.Scopes,
 				UserInfo:                           userInfo,

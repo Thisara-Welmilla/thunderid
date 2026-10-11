@@ -27,6 +27,8 @@ type tokenExchangeGrantHandler struct {
 	tokenBuilder    tokenservice.TokenBuilderInterface
 	tokenValidator  tokenservice.TokenValidatorInterface
 	resourceService providers.ResourceServerProvider
+	authzService    providers.AuthorizationProvider
+	actorProvider   providers.ActorProvider
 	cfg             oauthconfig.Config
 }
 
@@ -35,12 +37,16 @@ func newTokenExchangeGrantHandler(
 	tokenBuilder tokenservice.TokenBuilderInterface,
 	tokenValidator tokenservice.TokenValidatorInterface,
 	resourceService providers.ResourceServerProvider,
+	authzService providers.AuthorizationProvider,
+	actorProvider providers.ActorProvider,
 	cfg oauthconfig.Config,
 ) GrantHandlerInterface {
 	return &tokenExchangeGrantHandler{
 		tokenBuilder:    tokenBuilder,
 		tokenValidator:  tokenValidator,
 		resourceService: resourceService,
+		authzService:    authzService,
+		actorProvider:   actorProvider,
 		cfg:             cfg,
 	}
 }
@@ -149,17 +155,30 @@ func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenReques
 		return h.handleIDJAGGrant(ctx, tokenRequest, oauthApp)
 	}
 
+	// Enforce RFC 9068 on the subject token: one declared as an access token must carry the at+jwt typ
+	// header. This runs before ValidateSubjectToken because validating a subject auth assertion spends
+	// it, and a token rejected on its typ should not have been spent first.
+	if errResp := h.validateAccessTokenType(tokenRequest.SubjectToken,
+		tokenRequest.SubjectTokenType, "subject_token"); errResp != nil {
+		return nil, errResp
+	}
+
 	// Validate and extract subject token claims. ValidateSubjectToken enforces the RFC 7009 deny list
 	// for self-issued tokens; a revoked token is rejected as invalid_request like any other invalid
 	// subject_token, while an unavailable deny list fails closed with server_error.
 	subjectClaims, err := h.tokenValidator.ValidateSubjectToken(ctx, tokenRequest.SubjectToken, oauthApp)
-	if err != nil {
+	if err != nil { //nolint:dupl // Mirrors the actor_token classification below; only the wording differs.
 		logger.Debug(ctx, "Failed to validate subject token", log.Error(err))
 		switch {
 		case errors.Is(err, revocation.ErrEnforcementUnavailable):
 			return nil, &model.ErrorResponse{
 				Error:            constants.ErrorServerError,
 				ErrorDescription: "Token revocation status could not be verified",
+			}
+		case errors.Is(err, tokenservice.ErrAuthorizationMappingUnavailable):
+			return nil, &model.ErrorResponse{
+				Error:            constants.ErrorServerError,
+				ErrorDescription: "Authorization mapping could not be resolved",
 			}
 		case errors.Is(err, tokenservice.ErrTokenExpired):
 			return nil, &model.ErrorResponse{
@@ -177,19 +196,17 @@ func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenReques
 				ErrorDescription: "The subject_token audience does not contain this server's issuer or the " +
 					"trusted token audience configured for its issuer",
 			}
+		case errors.Is(err, tokenservice.ErrAssertionReplayed):
+			return nil, &model.ErrorResponse{
+				Error:            constants.ErrorInvalidRequest,
+				ErrorDescription: "The subject_token has already been redeemed",
+			}
 		default:
 			return nil, &model.ErrorResponse{
 				Error:            constants.ErrorInvalidRequest,
 				ErrorDescription: "Invalid subject_token",
 			}
 		}
-	}
-
-	// Enforce RFC 9068: a token presented as subject_token_type=access_token must carry the at+jwt typ
-	// header.
-	if errResp := h.validateAccessTokenType(tokenRequest.SubjectToken,
-		tokenRequest.SubjectTokenType, "subject_token"); errResp != nil {
-		return nil, errResp
 	}
 
 	// Enforce subject_token DPoP binding. The proof's jkt is verified earlier in the
@@ -201,7 +218,7 @@ func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenReques
 	// Validate and extract actor token claims if present
 	var actorClaims *tokenservice.SubjectTokenClaims
 	if tokenRequest.ActorToken != "" {
-		actorClaims, err = h.tokenValidator.ValidateSubjectToken(ctx, tokenRequest.ActorToken, oauthApp)
+		actorClaims, err = h.tokenValidator.ValidateActorToken(ctx, tokenRequest.ActorToken, oauthApp)
 		if err != nil {
 			logger.Debug(ctx, "Failed to validate actor token", log.Error(err))
 			// Attribute the actor_token rejection the same way as the subject_token above.
@@ -210,6 +227,11 @@ func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenReques
 				return nil, &model.ErrorResponse{
 					Error:            constants.ErrorServerError,
 					ErrorDescription: "Token revocation status could not be verified",
+				}
+			case errors.Is(err, tokenservice.ErrAuthorizationMappingUnavailable):
+				return nil, &model.ErrorResponse{
+					Error:            constants.ErrorServerError,
+					ErrorDescription: "Authorization mapping could not be resolved",
 				}
 			case errors.Is(err, tokenservice.ErrTokenExpired):
 				return nil, &model.ErrorResponse{
@@ -251,7 +273,8 @@ func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenReques
 	}
 
 	// Determine final scopes
-	finalScopes, errResp := h.getScopes(tokenRequest, subjectClaims.Scopes)
+	finalScopes, errResp := h.getScopes(
+		tokenRequest, subjectClaims.Scopes, subjectClaims.Authorization.Configured)
 	if errResp != nil {
 		return nil, errResp
 	}
@@ -280,6 +303,13 @@ func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenReques
 			ctx, h.resourceService, targetRS.ID, permissionScopes)
 		if resErr != nil {
 			return nil, resErr
+		}
+
+		permissionScopes, errResp = tokenservice.ApplyMappedAuthorization(
+			ctx, h.authzService, h.actorProvider, subjectClaims.Authorization.Targets, targetRS.ID,
+			permissionScopes, subjectClaims.Authorization.Configured, logger)
+		if errResp != nil {
+			return nil, errResp
 		}
 
 		finalScopes = make([]string, 0, len(oidcScopes)+len(permissionScopes))
@@ -464,23 +494,34 @@ func (h *tokenExchangeGrantHandler) validateAccessTokenType(
 	return nil
 }
 
-// getScopes validates and determines the scopes for the new token.
+// getScopes validates and determines the scopes for the new token. When authorityIsMapping, the
+// subject token's own scope claim is skipped; requested scopes are only candidates for
+// ApplyMappedAuthorization to decide, with no fallback if the mapping resolves nothing.
 func (h *tokenExchangeGrantHandler) getScopes(
 	tokenRequest *model.TokenRequest,
 	subjectScopes []string,
+	authorityIsMapping bool,
 ) ([]string, *model.ErrorResponse) {
-	// If no scopes requested, return subject scopes
 	if tokenRequest.Scope == "" {
+		if authorityIsMapping {
+			// Nothing was requested to evaluate against the mapping, and the subject token's own
+			// scope claim is not an authority here, so there is nothing to grant.
+			return []string{}, nil
+		}
 		return subjectScopes, nil
 	}
 
 	requestedScopes := tokenservice.ParseScopes(tokenRequest.Scope)
-
 	if len(requestedScopes) == 0 {
 		return []string{}, nil
 	}
 
-	// If subject token has no scopes, reject requests asking for scopes
+	if authorityIsMapping {
+		return requestedScopes, nil
+	}
+
+	// If subject token has no scopes, reject requests asking for scopes: with no mapping configured,
+	// the subject token's own scope claim is the only possible authority.
 	if len(subjectScopes) == 0 {
 		return nil, &model.ErrorResponse{
 			Error: constants.ErrorInvalidScope,
