@@ -43,12 +43,14 @@ type AccessTokenBuildContext struct {
 	// for client_credentials). The token builder embeds them as-is without any subject-specific
 	// handling.
 	SubjectAttributes map[string]interface{}
-	AttributeCacheID  string
-	GrantType         string
-	OAuthApp          *providers.OAuthClient
-	ActorClaims       *SubjectTokenClaims
-	ClaimsRequest     *oauth2model.ClaimsRequest
-	ClaimsLocales     string
+	// OUAttributes holds the organization claims the token is issued for.
+	OUAttributes     map[string]interface{}
+	AttributeCacheID string
+	GrantType        string
+	OAuthApp         *providers.OAuthClient
+	ActorClaims      *SubjectTokenClaims
+	ClaimsRequest    *oauth2model.ClaimsRequest
+	ClaimsLocales    string
 	// ValidityPeriod is the subject's configured access-token validity in seconds (0 to use the
 	// global default), resolved by the grant handler from the subject's access token sub-config.
 	ValidityPeriod int64
@@ -122,6 +124,20 @@ type IDTokenBuildContext struct {
 	CompletedACR   string
 	// SessionID, when set, is emitted as the `sid` claim naming the SSO session this authentication
 	// belongs to. Empty when no session backs the grant, in which case the claim is omitted.
+	SessionID string
+}
+
+const (
+	// claimEvents is the logout token claim naming the event it carries (Back-Channel Logout §2.4).
+	claimEvents = "events"
+	// eventBackchannelLogout is the single member of the events claim, with an empty object value.
+	eventBackchannelLogout = "http://schemas.openid.net/event/backchannel-logout"
+)
+
+// LogoutTokenBuildContext holds what an OIDC Back-Channel Logout token is built from.
+type LogoutTokenBuildContext struct {
+	OAuthApp  *providers.OAuthClient
+	SubjectID string
 	SessionID string
 }
 

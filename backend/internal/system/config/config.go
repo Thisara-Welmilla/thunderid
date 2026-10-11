@@ -181,6 +181,16 @@ type PasskeyConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins" json:"allowed_origins"`
 }
 
+// DirectAPIConfig holds the configuration for the Direct API endpoints.
+type DirectAPIConfig struct {
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+}
+
+// IsEnabled reports whether the Direct API endpoints are enabled, defaulting to false when unset.
+func (c DirectAPIConfig) IsEnabled() bool {
+	return derefBool(c.Enabled)
+}
+
 // AttestationConfig holds engine-level platform attestation configuration shared across
 // applications.
 type AttestationConfig struct {
@@ -297,20 +307,45 @@ type RestSecurityConfig struct {
 	APIKey string `yaml:"api_key" json:"api_key"`
 }
 
-// EmailConfig holds the email configuration details.
-type EmailConfig struct {
-	SMTP SMTPEmailConfig `yaml:"smtp" json:"smtp"`
+// GatewayConfig holds how many gateways this deployment administers.
+//
+// It is here rather than in the engine's server configuration because only a deployment that
+// administers gateways reads it, and the engine serves deployments that administer none.
+type GatewayConfig struct {
+	// MaxGateways bounds how many gateways a deployment may register.
+	//
+	// It is a guard against a deployment accumulating gateways it was not configured for, not an
+	// invariant. Two registrations arriving at the same moment can each be admitted against the
+	// same count on PostgreSQL and leave one more than configured. Nothing is corrupted when that
+	// happens: a gateway's name and its address are unique by table constraint, and those are
+	// exact. Raise or lower it freely; do not rely on it as a licensing or security boundary.
+	//
+	// It is a pointer so that an explicit zero is honored. The config merge only takes a
+	// user-supplied primitive when it is non-zero, so a plain int could not tell `max_gateways: 0`,
+	// meaning administer none, from an omitted field, and the default of one would win either way.
+	MaxGateways *int `yaml:"max_gateways" json:"max_gateways"`
+	// MaxVersions bounds how many captured configuration versions a deployment keeps. Capturing one
+	// beyond it removes the oldest, except a version some gateway holds or could be reverted to.
+	MaxVersions *int `yaml:"max_versions" json:"max_versions"`
+	// Store defines the storage mode for gateways.
+	// Valid values: "mutable", "declarative", "composite" (hybrid mode)
+	// If not specified, falls back to global DeclarativeResources.Enabled setting:
+	//   - If DeclarativeResources.Enabled = true: behaves as "declarative"
+	//   - If DeclarativeResources.Enabled = false: behaves as "mutable"
+	Store string `yaml:"store" json:"store"`
 }
 
-// SMTPEmailConfig holds the SMTP email configuration details.
-type SMTPEmailConfig struct {
-	Host                 string `yaml:"host"                  json:"host"`
-	Port                 int    `yaml:"port"                  json:"port"`
-	Username             string `yaml:"username"              json:"username"`
-	Password             string `yaml:"password"              json:"password"`
-	FromAddress          string `yaml:"from_address"          json:"from_address"`
-	EnableStartTLS       *bool  `yaml:"enable_start_tls"      json:"enable_start_tls"`
-	EnableAuthentication *bool  `yaml:"enable_authentication" json:"enable_authentication"`
+// MaxGatewayCount reports how many gateways a deployment may register, defaulting to none when
+// unset (an explicit default lives in default.json). An explicit zero is honored and means the
+// deployment administers none.
+func (c GatewayConfig) MaxGatewayCount() int {
+	return derefInt(c.MaxGateways, 0)
+}
+
+// MaxVersionCount reports how many captured configuration versions a deployment keeps. It is never
+// below one, because a capture that kept nothing could not be applied.
+func (c GatewayConfig) MaxVersionCount() int {
+	return max(derefInt(c.MaxVersions, 1), 1)
 }
 
 // DeclarativeResources holds the configuration details for the declarative resources.
@@ -396,6 +431,21 @@ type GroupConfig struct {
 	//   - If DeclarativeResources.Enabled = true: behaves as "declarative"
 	//   - If DeclarativeResources.Enabled = false: behaves as "mutable"
 	Store string `yaml:"store" json:"store"`
+}
+
+// SCIMConfig holds the SCIM service configuration.
+type SCIMConfig struct {
+	// CoreUserTypeID designates the ThunderID user type whose schema backs the SCIM
+	// core User schema (RFC 7643 §4.1): its attribute characteristics are reflected in
+	// /scim/v2/Schemas, and it is the default target for payloads carrying only the core
+	// schema URN. If empty, falls back to the sole configured user type when exactly
+	// one exists; with zero or 2+ user types, the core schema is unavailable.
+	CoreUserTypeID string `yaml:"core_user_type_id" json:"core_user_type_id"`
+
+	// SchemaURNPrefix is the URN prefix of the custom per-user-type SCIM schemas, for example
+	// "urn:example:params:scim:schemas:". A trailing colon is added if missing. If empty, the
+	// built-in default prefix is used.
+	SchemaURNPrefix string `yaml:"urn_prefix" json:"urn_prefix"`
 }
 
 // RoleConfig holds the role service configuration.
@@ -583,10 +633,12 @@ type OAuthConfig struct {
 	AuthorizationCode        engineconfig.AuthorizationCodeConfig    `yaml:"authorization_code" json:"authorization_code"`       //nolint:lll
 	AuthorizationRequest     engineconfig.AuthorizationRequestConfig `yaml:"authorization_request" json:"authorization_request"` //nolint:lll
 	DCR                      engineconfig.DCRConfig                  `yaml:"dcr" json:"dcr"`
+	CIMD                     engineconfig.CIMDConfig                 `yaml:"cimd" json:"cimd"`
 	PAR                      engineconfig.PARConfig                  `yaml:"par" json:"par"`
 	DPoP                     engineconfig.DPoPConfig                 `yaml:"dpop" json:"dpop"`
 	AuthClass                engineconfig.AuthClassConfig            `yaml:"auth_class" json:"auth_class"`
 	CIBA                     engineconfig.CIBAConfig                 `yaml:"ciba" json:"ciba"`
+	ClientAssertion          engineconfig.ClientAssertionConfig      `yaml:"client_assertion" json:"client_assertion"`
 	Revocation               engineconfig.RevocationConfig           `yaml:"revocation" json:"revocation"`
 	TokenExchange            engineconfig.TokenExchangeConfig        `yaml:"token_exchange" json:"token_exchange"`
 	AllowWildcardRedirectURI bool                                    `yaml:"allow_wildcard_redirect_uri" json:"allow_wildcard_redirect_uri"`   //nolint:lll
@@ -606,10 +658,12 @@ func (c OAuthConfig) ToEngineConfig() engineconfig.OAuthConfig {
 		AuthorizationCode:        c.AuthorizationCode,
 		AuthorizationRequest:     c.AuthorizationRequest,
 		DCR:                      c.DCR,
+		CIMD:                     c.CIMD,
 		PAR:                      c.PAR,
 		DPoP:                     c.DPoP,
 		AuthClass:                c.AuthClass,
 		CIBA:                     c.CIBA,
+		ClientAssertion:          c.ClientAssertion,
 		Revocation:               c.Revocation,
 		TokenExchange:            c.TokenExchange,
 		AllowWildcardRedirectURI: c.AllowWildcardRedirectURI,
@@ -622,9 +676,26 @@ func (c OAuthConfig) ToEngineConfig() engineconfig.OAuthConfig {
 	}
 }
 
+// AuthZENPDPConfig holds server defaults for AuthZEN PDP connections.
+type AuthZENPDPConfig struct {
+	TimeoutMS  int    `yaml:"timeout_ms" json:"timeout_ms"`
+	RetryCount *int   `yaml:"retry_count" json:"retry_count"`
+	Store      string `yaml:"store" json:"store"`
+}
+
+// Validate checks the default timeout and retry count.
+func (c AuthZENPDPConfig) Validate() error {
+	if c.TimeoutMS < 0 || (c.RetryCount != nil && *c.RetryCount < 0) {
+		return fmt.Errorf("AuthZEN PDP timeout and retry defaults must not be negative")
+	}
+	return nil
+}
+
 // Config holds the complete configuration details of the server.
 type Config struct {
 	Server               engineconfig.ServerConfig         `yaml:"server"                json:"server"`
+	Gateway              GatewayConfig                     `yaml:"gateway"               json:"gateway"`
+	AuthZENPDP           AuthZENPDPConfig                  `yaml:"authzen_pdp"           json:"authzen_pdp"`
 	Log                  LogConfig                         `yaml:"log"                   json:"log"`
 	GateClient           engineconfig.GateClientConfig     `yaml:"gate_client"           json:"gate_client"`
 	TLS                  TLSConfig                         `yaml:"tls"                   json:"tls"`
@@ -645,6 +716,7 @@ type Config struct {
 	EntityType           EntityTypeConfig                  `yaml:"user_type"             json:"user_type"`
 	Observability        engineconfig.ObservabilityConfig  `yaml:"observability"         json:"observability"`
 	Passkey              PasskeyConfig                     `yaml:"passkey"               json:"passkey"`
+	DirectAPI            DirectAPIConfig                   `yaml:"direct_api"            json:"direct_api"`
 	Attestation          AttestationConfig                 `yaml:"attestation"           json:"attestation"`
 	OpenID4VP            OpenID4VPConfig                   `yaml:"openid4vp"             json:"openid4vp"`
 	OpenID4VCI           OpenID4VCIConfig                  `yaml:"openid4vci"            json:"openid4vci"`
@@ -653,13 +725,19 @@ type Config struct {
 	EntityProvider       EntityProviderConfig              `yaml:"entity_provider"       json:"entity_provider"`
 	AgentMgtProvider     AgentMgtProviderConfig            `yaml:"agent_mgt_provider"        json:"agent_mgt_provider"`
 	Group                GroupConfig                       `yaml:"group"                 json:"group"`
+	SCIM                 SCIMConfig                        `yaml:"scim"                  json:"scim"`
 	Role                 RoleConfig                        `yaml:"role"                  json:"role"`
 	Theme                ThemeConfig                       `yaml:"theme"                 json:"theme"`
 	Layout               LayoutConfig                      `yaml:"layout"                json:"layout"`
 	Translation          TranslationConfig                 `yaml:"translation"           json:"translation"`
-	Email                EmailConfig                       `yaml:"email"                 json:"email"`
 	Notification         NotificationConfig                `yaml:"notification"          json:"notification"`
 	AttributeCache       engineconfig.AttributeCacheConfig `yaml:"attribute_cache" json:"attribute_cache"`
+	ResourceSharing      ResourceSharingConfig             `yaml:"resource_sharing"      json:"resource_sharing"`
+}
+
+// ResourceSharingConfig configures how resources may be shared across organization units.
+type ResourceSharingConfig struct {
+	AllowChildOUCrossTreeSharing bool `yaml:"allow_child_ou_cross_tree_sharing" json:"allow_child_ou_cross_tree_sharing"` //nolint:lll
 }
 
 // LoadConfig loads the configurations from the specified YAML file and applies defaults.
@@ -684,6 +762,7 @@ func LoadConfig(configPath string, defaultPath string, serverHome string) (*Conf
 
 	// Merge user configuration with defaults
 	mergeConfigs(&cfg, &userCfg)
+	cfg.Server.EnableOUQualifiedEndpoints = true
 
 	// Default gate_client to the server's own URL when not explicitly configured, so the gate only
 	// needs configuring when it is hosted separately from the server.
@@ -753,10 +832,19 @@ func LoadConfig(configPath string, defaultPath string, serverHome string) (*Conf
 	if err := cfg.OAuth.DPoP.Validate(); err != nil {
 		return nil, err
 	}
+	if err := cfg.OAuth.ClientAssertion.Validate(); err != nil {
+		return nil, err
+	}
 	if err := cfg.OAuth.TokenExchange.Validate(); err != nil {
 		return nil, err
 	}
+	if err := cfg.OAuth.Logout.Backchannel.Validate(); err != nil {
+		return nil, err
+	}
 	if err := cfg.Notification.Validate(); err != nil {
+		return nil, err
+	}
+	if err := cfg.AuthZENPDP.Validate(); err != nil {
 		return nil, err
 	}
 
@@ -782,6 +870,7 @@ func loadDefaultConfig(path string, serverHome string) (*Config, error) {
 	return &cfg, nil
 }
 
+// loadUserConfig loads and parses the user-provided configuration file with environment and path substitution.
 func loadUserConfig(path string, serverHome string) (Config, error) {
 	var cfg Config
 	configPath := filepath.Clean(path)

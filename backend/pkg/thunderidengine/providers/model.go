@@ -20,7 +20,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/thunder-id/thunderid/internal/system/cmodels"
-	"github.com/thunder-id/thunderid/internal/system/utils"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 )
 
@@ -37,72 +36,45 @@ type DesignResponse struct {
 	Layout json.RawMessage `json:"layout,omitempty"`
 }
 
-// OrganizationUnit represents an organization unit.
+// OrganizationUnit is the runtime view of an organization unit: its identity and the branding the
+// OAuth and flow layers render. The management model, with its REST, YAML and persistence
+// representations, belongs to the organization unit service.
 type OrganizationUnit struct {
-	ID                        string    `json:"id"                           yaml:"id"`
-	Handle                    string    `json:"handle"                       yaml:"handle"`
-	Name                      string    `json:"name"                         yaml:"name"`
-	Description               string    `json:"description,omitempty"        yaml:"description,omitempty"`
-	Parent                    *string   `json:"parent"                       yaml:"parent"`
-	ThemeID                   string    `json:"themeId,omitempty"            yaml:"themeId,omitempty"`
-	LayoutID                  string    `json:"layoutId,omitempty"           yaml:"layoutId,omitempty"`
-	AuthFlowID                string    `json:"authFlowId,omitempty"         yaml:"authFlowId,omitempty"`
-	RegistrationFlowID        string    `json:"registrationFlowId,omitempty" yaml:"registrationFlowId,omitempty"`
-	IsRegistrationFlowEnabled bool      `json:"isRegistrationFlowEnabled"    yaml:"isRegistrationFlowEnabled"`
-	RecoveryFlowID            string    `json:"recoveryFlowId,omitempty"     yaml:"recoveryFlowId,omitempty"`
-	IsRecoveryFlowEnabled     bool      `json:"isRecoveryFlowEnabled"        yaml:"isRecoveryFlowEnabled"`
-	SignOutFlowID             string    `json:"signOutFlowId,omitempty"           yaml:"signOutFlowId,omitempty"`
-	UserOnboardingFlowID      string    `json:"userOnboardingFlowId,omitempty"    yaml:"userOnboardingFlowId,omitempty"`
-	LogoURL                   string    `json:"logoUrl,omitempty"                 yaml:"logoUrl,omitempty"`
-	TosURI                    string    `json:"tosUri,omitempty"             yaml:"tosUri,omitempty"`
-	PolicyURI                 string    `json:"policyUri,omitempty"          yaml:"policyUri,omitempty"`
-	CookiePolicyURI           string    `json:"cookiePolicyUri,omitempty"    yaml:"cookiePolicyUri,omitempty"`
-	CreatedAt                 time.Time `json:"createdAt"                    yaml:"createdAt"`
-	UpdatedAt                 time.Time `json:"updatedAt"                    yaml:"updatedAt"`
+	ID              string
+	Handle          string
+	Name            string
+	Description     string
+	LogoURL         string
+	TosURI          string
+	PolicyURI       string
+	CookiePolicyURI string
 }
 
-// OrganizationUnitRequestWithID represents the request body for creating an organization unit
-// in import/declarative paths where preserving IDs is required.
+// OrganizationUnitRequestWithID is the runtime request for provisioning an organization unit. ID
+// may be left empty for the provider to generate one; the flow engine does not set it.
 type OrganizationUnitRequestWithID struct {
-	ID                        string  `json:"id"                           yaml:"id"                           native:"required"`
-	Handle                    string  `json:"handle"                       yaml:"handle"                       native:"required,min=1,max=100"`
-	Name                      string  `json:"name"                         yaml:"name"                         native:"required,min=1,max=100"`
-	Description               string  `json:"description,omitempty"        yaml:"description,omitempty"`
-	Parent                    *string `json:"parent"                       yaml:"parent"`
-	ThemeID                   string  `json:"themeId,omitempty"            yaml:"themeId,omitempty"`
-	LayoutID                  string  `json:"layoutId,omitempty"           yaml:"layoutId,omitempty"`
-	AuthFlowID                string  `json:"authFlowId,omitempty"         yaml:"authFlowId,omitempty"`
-	RegistrationFlowID        string  `json:"registrationFlowId,omitempty" yaml:"registrationFlowId,omitempty"`
-	IsRegistrationFlowEnabled bool    `json:"isRegistrationFlowEnabled"    yaml:"isRegistrationFlowEnabled"`
-	RecoveryFlowID            string  `json:"recoveryFlowId,omitempty"     yaml:"recoveryFlowId,omitempty"`
-	IsRecoveryFlowEnabled     bool    `json:"isRecoveryFlowEnabled"        yaml:"isRecoveryFlowEnabled"`
-	SignOutFlowID             string  `json:"signOutFlowId,omitempty"         yaml:"signOutFlowId,omitempty"`
-	UserOnboardingFlowID      string  `json:"userOnboardingFlowId,omitempty"  yaml:"userOnboardingFlowId,omitempty"`
-	LogoURL                   string  `json:"logoUrl,omitempty"               yaml:"logoUrl,omitempty"               native:"omitempty,url,max=2048"`
-	TosURI                    string  `json:"tosUri,omitempty"             yaml:"tosUri,omitempty"             native:"omitempty,url,max=2048"`
-	PolicyURI                 string  `json:"policyUri,omitempty"          yaml:"policyUri,omitempty"          native:"omitempty,url,max=2048"`
-	CookiePolicyURI           string  `json:"cookiePolicyUri,omitempty"    yaml:"cookiePolicyUri,omitempty"    native:"url,max=2048"`
+	ID          string
+	Handle      string
+	Name        string
+	Description string
+	Parent      *string
 }
 
-// OrganizationUnitListResponse represents the response for listing organization units with pagination.
+// OrganizationUnitListResponse is a page of organization units. The runtime reads TotalResults to
+// decide whether a unit has children; the remaining fields describe the page.
 type OrganizationUnitListResponse struct {
-	TotalResults      int                     `json:"totalResults"`
-	StartIndex        int                     `json:"startIndex"`
-	Count             int                     `json:"count"`
-	OrganizationUnits []OrganizationUnitBasic `json:"organizationUnits"`
-	Links             []utils.Link            `json:"links"`
+	TotalResults      int
+	StartIndex        int
+	Count             int
+	OrganizationUnits []OrganizationUnitBasic
 }
 
-// OrganizationUnitBasic represents the basic information of an organization unit.
+// OrganizationUnitBasic identifies an organization unit within a list response.
 type OrganizationUnitBasic struct {
-	ID          string    `json:"id"`
-	Handle      string    `json:"handle"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	LogoURL     string    `json:"logoUrl,omitempty"`
-	IsReadOnly  bool      `json:"isReadOnly"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          string
+	Handle      string
+	Name        string
+	Description string
 }
 
 // ResourceServerType represents the type of a resource server.
@@ -191,16 +163,39 @@ type Resource struct {
 
 // ResourceServer represents a resource server in both declarative resources and service layer.
 type ResourceServer struct {
-	ID          string             `yaml:"id"                    json:"-"`
-	Name        string             `yaml:"name"                  json:"name"`
-	Description string             `yaml:"description,omitempty" json:"description,omitempty"`
-	Identifier  string             `yaml:"identifier"            json:"identifier"`
-	Type        ResourceServerType `yaml:"type,omitempty"        json:"type,omitempty"`
-	OUID        string             `yaml:"ouId,omitempty"        json:"ouId"`
-	OUHandle    string             `yaml:"ouHandle,omitempty"    json:"-"`
-	Delimiter   string             `yaml:"delimiter,omitempty"   json:"delimiter,omitempty"   yamlfmt:"quoted"`
-	IsReadOnly  bool               `yaml:"-"                     json:"-"`
-	Resources   []Resource         `yaml:"resources,omitempty"   json:"resources,omitempty"`
+	ID                  string                    `yaml:"id"                    json:"-"`
+	Name                string                    `yaml:"name"                  json:"name"`
+	Description         string                    `yaml:"description,omitempty" json:"description,omitempty"`
+	Identifier          string                    `yaml:"identifier"            json:"identifier"`
+	Type                ResourceServerType        `yaml:"type,omitempty"        json:"type,omitempty"`
+	OUID                string                    `yaml:"ouId,omitempty"        json:"ouId"`
+	OUHandle            string                    `yaml:"ouHandle,omitempty"    json:"-"`
+	Delimiter           string                    `yaml:"delimiter,omitempty"   json:"delimiter,omitempty"   yamlfmt:"quoted"`
+	AuthorizationEngine AuthorizationEngineConfig `yaml:"authorizationEngine,omitempty" json:"authorizationEngine,omitempty"`
+	IsReadOnly          bool                      `yaml:"-"                     json:"-"`
+	Resources           []Resource                `yaml:"resources,omitempty"   json:"resources,omitempty"`
+}
+
+// AuthorizationEngineTypeAuthZENPDP identifies the AuthZEN PDP authorization engine.
+const AuthorizationEngineTypeAuthZENPDP = "authzen_pdp"
+
+// AuthorizationEngineTypeRBAC identifies the default role-based authorization engine.
+const AuthorizationEngineTypeRBAC = "rbac"
+
+// AuthorizationEngineConfig selects the authorization engine for a resource server.
+type AuthorizationEngineConfig struct {
+	Type       string                        `yaml:"type,omitempty"       json:"type,omitempty"`
+	Properties AuthorizationEngineProperties `yaml:"properties,omitempty" json:"properties,omitempty"`
+}
+
+// IsZero reports whether no authorization engine is configured.
+func (c AuthorizationEngineConfig) IsZero() bool {
+	return c.Type == "" && c.Properties.PDPConnectionID == ""
+}
+
+// AuthorizationEngineProperties configures the selected authorization engine.
+type AuthorizationEngineProperties struct {
+	PDPConnectionID string `yaml:"pdpConnectionId,omitempty" json:"pdpConnectionId,omitempty"`
 }
 
 // CompleteFlowDefinition represents a complete flow definition with all details.
@@ -450,6 +445,14 @@ type EntityReference struct {
 	OUID           string `json:"ouId"`
 }
 
+// LinkCandidates are the entities an identity's account-linking attributes matched, sorted by id,
+// with the matched values keyed by local attribute name.
+type LinkCandidates struct {
+	EntityIDs         []string
+	EntityTypes       []string
+	MatchedAttributes map[string]string
+}
+
 // GetAttributesMetadata holds metadata used when retrieving entity attributes.
 type GetAttributesMetadata struct {
 	Locale          string              `json:"locale"`
@@ -543,6 +546,7 @@ type OAuthClient struct {
 	ClientID                           string                  `yaml:"clientId,omitempty"`
 	RedirectURIs                       []string                `yaml:"redirectUris,omitempty"`
 	PostLogoutRedirectURIs             []string                `yaml:"postLogoutRedirectUris,omitempty"`
+	BackchannelLogoutURI               string                  `yaml:"backchannelLogoutUri,omitempty"`
 	GrantTypes                         []GrantType             `yaml:"grantTypes,omitempty"`
 	ResponseTypes                      []ResponseType          `yaml:"responseTypes,omitempty"`
 	TokenEndpointAuthMethod            TokenEndpointAuthMethod `yaml:"tokenEndpointAuthMethod,omitempty"`
@@ -551,6 +555,7 @@ type OAuthClient struct {
 	RequirePushedAuthorizationRequests bool                    `yaml:"requirePushedAuthorizationRequests,omitempty"`
 	DPoPBoundAccessTokens              bool                    `yaml:"dpopBoundAccessTokens,omitempty"`
 	IncludeActClaim                    bool                    `yaml:"includeActClaim,omitempty"`
+	ClientIDMetadataDocument           bool                    `yaml:"clientIdMetadataDocument,omitempty"`
 	EntityCategory                     EntityCategory          `yaml:"entityCategory,omitempty"`
 	Token                              *OAuthTokenConfig       `yaml:"token,omitempty"`
 	Scopes                             []string                `yaml:"scopes,omitempty"`
@@ -676,6 +681,7 @@ func (c *AttestationConfig) WithoutCredentials() *AttestationConfig {
 type OAuthProfile struct {
 	RedirectURIs                       []string            `json:"redirectUris"`
 	PostLogoutRedirectURIs             []string            `json:"postLogoutRedirectUris,omitempty"`
+	BackchannelLogoutURI               string              `json:"backchannelLogoutUri,omitempty"`
 	GrantTypes                         []string            `json:"grantTypes"`
 	ResponseTypes                      []string            `json:"responseTypes"`
 	TokenEndpointAuthMethod            string              `json:"tokenEndpointAuthMethod"`
@@ -684,6 +690,7 @@ type OAuthProfile struct {
 	RequirePushedAuthorizationRequests bool                `json:"requirePushedAuthorizationRequests"`
 	DPoPBoundAccessTokens              bool                `json:"dpopBoundAccessTokens"`
 	IncludeActClaim                    bool                `json:"includeActClaim"`
+	ClientIDMetadataDocument           bool                `json:"clientIdMetadataDocument,omitempty"`
 	Token                              *OAuthTokenConfig   `json:"token,omitempty"`
 	Scopes                             []string            `json:"scopes,omitempty"`
 	UserInfo                           *UserInfoConfig     `json:"userInfo,omitempty"`
@@ -1242,9 +1249,9 @@ type InboundAuthProfile struct {
 	LayoutID                  string              `json:"layoutId,omitempty"               yaml:"layoutId,omitempty"               jsonschema:"Layout configuration ID. Optional. Customizes the screen structure and component positioning of login pages."`
 	Assertion                 *AssertionConfig    `json:"assertion,omitempty"              yaml:"assertion,omitempty"              jsonschema:"Assertion configuration. Optional. Customize assertion validity periods and included user attributes."`
 	LoginConsent              *LoginConsentConfig `json:"loginConsent,omitempty"           yaml:"loginConsent,omitempty"           jsonschema:"Login consent configuration settings."`
-	AllowedUserTypes          []string            `json:"allowedUserTypes,omitempty"           yaml:"allowedUserTypes,omitempty"           jsonschema:"Allowed user types. Optional. Restricts which user types can authenticate to, register, or sign up through this resource."`
-	AllowedAgentTypes         []string            `json:"allowedAgentTypes,omitempty"          yaml:"allowedAgentTypes,omitempty"          jsonschema:"Allowed agent types. Optional. Agents may authenticate to this resource only when their agent type is listed here; when the list is empty no agent can authenticate."`
-	SubjectAttribute          map[string]string   `json:"subjectAttribute,omitempty"           yaml:"subjectAttribute,omitempty"           jsonschema:"Per-user-type mapping of the schema attribute to use as the token subject (sub) claim, keyed by user type name. The attribute must be unique, required, and string-typed in that user type's schema. When no entry applies, the user's ID is used as the subject."`
+	AllowedUserTypes          []string            `json:"allowedUserTypes,omitempty"           yaml:"allowedUserTypes,omitempty"           jsonschema:"Allowed user type handles. Optional. Restricts which user types can authenticate to, register, or sign up through this resource."`
+	AllowedAgentTypes         []string            `json:"allowedAgentTypes,omitempty"          yaml:"allowedAgentTypes,omitempty"          jsonschema:"Allowed agent type handles. Optional. Agents may authenticate to this resource only when their agent type handle is listed here; when the list is empty no agent can authenticate."`
+	SubjectAttribute          map[string]string   `json:"subjectAttribute,omitempty"           yaml:"subjectAttribute,omitempty"           jsonschema:"Per-user-type mapping of the schema attribute to use as the token subject (sub) claim, keyed by user type handle. The attribute must be unique, required, and string-typed in that user type's schema. When no entry applies, the user's ID is used as the subject."`
 	PasskeyAllowedOrigins     []string            `json:"passkeyAllowedOrigins,omitempty"      yaml:"passkeyAllowedOrigins,omitempty"      jsonschema:"Allowed origins for WebAuthn/passkey operations for this application. Optional. When set, overrides the server-level passkey allowed origins for flow-based passkey operations."`
 	Attestation               *AttestationConfig  `json:"attestation,omitempty"                yaml:"attestation,omitempty"                jsonschema:"Platform attestation configuration. Optional. Enables a mobile client to initiate flows directly by proving its binary identity (e.g. Google Play Integrity), regardless of protocol. The service account credentials are write-only and never returned in responses."`
 }
@@ -1256,6 +1263,7 @@ type OAuthConfigWithSecret struct {
 	ClientSecret                       string                  `json:"clientSecret,omitempty"             yaml:"clientSecret,omitempty"             jsonschema:"OAuth client secret (auto-generated if not provided)"`
 	RedirectURIs                       []string                `json:"redirectUris,omitempty"             yaml:"redirectUris,omitempty"             jsonschema:"Allowed redirect URIs. Required for Public (SPA/Mobile) and Confidential (Server) clients. Omit for M2M."`
 	PostLogoutRedirectURIs             []string                `json:"postLogoutRedirectUris,omitempty"   yaml:"postLogoutRedirectUris,omitempty"   jsonschema:"Allowed post-logout redirect URIs. Optional. A post_logout_redirect_uri supplied to the logout endpoint must match one of these."`
+	BackchannelLogoutURI               string                  `json:"backchannelLogoutUri,omitempty"     yaml:"backchannelLogoutUri,omitempty"     jsonschema:"OIDC Back-Channel Logout endpoint. Optional. ThunderID POSTs a logout token here when a session this client shares ends. Absolute http or https URL; public clients must use https."`
 	GrantTypes                         []GrantType             `json:"grantTypes,omitempty"               yaml:"grantTypes,omitempty"               jsonschema:"OAuth grant types. Common: [authorization_code, refresh_token] for user apps, [client_credentials] for M2M."`
 	ResponseTypes                      []ResponseType          `json:"responseTypes,omitempty"            yaml:"responseTypes,omitempty"            jsonschema:"OAuth response types. Common: [code] for user apps. Omit for M2M."`
 	TokenEndpointAuthMethod            TokenEndpointAuthMethod `json:"tokenEndpointAuthMethod,omitempty"  yaml:"tokenEndpointAuthMethod,omitempty"  jsonschema:"Client authentication method. Use 'none' for Public clients, 'client_secret_basic' for Confidential/M2M."`
@@ -1264,6 +1272,7 @@ type OAuthConfigWithSecret struct {
 	RequirePushedAuthorizationRequests bool                    `json:"requirePushedAuthorizationRequests" yaml:"requirePushedAuthorizationRequests" jsonschema:"Require Pushed Authorization Requests (PAR) per RFC 9126."`
 	DPoPBoundAccessTokens              bool                    `json:"dpopBoundAccessTokens"              yaml:"dpopBoundAccessTokens"              jsonschema:"Require DPoP-bound access tokens (RFC 9449)."`
 	IncludeActClaim                    bool                    `json:"includeActClaim"                    yaml:"includeActClaim"                    jsonschema:"Include an implicit on-behalf-of 'act' claim (identifying the application entity) in access tokens issued through this client's authorization code flow. Agents always include it regardless of this setting."`
+	ClientIDMetadataDocument           bool                    `json:"clientIdMetadataDocument,omitempty" yaml:"clientIdMetadataDocument,omitempty" jsonschema:"Registered from a Client ID Metadata Document. The client ID is the document URL and the values must satisfy the document rules. Fixed at creation."`
 	Token                              *OAuthTokenConfig       `json:"token,omitempty"                    yaml:"token,omitempty"                    jsonschema:"Token configuration for access tokens and ID tokens"`
 	Scopes                             []string                `json:"scopes,omitempty"                   yaml:"scopes,omitempty"                   jsonschema:"Allowed OAuth scopes. Add custom scopes as needed for your application."`
 	UserInfo                           *UserInfoConfig         `json:"userInfo,omitempty"                 yaml:"userInfo,omitempty"                 jsonschema:"UserInfo endpoint configuration. Configure user attributes returned from the OIDC userinfo endpoint."`
@@ -1396,7 +1405,8 @@ func getDuration(startTime int64, endTime int64) int64 {
 
 // Subject identifies the principal for an access evaluation.
 type Subject struct {
-	Type string `json:"type,omitempty"`
+	Category string `json:"category,omitempty"`
+	Type     string `json:"type,omitempty"`
 	// ID is optional: a federated identity with no local record is described by GroupIDs and
 	// RoleIDs alone.
 	ID       string   `json:"id"`
@@ -1411,6 +1421,7 @@ type Subject struct {
 // AccessEvaluationResourceServer identifies the resource server for an access evaluation.
 type AccessEvaluationResourceServer struct {
 	ID         string                 `json:"id,omitempty"`
+	ResourceID string                 `json:"resourceId,omitempty"`
 	Properties map[string]interface{} `json:"properties,omitempty"`
 }
 

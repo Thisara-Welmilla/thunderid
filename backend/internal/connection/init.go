@@ -6,9 +6,11 @@ package connection
 import (
 	"net/http"
 
+	"github.com/thunder-id/thunderid/internal/connection/authzenpdp"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/notification"
 	ncommon "github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/resource"
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/middleware"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
@@ -17,10 +19,17 @@ import (
 // Initialize wires the connection service over the identity-provider and notification-sender
 // services, registers the /connections routes, loads declarative connection resources, and
 // returns the connection exporter for the export API.
+//
+// valueCapturer is optional. Given one, the service hands it every connection it creates or changes,
+// so the values the connection's export refers to are kept where a reference finds them.
 func Initialize(mux *http.ServeMux, idpService idp.IDPServiceInterface,
-	notificationService notification.NotificationSenderMgtSvcInterface) (
+	notificationService notification.NotificationSenderMgtSvcInterface,
+	resourceService resource.ResourceServiceInterface,
+	authZENPDPService authzenpdp.AuthZENPDPServiceInterface,
+	valueCapturer declarativeresource.ValueCapturer) (
 	declarativeresource.ResourceExporter, error) {
-	svc := newService(idpService, notificationService)
+	svc := newService(idpService, notificationService, resourceService, authZENPDPService)
+	svc.valueCapturer = valueCapturer
 	h := newHandler(svc)
 	registerRoutes(mux, h)
 
@@ -28,7 +37,7 @@ func Initialize(mux *http.ServeMux, idpService idp.IDPServiceInterface,
 		return nil, err
 	}
 
-	return newConnectionExporter(idpService, notificationService), nil
+	return newConnectionExporter(idpService, notificationService, authZENPDPService), nil
 }
 
 func noContent(w http.ResponseWriter, _ *http.Request) {
@@ -83,27 +92,49 @@ func registerRoutes(mux *http.ServeMux, h *handler) {
 		collectionOpts, itemOpts)
 
 	// SMS-backed vendors.
-	registerSMSVendorRoutes(mux, h, "/connections/twilio", ncommon.NotificationProviderTypeTwilio,
-		createSMSHandler(h, twilioToSenderDTO, twilioFromSenderDTO),
-		getSMSHandler(h, ncommon.NotificationProviderTypeTwilio, twilioFromSenderDTO),
-		updateSMSHandler(h, ncommon.NotificationProviderTypeTwilio, twilioToSenderDTO, twilioFromSenderDTO),
+	message := ncommon.NotificationSenderTypeMessage
+	registerSenderVendorRoutes(mux, h, "/connections/twilio", message, ncommon.NotificationProviderTypeTwilio,
+		createSenderHandler(h, twilioToSenderDTO, twilioFromSenderDTO),
+		getSenderHandler(h, message, ncommon.NotificationProviderTypeTwilio, twilioFromSenderDTO),
+		updateSenderHandler(h, message, ncommon.NotificationProviderTypeTwilio,
+			twilioToSenderDTO, twilioFromSenderDTO),
 		collectionOpts, itemOpts)
-	registerSMSVendorRoutes(mux, h, "/connections/vonage", ncommon.NotificationProviderTypeVonage,
-		createSMSHandler(h, vonageToSenderDTO, vonageFromSenderDTO),
-		getSMSHandler(h, ncommon.NotificationProviderTypeVonage, vonageFromSenderDTO),
-		updateSMSHandler(h, ncommon.NotificationProviderTypeVonage, vonageToSenderDTO, vonageFromSenderDTO),
+	registerSenderVendorRoutes(mux, h, "/connections/vonage", message, ncommon.NotificationProviderTypeVonage,
+		createSenderHandler(h, vonageToSenderDTO, vonageFromSenderDTO),
+		getSenderHandler(h, message, ncommon.NotificationProviderTypeVonage, vonageFromSenderDTO),
+		updateSenderHandler(h, message, ncommon.NotificationProviderTypeVonage,
+			vonageToSenderDTO, vonageFromSenderDTO),
 		collectionOpts, itemOpts)
-	registerSMSVendorRoutes(mux, h, "/connections/"+smsGatewayVendorName, ncommon.NotificationProviderTypeCustom,
-		createSMSHandler(h, smsGatewayToSenderDTO, smsGatewayFromSenderDTO),
-		getSMSHandler(h, ncommon.NotificationProviderTypeCustom, smsGatewayFromSenderDTO),
-		updateSMSHandler(h, ncommon.NotificationProviderTypeCustom, smsGatewayToSenderDTO, smsGatewayFromSenderDTO),
+	registerSenderVendorRoutes(mux, h, "/connections/"+smsGatewayVendorName, message,
+		ncommon.NotificationProviderTypeCustom,
+		createSenderHandler(h, smsGatewayToSenderDTO, smsGatewayFromSenderDTO),
+		getSenderHandler(h, message, ncommon.NotificationProviderTypeCustom, smsGatewayFromSenderDTO),
+		updateSenderHandler(h, message, ncommon.NotificationProviderTypeCustom,
+			smsGatewayToSenderDTO, smsGatewayFromSenderDTO),
 		collectionOpts, itemOpts)
+
+	// Email-backed vendors.
+	email := ncommon.NotificationSenderTypeEmail
+	registerSenderVendorRoutes(mux, h, "/connections/"+emailSMTPVendorName, email, ncommon.NotificationProviderTypeSMTP,
+		createSenderHandler(h, emailSMTPToSenderDTO, emailSMTPFromSenderDTO),
+		getSenderHandler(h, email, ncommon.NotificationProviderTypeSMTP, emailSMTPFromSenderDTO),
+		updateSenderHandler(h, email, ncommon.NotificationProviderTypeSMTP,
+			emailSMTPToSenderDTO, emailSMTPFromSenderDTO),
+		collectionOpts, itemOpts)
+
+	registerAuthZENPDPVendorRoutes(mux, h, "/connections/authzen-pdp", collectionOpts, itemOpts)
+
+	// Vendor metadata. A single route taking the vendor as a query parameter, rather than
+	// /connections/{vendor}/meta, which would have to be registered per vendor and would shadow
+	// an instance whose id is literally "meta".
+	mux.HandleFunc(middleware.WithCORS("GET /connections/meta", h.handleGetConnectionMeta, listOpts))
+	mux.HandleFunc(middleware.WithCORS("OPTIONS /connections/meta", noContent, listOpts))
 }
 
 // registerVendorRoutes registers the collection (list/create) and item (get/update/delete)
 // routes for a single vendor, plus their OPTIONS handlers.
 //
-//nolint:dupl // mirrors registerSMSVendorRoutes but scopes deletion by IdP type, not message provider
+//nolint:dupl // mirrors registerSenderVendorRoutes but scopes by IdP type, not sender type
 func registerVendorRoutes(mux *http.ServeMux, h *handler, base string, idpType providers.IDPType,
 	create, get, update http.HandlerFunc, collectionOpts, itemOpts middleware.CORSOptions) {
 	mux.HandleFunc(middleware.WithCORS("GET "+base, h.listInstances(idpType), collectionOpts))
@@ -125,19 +156,23 @@ func registerVendorRoutes(mux *http.ServeMux, h *handler, base string, idpType p
 	mux.HandleFunc(middleware.WithCORS("OPTIONS "+base+"/{id}/usages", noContent, usagesOpts))
 }
 
-// registerSMSVendorRoutes registers the collection (list/create) and item (get/update/delete)
-// routes for a single SMS-backed vendor, plus their OPTIONS handlers.
+// registerSenderVendorRoutes registers the collection (list/create) and item (get/update/delete)
+// routes for a single notification-sender-backed vendor, plus their OPTIONS handlers. The sender
+// type scopes every lookup alongside the provider, so an email endpoint cannot reach a message
+// sender and vice versa.
 //
-//nolint:dupl // mirrors registerVendorRoutes but scopes deletion by message provider, not IdP type
-func registerSMSVendorRoutes(mux *http.ServeMux, h *handler, base string, provider ncommon.NotificationProviderType,
+//nolint:dupl // mirrors registerVendorRoutes but scopes by sender type and provider, not IdP type
+func registerSenderVendorRoutes(mux *http.ServeMux, h *handler, base string,
+	senderType ncommon.NotificationSenderType, provider ncommon.NotificationProviderType,
 	create, get, update http.HandlerFunc, collectionOpts, itemOpts middleware.CORSOptions) {
-	mux.HandleFunc(middleware.WithCORS("GET "+base, h.listSMSInstances(provider), collectionOpts))
+	mux.HandleFunc(middleware.WithCORS("GET "+base, h.listSenderInstances(senderType, provider), collectionOpts))
 	mux.HandleFunc(middleware.WithCORS("POST "+base, create, collectionOpts))
 	mux.HandleFunc(middleware.WithCORS("OPTIONS "+base, noContent, collectionOpts))
 
 	mux.HandleFunc(middleware.WithCORS("GET "+base+"/{id}", get, itemOpts))
 	mux.HandleFunc(middleware.WithCORS("PUT "+base+"/{id}", update, itemOpts))
-	mux.HandleFunc(middleware.WithCORS("DELETE "+base+"/{id}", h.deleteSMSInstance(provider), itemOpts))
+	mux.HandleFunc(middleware.WithCORS("DELETE "+base+"/{id}",
+		h.deleteSenderInstance(senderType, provider), itemOpts))
 	mux.HandleFunc(middleware.WithCORS("OPTIONS "+base+"/{id}", noContent, itemOpts))
 
 	usagesOpts := middleware.CORSOptions{
@@ -146,6 +181,34 @@ func registerSMSVendorRoutes(mux *http.ServeMux, h *handler, base string, provid
 		AllowCredentials: true,
 		MaxAge:           600,
 	}
-	mux.HandleFunc(middleware.WithCORS("GET "+base+"/{id}/usages", h.usagesSMSInstance(provider), usagesOpts))
+	mux.HandleFunc(middleware.WithCORS("GET "+base+"/{id}/usages",
+		h.usagesSenderInstance(senderType, provider), usagesOpts))
+	mux.HandleFunc(middleware.WithCORS("OPTIONS "+base+"/{id}/usages", noContent, usagesOpts))
+}
+
+// registerAuthZENPDPVendorRoutes registers CRUD, CORS, and usage routes for AuthZEN PDP connections.
+func registerAuthZENPDPVendorRoutes(
+	mux *http.ServeMux,
+	h *handler,
+	base string,
+	collectionOpts middleware.CORSOptions,
+	itemOpts middleware.CORSOptions,
+) {
+	mux.HandleFunc(middleware.WithCORS("GET "+base, h.listAuthZENPDPConnections, collectionOpts))
+	mux.HandleFunc(middleware.WithCORS("POST "+base, h.createAuthZENPDPConnection, collectionOpts))
+	mux.HandleFunc(middleware.WithCORS("OPTIONS "+base, noContent, collectionOpts))
+
+	mux.HandleFunc(middleware.WithCORS("GET "+base+"/{id}", h.getAuthZENPDPConnection, itemOpts))
+	mux.HandleFunc(middleware.WithCORS("PUT "+base+"/{id}", h.updateAuthZENPDPConnection, itemOpts))
+	mux.HandleFunc(middleware.WithCORS("DELETE "+base+"/{id}", h.deleteAuthZENPDPConnection, itemOpts))
+	mux.HandleFunc(middleware.WithCORS("OPTIONS "+base+"/{id}", noContent, itemOpts))
+
+	usagesOpts := middleware.CORSOptions{
+		AllowedMethods:   []string{"GET"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
+		AllowCredentials: true,
+		MaxAge:           600,
+	}
+	mux.HandleFunc(middleware.WithCORS("GET "+base+"/{id}/usages", h.usagesAuthZENPDPConnection, usagesOpts))
 	mux.HandleFunc(middleware.WithCORS("OPTIONS "+base+"/{id}/usages", noContent, usagesOpts))
 }

@@ -11,7 +11,6 @@ import (
 
 	"github.com/thunder-id/thunderid/internal/entitytype"
 	"github.com/thunder-id/thunderid/internal/flow/core"
-	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
@@ -39,7 +38,7 @@ var _ entityTypeResolutionInterface = (*userTypeResolver)(nil)
 func newUserTypeResolver(
 	flowFactory core.FlowFactoryInterface,
 	entityTypeService entitytype.EntityTypeServiceInterface,
-	ouService ou.OrganizationUnitServiceInterface,
+	ouService providers.OrganizationUnitProvider,
 ) *userTypeResolver {
 	logger := log.GetLogger().With(
 		log.String(log.LoggerKeyComponentName, userTypeResolverLoggerComponentName),
@@ -289,10 +288,10 @@ func (u *userTypeResolver) resolveUserTypeFromMultipleAllowed(ctx context.Contex
 	// If only one user type has self registration enabled, select it automatically
 	if len(selfRegEnabledUserTypes) == 1 {
 		record := selfRegEnabledUserTypes[0]
-		logger.Debug(ctx, "User type auto-selected", log.String(categoryTypeKey, record.entityType.Name))
+		logger.Debug(ctx, "User type auto-selected", log.String(categoryTypeKey, record.entityType.Handle))
 
 		// Add userType and ouID to runtime data
-		execResp.RuntimeData[categoryTypeKey] = record.entityType.Name
+		execResp.RuntimeData[categoryTypeKey] = record.entityType.Handle
 		execResp.RuntimeData[defaultOUIDKey] = record.ouID
 
 		execResp.Status = providers.ExecComplete
@@ -302,7 +301,7 @@ func (u *userTypeResolver) resolveUserTypeFromMultipleAllowed(ctx context.Contex
 	// If multiple user types are allowed, prompt the user to select one
 	selfRegUserTypes := make([]string, 0, len(selfRegEnabledUserTypes))
 	for _, record := range selfRegEnabledUserTypes {
-		selfRegUserTypes = append(selfRegUserTypes, record.entityType.Name)
+		selfRegUserTypes = append(selfRegUserTypes, record.entityType.Handle)
 	}
 
 	logger.Debug(ctx,

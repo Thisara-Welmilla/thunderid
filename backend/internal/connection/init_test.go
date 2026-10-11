@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/thunder-id/thunderid/internal/connection/authzenpdp"
 	"github.com/thunder-id/thunderid/internal/idp"
 	ncommon "github.com/thunder-id/thunderid/internal/notification/common"
 	"github.com/thunder-id/thunderid/internal/system/cmodels"
@@ -55,7 +56,10 @@ func newConnectionTestHandler(t *testing.T) (*handler, *idpmock.IDPServiceInterf
 	t.Cleanup(config.ResetServerRuntime)
 	mockIDP := idpmock.NewIDPServiceInterfaceMock(t)
 	mockNotif := notificationmock.NewNotificationSenderMgtSvcInterfaceMock(t)
-	return newHandler(newService(mockIDP, mockNotif)), mockIDP, mockNotif
+	return newHandler(newService(
+		mockIDP, mockNotif, &testResourceServerLister{},
+		&authZENPDPServiceStub{},
+	)), mockIDP, mockNotif
 }
 
 // mustProperty builds a property, failing the test on error.
@@ -72,9 +76,11 @@ func boolPtr(b bool) *bool { return &b }
 // ServeMux, exercising route registration, CORS/OPTIONS handling, and path-value extraction.
 type InitTestSuite struct {
 	suite.Suite
-	mux       *http.ServeMux
-	mockIDP   *idpmock.IDPServiceInterfaceMock
-	mockNotif *notificationmock.NotificationSenderMgtSvcInterfaceMock
+	mux          *http.ServeMux
+	mockIDP      *idpmock.IDPServiceInterfaceMock
+	mockNotif    *notificationmock.NotificationSenderMgtSvcInterfaceMock
+	mockResource *testResourceServerLister
+	authZENPDP   *authZENPDPServiceStub
 }
 
 func TestInitSuite(t *testing.T) {
@@ -83,10 +89,13 @@ func TestInitSuite(t *testing.T) {
 
 func (s *InitTestSuite) SetupTest() {
 	initConfigWithTestCryptoKey(s.T())
+	s.authZENPDP = &authZENPDPServiceStub{}
 	s.mockIDP = idpmock.NewIDPServiceInterfaceMock(s.T())
 	s.mockNotif = notificationmock.NewNotificationSenderMgtSvcInterfaceMock(s.T())
+	s.mockResource = &testResourceServerLister{}
 	s.mux = http.NewServeMux()
-	_, err := Initialize(s.mux, s.mockIDP, s.mockNotif)
+	_, err := Initialize(s.mux, s.mockIDP, s.mockNotif, s.mockResource,
+		s.authZENPDP, nil)
 	s.Require().NoError(err)
 }
 
@@ -138,6 +147,23 @@ func (s *InitTestSuite) TestRouteTable() {
 	s.mockNotif.On("DeleteSender", mock.Anything, "sg-1").
 		Return((*tidcommon.ServiceError)(nil))
 
+	smtpDTO := &ncommon.NotificationSenderDTO{
+		ID: "sm-1", Name: "SM", Type: ncommon.NotificationSenderTypeEmail,
+		Provider:   ncommon.NotificationProviderTypeSMTP,
+		Properties: []cmodels.Property{mustProperty(s.T(), ncommon.SMTPPropKeyPort, "587", false)},
+	}
+	s.mockNotif.On("ListSendersByType", mock.Anything, ncommon.NotificationSenderTypeEmail).
+		Return([]ncommon.NotificationSenderDTO{*smtpDTO}, (*tidcommon.ServiceError)(nil))
+	s.mockNotif.On("CreateSender", mock.Anything, mock.MatchedBy(func(dto ncommon.NotificationSenderDTO) bool {
+		return dto.Provider == ncommon.NotificationProviderTypeSMTP
+	})).Return(smtpDTO, (*tidcommon.ServiceError)(nil))
+	s.mockNotif.On("GetSender", mock.Anything, "sm-1").
+		Return(smtpDTO, (*tidcommon.ServiceError)(nil))
+	s.mockNotif.On("UpdateSender", mock.Anything, "sm-1", mock.Anything).
+		Return(smtpDTO, (*tidcommon.ServiceError)(nil))
+	s.mockNotif.On("DeleteSender", mock.Anything, "sm-1").
+		Return((*tidcommon.ServiceError)(nil))
+
 	emptyUsages := &resourcedependency.DependenciesResponse{
 		Usages: []resourcedependency.ResourceDependency{},
 	}
@@ -147,6 +173,18 @@ func (s *InitTestSuite) TestRouteTable() {
 		Return(emptyUsages, (*tidcommon.ServiceError)(nil))
 	s.mockNotif.On("GetSenderUsages", mock.Anything, "sg-1").
 		Return(emptyUsages, (*tidcommon.ServiceError)(nil))
+	s.mockNotif.On("GetSenderUsages", mock.Anything, "sm-1").
+		Return(emptyUsages, (*tidcommon.ServiceError)(nil))
+
+	s.authZENPDP.connection = &authzenpdp.AuthZENPDPConnection{
+		ID:            "pdp-1",
+		Name:          "PDP",
+		Endpoint:      "https://pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://pdp.example.com/access/v1/evaluations",
+	}
+	s.authZENPDP.connections = []authzenpdp.AuthZENPDPConnection{*s.authZENPDP.connection}
+	s.authZENPDP.createResult = &authzenpdp.AuthZENPDPConnection{ID: "pdp-new", Name: "PDP-new"}
+	s.authZENPDP.updateResult = s.authZENPDP.connection
 
 	body, _ := json.Marshal(githubConnectionRequest{
 		Name: "GH", ClientID: "c", ClientSecret: "s", RedirectURI: "https://app/cb",
@@ -157,6 +195,17 @@ func (s *InitTestSuite) TestRouteTable() {
 	smsGatewayBody, _ := json.Marshal(smsGatewayConnectionRequest{
 		Name: "SG", URL: "https://sms.example.com/send", HTTPMethod: "POST",
 	})
+	authZENPDPBody, _ := json.Marshal(authzenpdp.ConnectionRequest{
+		Name: "PDP-new", Endpoint: "https://pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://pdp.example.com/access/v1/evaluations",
+	})
+	authZENPDPUpdateBody, _ := json.Marshal(authzenpdp.ConnectionRequest{
+		Name: "PDP", Endpoint: "https://pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://pdp.example.com/access/v1/evaluations",
+	})
+	smtpBody, _ := json.Marshal(emailSMTPConnectionRequest{
+		Name: "SM", Host: "smtp.example.com", Port: 587, FromAddress: "noreply@example.com",
+	})
 
 	cases := []struct {
 		method, path string
@@ -165,6 +214,9 @@ func (s *InitTestSuite) TestRouteTable() {
 	}{
 		{http.MethodGet, "/connections", nil, http.StatusOK},
 		{http.MethodOptions, "/connections", nil, http.StatusNoContent},
+		{http.MethodGet, "/connections/meta", nil, http.StatusOK},
+		{http.MethodGet, "/connections/meta?vendor=" + emailSMTPVendorName, nil, http.StatusOK},
+		{http.MethodOptions, "/connections/meta", nil, http.StatusNoContent},
 		{http.MethodPost, "/connections/github", body, http.StatusCreated},
 		{http.MethodGet, "/connections/github", nil, http.StatusOK},
 		{http.MethodOptions, "/connections/github", nil, http.StatusNoContent},
@@ -192,6 +244,24 @@ func (s *InitTestSuite) TestRouteTable() {
 		{http.MethodOptions, "/connections/sms-gateway/sg-1", nil, http.StatusNoContent},
 		{http.MethodGet, "/connections/sms-gateway/sg-1/usages", nil, http.StatusOK},
 		{http.MethodOptions, "/connections/sms-gateway/sg-1/usages", nil, http.StatusNoContent},
+		{http.MethodPost, "/connections/authzen-pdp", authZENPDPBody, http.StatusCreated},
+		{http.MethodGet, "/connections/authzen-pdp", nil, http.StatusOK},
+		{http.MethodOptions, "/connections/authzen-pdp", nil, http.StatusNoContent},
+		{http.MethodGet, "/connections/authzen-pdp/pdp-1", nil, http.StatusOK},
+		{http.MethodPut, "/connections/authzen-pdp/pdp-1", authZENPDPUpdateBody, http.StatusOK},
+		{http.MethodGet, "/connections/authzen-pdp/pdp-1/usages", nil, http.StatusOK},
+		{http.MethodOptions, "/connections/authzen-pdp/pdp-1/usages", nil, http.StatusNoContent},
+		{http.MethodDelete, "/connections/authzen-pdp/pdp-1", nil, http.StatusNoContent},
+		{http.MethodOptions, "/connections/authzen-pdp/pdp-1", nil, http.StatusNoContent},
+		{http.MethodPost, "/connections/" + emailSMTPVendorName, smtpBody, http.StatusCreated},
+		{http.MethodGet, "/connections/" + emailSMTPVendorName, nil, http.StatusOK},
+		{http.MethodOptions, "/connections/" + emailSMTPVendorName, nil, http.StatusNoContent},
+		{http.MethodGet, "/connections/" + emailSMTPVendorName + "/sm-1", nil, http.StatusOK},
+		{http.MethodPut, "/connections/" + emailSMTPVendorName + "/sm-1", smtpBody, http.StatusOK},
+		{http.MethodDelete, "/connections/" + emailSMTPVendorName + "/sm-1", nil, http.StatusNoContent},
+		{http.MethodOptions, "/connections/" + emailSMTPVendorName + "/sm-1", nil, http.StatusNoContent},
+		{http.MethodGet, "/connections/" + emailSMTPVendorName + "/sm-1/usages", nil, http.StatusOK},
+		{http.MethodOptions, "/connections/" + emailSMTPVendorName + "/sm-1/usages", nil, http.StatusNoContent},
 	}
 	for _, tc := range cases {
 		req := httptest.NewRequest(tc.method, tc.path, bytes.NewReader(tc.body))

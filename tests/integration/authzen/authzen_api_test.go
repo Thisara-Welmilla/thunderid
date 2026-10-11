@@ -18,10 +18,11 @@ import (
 const (
 	authzenServerURL = testutils.TestServerURL
 
-	authzenOUHandle                = "authzen-test-ou"
-	authzenUserTypeName            = "authzen-person"
-	authzenResourceIdentifier      = "authzen-booking-api"
-	authzenOtherResourceIdentifier = "authzen-invoice-api"
+	authzenOUHandle                 = "authzen-test-ou"
+	authzenUserTypeName             = "authzen-person"
+	authzenResourceIdentifier       = "authzen-booking-api"
+	authzenBookingApprovePermission = "booking:approve"
+	authzenOtherResourceIdentifier  = "authzen-invoice-api"
 )
 
 type AuthZENAPITestSuite struct {
@@ -56,8 +57,9 @@ func (ts *AuthZENAPITestSuite) SetupSuite() {
 	ts.ouID = ouID
 
 	userTypeID, err := testutils.CreateUserType(testutils.UserType{
-		Name: authzenUserTypeName,
-		OUID: ts.ouID,
+		Handle:      authzenUserTypeName,
+		DisplayName: "Authzen Person",
+		OUID:        ts.ouID,
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{"type": "string"},
 		},
@@ -900,7 +902,7 @@ func (ts *AuthZENAPITestSuite) TestSearchActionReturnsAllowedActionsOnly() {
 	ts.Require().NoError(json.Unmarshal(body, &result))
 	ts.ElementsMatch([]action{
 		{Name: ts.readPermission},
-		{Name: ts.approvePermission},
+		{Name: authzenBookingApprovePermission},
 	}, result.Results)
 }
 
@@ -943,7 +945,7 @@ func (ts *AuthZENAPITestSuite) TestSearchActionResourceIDDoesNotScopeCurrentResu
 			ts.Require().NoError(json.Unmarshal(body, &result))
 			ts.ElementsMatch([]action{
 				{Name: ts.readPermission},
-				{Name: ts.approvePermission},
+				{Name: authzenBookingApprovePermission},
 			}, result.Results)
 		})
 	}

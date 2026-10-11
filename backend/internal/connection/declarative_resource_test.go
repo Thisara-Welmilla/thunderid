@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/thunder-id/thunderid/internal/connection/authzenpdp"
 	"github.com/thunder-id/thunderid/internal/idp"
 	ncommon "github.com/thunder-id/thunderid/internal/notification/common"
 	"github.com/thunder-id/thunderid/internal/system/cmodels"
@@ -17,6 +18,7 @@ import (
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/outboundauth"
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 	"github.com/thunder-id/thunderid/tests/mocks/idp/idpmock"
@@ -41,7 +43,7 @@ func (s *DeclarativeResourceTestSuite) SetupTest() {
 	s.T().Cleanup(config.ResetServerRuntime)
 	s.mockIDP = idpmock.NewIDPServiceInterfaceMock(s.T())
 	s.mockNotif = notificationmock.NewNotificationSenderMgtSvcInterfaceMock(s.T())
-	s.exporter = NewConnectionExporterForTest(s.mockIDP, s.mockNotif)
+	s.exporter = NewConnectionExporterForTest(s.mockIDP, s.mockNotif, nil)
 }
 
 func (s *DeclarativeResourceTestSuite) TestGetResourceType() {
@@ -192,6 +194,36 @@ func (s *DeclarativeResourceTestSuite) TestConnectionModelToDTOUnsupportedVendor
 	s.Error(err)
 }
 
+func (s *DeclarativeResourceTestSuite) TestAuthZENPDPConnectionExportModelRoundTrip() {
+	doc := []byte(`
+id: pdp-1
+type: authzen-pdp
+name: Production PDP
+endpoint: http://localhost:3592/access/v1/evaluation
+batchEndpoint: http://localhost:3592/access/v1/evaluations
+subjectAttributeMappings:
+  - subjectCategory: user
+    entityType: TravelCustomer
+    attributes:
+      - attribute: accountStatus
+        pdpAttribute: account_status
+`)
+
+	dto, err := parseToConnectionDTOWrapper(doc)
+	s.Require().NoError(err)
+	pdp, ok := dto.(*authzenpdp.AuthZENPDPConnection)
+	s.Require().True(ok)
+	s.Equal("pdp-1", pdp.ID)
+	s.Equal("authzen-pdp", connectionModelFromAuthZENPDP(*pdp).Type)
+	s.Equal("http://localhost:3592/access/v1/evaluation", pdp.Endpoint)
+	s.Equal("http://localhost:3592/access/v1/evaluations", pdp.BatchEndpoint)
+	exported := connectionModelFromAuthZENPDP(*pdp)
+	s.Equal("pdp-1", connectionResourceID(pdp))
+
+	roundTripped := connectionModelToAuthZENPDP(exported)
+	s.Require().NotNil(roundTripped)
+}
+
 func (s *DeclarativeResourceTestSuite) TestParseConnectionFromNodeIDPVendor() {
 	doc := `
 id: corp-google
@@ -306,6 +338,37 @@ func (s *DeclarativeResourceTestSuite) TestValidateConnectionDTOWrapper() {
 	s.NoError(validateConnectionDTOWrapper("not-a-dto", nil))
 }
 
+// An email sender takes the API's validation path on load, so a provider that cannot deliver
+// fails here rather than on every send.
+func (s *DeclarativeResourceTestSuite) TestValidateConnectionDTOWrapperValidatesEmailSender() {
+	parse := func(doc string) *ncommon.NotificationSenderDTO {
+		dto, err := parseToConnectionDTOWrapper([]byte(doc))
+		s.Require().NoError(err)
+		sender, ok := dto.(*ncommon.NotificationSenderDTO)
+		s.Require().True(ok)
+		return sender
+	}
+
+	valid := "id: sm-1\ntype: email-smtp\nname: SMTP\nhost: smtp.example.com\nport: 587\n" +
+		"fromAddress: noreply@example.com\n"
+	s.NoError(validateConnectionDTOWrapper(parse(valid), nil))
+
+	cases := map[string]string{
+		"missing port": "id: sm-1\ntype: email-smtp\nname: SMTP\nhost: smtp.example.com\n" +
+			"fromAddress: noreply@example.com\n",
+		"invalid from address": "id: sm-1\ntype: email-smtp\nname: SMTP\nhost: smtp.example.com\nport: 587\n" +
+			"fromAddress: not-an-address\n",
+		"credentials without tls": "id: sm-1\ntype: email-smtp\nname: SMTP\nhost: smtp.example.com\nport: 587\n" +
+			"fromAddress: noreply@example.com\ntls: none\nauthentication:\n  type: basic\n" +
+			"  properties:\n    username: mailer\n    password: s3cret\n",
+	}
+	for name, doc := range cases {
+		err := validateConnectionDTOWrapper(parse(doc), nil)
+		s.Require().Error(err, name)
+		s.Contains(err.Error(), `connection resource "sm-1" is invalid`, name)
+	}
+}
+
 func (s *DeclarativeResourceTestSuite) TestGetResourceRulesReturnsEmptyDefault() {
 	rules := s.exporter.GetResourceRules()
 	s.Require().NotNil(rules)
@@ -347,12 +410,16 @@ func (s *DeclarativeResourceTestSuite) TestGetResourceRulesForResourceSecretSele
 		{connectionExportModel{Type: "google"}, nil}, // no secret set -> nothing to externalize
 		{connectionExportModel{Type: "twilio"}, []string{"AuthToken"}},
 		{connectionExportModel{Type: "vonage"}, []string{"APISecret"}},
+		{connectionExportModel{Type: "authzen-pdp"}, nil},
 		{connectionExportModel{Type: smsGatewayVendorName}, nil},
 	}
 	for _, tc := range cases {
 		rules := s.exporter.GetResourceRulesForResource(&tc.model)
 		s.Require().NotNil(rules)
-		s.Equal(tc.want, rules.Variables, tc.model.Type)
+		// Every one of these is a credential, so it is named on the list that says so: a value under
+		// Variables is readable back from wherever it is held, and one under SecretVariables is not.
+		s.Equal(tc.want, rules.SecretVariables, tc.model.Type)
+		s.Empty(rules.Variables, tc.model.Type)
 	}
 }
 
@@ -391,6 +458,23 @@ func (s *DeclarativeResourceTestSuite) TestGetAllResourceIDsFiltersUnregisteredV
 	s.ElementsMatch([]string{"1", "s1"}, ids)
 }
 
+func (s *DeclarativeResourceTestSuite) TestGetAllResourceIDsExcludesDeclarativeAuthZENPDPConnections() {
+	s.mockIDP.On("GetIdentityProviderList", mock.Anything).
+		Return([]idp.BasicIDPDTO{}, (*tidcommon.ServiceError)(nil))
+	s.mockNotif.On("ListSenders", mock.Anything).
+		Return([]ncommon.NotificationSenderDTO{}, (*tidcommon.ServiceError)(nil))
+	pdpService := &authZENPDPServiceStub{connections: []authzenpdp.AuthZENPDPConnection{
+		{ID: "mutable", Name: "Mutable PDP"},
+		{ID: "declarative", Name: "Declarative PDP", IsReadOnly: true},
+	}}
+	exporter := newConnectionExporter(s.mockIDP, s.mockNotif,
+		pdpService)
+
+	ids, svcErr := exporter.GetAllResourceIDs(context.Background())
+	s.Require().Nil(svcErr)
+	s.Equal([]string{"mutable"}, ids)
+}
+
 func (s *DeclarativeResourceTestSuite) TestValidateResourceRejectsEmptyName() {
 	logger := log.GetLogger()
 	_, exportErr := s.exporter.ValidateResource(context.Background(),
@@ -427,6 +511,83 @@ func (s *DeclarativeResourceTestSuite) TestConnectionDeclarativeStoreDispatchesB
 	s.Error(store.Create("bad", "not-a-dto"))
 }
 
+func (s *DeclarativeResourceTestSuite) TestConnectionDeclarativeStoreStoresAuthZENPDPEndpoints() {
+	config.ResetServerRuntime()
+	s.Require().NoError(config.InitializeServerRuntime("/tmp/test", &config.Config{
+		DeclarativeResources: config.DeclarativeResources{Enabled: true},
+	}))
+	s.T().Cleanup(config.ResetServerRuntime)
+
+	declarativeStore := &connectionDeclarativeStore{
+		authZENPDPStore: declarativeresource.NewGenericFileBasedStoreForTest(entity.KeyTypeAuthZENPDP),
+	}
+
+	dto := &authzenpdp.AuthZENPDPConnection{
+		Name:          "PDP",
+		Endpoint:      "https://pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://pdp.example.com/access/v1/evaluations",
+	}
+
+	s.Require().NoError(declarativeStore.Create("pdp-1", dto))
+	got, err := declarativeStore.authZENPDPStore.Get("pdp-1")
+	s.Require().NoError(err)
+	s.Equal("pdp-1", got.(*authzenpdp.AuthZENPDPConnection).ID)
+	s.Equal(dto, got)
+}
+
+func (s *DeclarativeResourceTestSuite) TestConnectionDeclarativeStoreSkipsAuthZENPDPWhenDisabled() {
+	config.ResetServerRuntime()
+	s.Require().NoError(config.InitializeServerRuntime("/tmp/test", &config.Config{
+		IdentityProvider: config.IdentityProviderConfig{Store: "composite"},
+	}))
+	s.T().Cleanup(config.ResetServerRuntime)
+
+	declarativeStore := &connectionDeclarativeStore{
+		authZENPDPStore: declarativeresource.NewGenericFileBasedStoreForTest(entity.KeyTypeAuthZENPDP),
+	}
+	dto := &authzenpdp.AuthZENPDPConnection{
+		Name:          "PDP",
+		Endpoint:      "https://pdp.example.com/access/v1/evaluation",
+		BatchEndpoint: "https://pdp.example.com/access/v1/evaluations",
+	}
+
+	s.Require().NoError(declarativeStore.Create("pdp-1", dto))
+	_, err := declarativeStore.authZENPDPStore.Get("pdp-1")
+	s.Error(err)
+}
+
+func (s *DeclarativeResourceTestSuite) TestConnectionDeclarativeStoreSkipsAuthZENPDPInMutableMode() {
+	config.ResetServerRuntime()
+	s.Require().NoError(config.InitializeServerRuntime("/tmp/test", &config.Config{
+		DeclarativeResources: config.DeclarativeResources{Enabled: true},
+		AuthZENPDP:           config.AuthZENPDPConfig{Store: "mutable"},
+	}))
+	s.T().Cleanup(config.ResetServerRuntime)
+
+	store := &connectionDeclarativeStore{
+		authZENPDPStore: declarativeresource.NewGenericFileBasedStoreForTest(entity.KeyTypeAuthZENPDP),
+	}
+	s.Require().NoError(store.Create("pdp-1", &authzenpdp.AuthZENPDPConnection{Name: "PDP"}))
+	_, err := store.authZENPDPStore.Get("pdp-1")
+	s.Error(err)
+}
+
+func (s *DeclarativeResourceTestSuite) TestConnectionDeclarativeStoreLoadsAuthZENPDPInCompositeMode() {
+	config.ResetServerRuntime()
+	s.Require().NoError(config.InitializeServerRuntime("/tmp/test", &config.Config{
+		AuthZENPDP: config.AuthZENPDPConfig{Store: "composite"},
+	}))
+	s.T().Cleanup(config.ResetServerRuntime)
+
+	store := &connectionDeclarativeStore{
+		authZENPDPStore: declarativeresource.NewGenericFileBasedStoreForTest(entity.KeyTypeAuthZENPDP),
+	}
+	s.Require().NoError(store.Create("pdp-1", &authzenpdp.AuthZENPDPConnection{Name: "PDP"}))
+	got, err := store.authZENPDPStore.Get("pdp-1")
+	s.Require().NoError(err)
+	s.Equal("pdp-1", got.(*authzenpdp.AuthZENPDPConnection).ID)
+}
+
 // TestConnectionDeclarativeStoreSkipsIDPWhenIDPStoreModeIsMutable verifies that IdP-typed
 // documents are silently skipped (not an error) when the identity-provider package's own
 // per-service store mode resolves to mutable, even though the connection package's file
@@ -453,4 +614,130 @@ func (s *DeclarativeResourceTestSuite) TestConnectionDeclarativeStoreSkipsIDPWhe
 	got, err := store.senderStore.Get("sender-1")
 	s.Require().NoError(err)
 	s.Equal(senderDTO, got)
+}
+
+func (s *DeclarativeResourceTestSuite) TestConnectionModelFromSenderDTOSMTP() {
+	dto := ncommon.NotificationSenderDTO{
+		ID: "sm-1", Name: "Corp SMTP", Type: ncommon.NotificationSenderTypeEmail,
+		Provider: ncommon.NotificationProviderTypeSMTP,
+		Properties: []cmodels.Property{
+			mustProperty(s.T(), ncommon.SMTPPropKeyHost, "smtp.example.com", false),
+			mustProperty(s.T(), ncommon.SMTPPropKeyPort, "587", false),
+			mustProperty(s.T(), "authentication_type", string(outboundauth.TypeBasic), false),
+			mustProperty(s.T(), "authentication_username", "mailer", false),
+			mustProperty(s.T(), "authentication_password", "s3cret", true),
+			mustProperty(s.T(), ncommon.SMTPPropKeyFromAddress, "noreply@example.com", false),
+			mustProperty(s.T(), ncommon.SMTPPropKeyFromName, "Acme Support", false),
+			mustProperty(s.T(), ncommon.SMTPPropKeyTLS, string(ncommon.TLSModeSTARTTLS), false),
+		},
+	}
+
+	model, err := connectionModelFromSenderDTO(dto)
+	s.Require().NoError(err)
+	s.Equal(emailSMTPVendorName, model.Type)
+	s.Equal("smtp.example.com", model.Host)
+	s.Equal(587, model.Port)
+	s.Equal("noreply@example.com", model.FromAddress)
+	s.Equal("Acme Support", model.FromName)
+	s.Equal(string(ncommon.TLSModeSTARTTLS), model.TLS)
+
+	s.Require().NotNil(model.Authentication)
+	s.Equal(string(outboundauth.TypeBasic), model.Authentication.Type)
+	s.Equal("mailer", model.Authentication.Properties[outboundauth.FieldBasicUsername])
+	// The export parameterizer needs the real value to externalize it to the .env file.
+	s.Equal("s3cret", model.Authentication.Properties[outboundauth.FieldBasicPassword])
+}
+
+func (s *DeclarativeResourceTestSuite) TestConnectionModelToDTORoundTripsSMTP() {
+	model := connectionExportModel{
+		ID: "sm-1", Type: emailSMTPVendorName, Name: "Corp SMTP", Host: "smtp.example.com", Port: 587,
+		FromAddress: "noreply@example.com", FromName: "Acme Support", TLS: string(ncommon.TLSModeSTARTTLS),
+		Authentication: &outboundauth.Authentication{
+			Type: string(outboundauth.TypeBasic),
+			Properties: map[string]string{
+				outboundauth.FieldBasicUsername: "mailer",
+				outboundauth.FieldBasicPassword: "s3cret",
+			},
+		},
+	}
+
+	idpDTO, senderDTO, err := connectionModelToDTO(model)
+	s.Require().NoError(err)
+	s.Nil(idpDTO)
+	s.Require().NotNil(senderDTO)
+	s.Equal("sm-1", senderDTO.ID)
+	s.Equal(ncommon.NotificationSenderTypeEmail, senderDTO.Type)
+	s.Equal(ncommon.NotificationProviderTypeSMTP, senderDTO.Provider)
+
+	roundTripped, err := connectionModelFromSenderDTO(*senderDTO)
+	s.Require().NoError(err)
+	s.Equal(model.Host, roundTripped.Host)
+	s.Equal(model.Port, roundTripped.Port)
+	s.Equal(model.FromAddress, roundTripped.FromAddress)
+	s.Equal(model.FromName, roundTripped.FromName)
+	s.Equal(model.TLS, roundTripped.TLS)
+	s.Require().NotNil(roundTripped.Authentication)
+	s.Equal(model.Authentication.Type, roundTripped.Authentication.Type)
+	s.Equal(model.Authentication.Properties, roundTripped.Authentication.Properties)
+}
+
+func (s *DeclarativeResourceTestSuite) TestParseConnectionFromNodeSMTPVendor() {
+	doc := `
+id: prod-smtp
+type: email-smtp
+name: Prod SMTP
+host: smtp.example.com
+port: 587
+fromAddress: noreply@example.com
+tls: starttls
+authentication:
+  type: basic
+  properties:
+    username: mailer
+    password: s3cret
+`
+	var node yaml.Node
+	s.Require().NoError(yaml.Unmarshal([]byte(doc), &node))
+	idpDTO, senderDTO, err := ParseConnectionFromNode(node.Content[0])
+	s.Require().NoError(err)
+	s.Nil(idpDTO)
+	s.Require().NotNil(senderDTO)
+	s.Equal("prod-smtp", senderDTO.ID)
+	s.Equal(ncommon.NotificationSenderTypeEmail, senderDTO.Type)
+	s.Equal(ncommon.NotificationProviderTypeSMTP, senderDTO.Provider)
+}
+
+// A credential field of the configured authentication method is the secret an exported
+// connection must externalize, so it never lands in the rendered YAML. The path is derived from
+// the registered method, which is what keeps a new method from needing a change here.
+func (s *DeclarativeResourceTestSuite) TestGetResourceRulesExternalizesAuthenticationSecrets() {
+	exporter := newConnectionExporter(s.mockIDP, s.mockNotif, nil)
+
+	basicAuth := func(properties map[string]string) *outboundauth.Authentication {
+		return &outboundauth.Authentication{
+			Type: string(outboundauth.TypeBasic), Properties: properties,
+		}
+	}
+
+	rules := exporter.GetResourceRulesForResource(&connectionExportModel{
+		Type: emailSMTPVendorName,
+		Authentication: basicAuth(map[string]string{
+			outboundauth.FieldBasicUsername: "mailer",
+			outboundauth.FieldBasicPassword: "s3cret",
+		}),
+	})
+	// Only the credential field is externalized, as a secret; the username stays in the document.
+	s.Equal([]string{"Authentication.Properties.password"}, rules.SecretVariables)
+	s.Empty(rules.Variables)
+
+	// Nothing to externalize when the method carries no credential value.
+	rules = exporter.GetResourceRulesForResource(&connectionExportModel{
+		Type:           emailSMTPVendorName,
+		Authentication: basicAuth(map[string]string{outboundauth.FieldBasicUsername: "mailer"}),
+	})
+	s.Empty(rules.SecretVariables)
+
+	// Nor when the connection authenticates with nothing at all.
+	rules = exporter.GetResourceRulesForResource(&connectionExportModel{Type: emailSMTPVendorName})
+	s.Empty(rules.SecretVariables)
 }

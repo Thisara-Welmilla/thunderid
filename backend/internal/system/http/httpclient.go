@@ -6,6 +6,11 @@
 //
 //   - NewHTTPClient() - creates a client with default 30s timeout
 //   - NewHTTPClientWithTimeout(duration) - creates a client with custom timeout
+//   - NewHTTPClientWithCheckRedirect(policy) - creates a client with a redirect policy and an SSRF dial guard
+//   - NewHTTPClientWithoutRedirects(duration, rejectPrivate) - creates a client with a custom timeout that never
+//     follows redirects, optionally with the SSRF dial guard
+//   - NewHTTPClientWithRootCAs(duration, rootCAs) - creates a client with a custom timeout that never follows
+//     redirects and trusts the given certificate authorities
 //
 // Usage examples:
 //
@@ -19,12 +24,14 @@ package http
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/thunder-id/thunderid/internal/system/config"
@@ -92,6 +99,52 @@ func NewHTTPClientWithCheckRedirect(checkRedirect func(*http.Request, []*http.Re
 	}
 }
 
+// NewHTTPClientWithoutRedirects creates an HTTPClient with the given timeout that returns a 3xx response
+// instead of following it. With rejectPrivate it dials through the SSRF-safe dialer, refusing any host
+// that resolves to a loopback, link-local, private or unspecified address. Without it there is no
+// guard, so callers must make sure the target was set by an authorized principal.
+func NewHTTPClientWithoutRedirects(timeout time.Duration, rejectPrivate bool) HTTPClientInterface {
+	transport := &http.Transport{
+		// #nosec G402 -- Min TLS version is TLS 1.2 or higher based on config
+		TLSClientConfig: &tls.Config{
+			MinVersion: GetTLSVersion(config.GetServerRuntime().Config),
+		},
+	}
+	if rejectPrivate {
+		transport.DialContext = ssrfSafeDialContext
+	}
+	return &HTTPClient{
+		client: &http.Client{
+			Timeout:       timeout,
+			Transport:     transport,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
+	}
+}
+
+// NewHTTPClientWithRootCAs creates an HTTPClient with the given timeout that trusts the given certificate
+// authorities and returns a 3xx response instead of following it. Use it to reach a server whose
+// certificate a private authority issued, with verification kept on.
+func NewHTTPClientWithRootCAs(timeout time.Duration, rootCAs *x509.CertPool) HTTPClientInterface {
+	return &HTTPClient{
+		client: &http.Client{
+			Timeout: timeout,
+			Transport: &http.Transport{
+				// #nosec G402 -- Min TLS version is TLS 1.2 or higher based on config
+				TLSClientConfig: &tls.Config{
+					MinVersion: GetTLSVersion(config.GetServerRuntime().Config),
+					RootCAs:    rootCAs,
+				},
+			},
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
+	}
+}
+
+// ErrPrivateAddress is returned, wrapped, when the SSRF-safe dialer refuses a host that resolves to a
+// loopback, link-local, private or unspecified address.
+var ErrPrivateAddress = errors.New("refused a private address")
+
 // ssrfSafeDialContext resolves the target hostname and validates every returned IP against
 // privateIPRanges before dialing. Connecting to the first validated IP directly pins the
 // connection and prevents DNS rebinding attacks. TLS hostname verification is unaffected:
@@ -112,9 +165,12 @@ func ssrfSafeDialContext(ctx context.Context, network, addr string) (net.Conn, e
 
 	var safeIP net.IP
 	for _, ia := range ipAddrs {
+		if ia.IP.IsUnspecified() {
+			return nil, fmt.Errorf("host %q resolves to an unspecified address %s: %w", host, ia.IP, ErrPrivateAddress)
+		}
 		for _, block := range privateIPRanges {
 			if block.Contains(ia.IP) {
-				return nil, fmt.Errorf("host %q resolves to a private address %s", host, ia.IP)
+				return nil, fmt.Errorf("host %q resolves to a private address %s: %w", host, ia.IP, ErrPrivateAddress)
 			}
 		}
 		if safeIP == nil {
@@ -151,6 +207,27 @@ var privateIPRanges = func() []*net.IPNet {
 	return nets
 }()
 
+// IsPrivateHost reports whether host is localhost, an unspecified address, or an IP literal in a
+// loopback, link-local or private range. Hostnames are not resolved.
+func IsPrivateHost(host string) bool {
+	if strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsUnspecified() {
+		return true
+	}
+	for _, block := range privateIPRanges {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsSSRFSafeURL reports whether rawURL is safe for server-side fetching.
 // It requires HTTPS and rejects hosts that are IP literals in loopback, link-local,
 // or private ranges to mitigate server-side request forgery. Hostnames are not
@@ -175,6 +252,12 @@ func IsSSRFSafeURL(rawURL string) error {
 		}
 	}
 	return nil
+}
+
+// CloseIdleConnections closes the connections the client keeps open for reuse, so a client built for
+// one call releases them once the call is done.
+func (c *HTTPClient) CloseIdleConnections() {
+	c.client.CloseIdleConnections()
 }
 
 // Do executes an HTTP request and returns an HTTP response.

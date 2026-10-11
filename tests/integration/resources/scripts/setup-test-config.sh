@@ -23,6 +23,15 @@ server:
       # mcpResourceIdentifier in tests/integration/mcp/mcp_test.go.
       audience: "https://localhost:8095/mcp"
 
+# Designates the declarative user type (usertype-declarative-1.yaml) as the only SCIM user type
+# allowed to carry the core User schema. Test-created user types are extension-only.
+scim:
+  core_user_type_id: "decl-schema-1"
+
+gateway:
+  # The default of one gateway would refuse the second registration in every uniqueness test before
+  # the rule under test was reached.
+  max_gateways: 5
 
 tls:
   cert_file: "config/certs/server.cert"
@@ -137,6 +146,9 @@ flow:
 server_config:
   store: composite
 
+authzen_pdp:
+  store: composite
+
 passkey:
   allowed_origins:
     - "https://localhost:8095"
@@ -157,4 +169,8 @@ oauth:
         - OTP
       "urn:thunder:acr:biometrics":
         - BIO
+  logout:
+    backchannel:
+      # The back-channel logout tests run their receiver on localhost.
+      reject_private_addresses: false
 EOF

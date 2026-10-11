@@ -48,6 +48,10 @@ func init() {
 	}
 }
 
+// deploymentYamlSource is the deployment.yaml ReplaceResources installs. The Control Plane suite
+// replaces it through UseControlPlane.
+var deploymentYamlSource = TestDeploymentYamlPath
+
 // Package-level variables for server configuration
 var (
 	serverPort           string
@@ -370,7 +374,7 @@ func ReplaceResources(zipFilePattern string) error {
 		return fmt.Errorf("failed to create conf directory: %v", err)
 	}
 
-	err = copyFile(TestDeploymentYamlPath, destPath)
+	err = copyFile(deploymentYamlSource, destPath)
 	if err != nil {
 		return fmt.Errorf("failed to replace deployment.yaml: %v", err)
 	}
@@ -420,6 +424,7 @@ func CopyDeclarativeResources(zipFilePattern string) error {
 		"connections",
 		"credential_configurations",
 		"flows",
+		"gateways",
 		"groups",
 		"layouts",
 		"organization_units",
@@ -759,6 +764,7 @@ func startServerInternal(port string, extraArgs ...string) error {
 	// Preserve GOCOVERDIR environment variable for coverage collection
 	envVars := []string{
 		"PORT=" + port,
+		"GATEWAY_TOKEN=" + DeclaredGatewayToken,
 	}
 
 	if goCoverDir := os.Getenv("GOCOVERDIR"); goCoverDir != "" {
@@ -1123,6 +1129,7 @@ func RunSetupScript() error {
 		"DIRECT_AUTH_SECRET="+DirectAuthHeaderValue,
 		"ADMIN_USERNAME="+AdminUsername,
 		"ADMIN_PASSWORD="+AdminPassword,
+		"GATEWAY_TOKEN="+DeclaredGatewayToken,
 	)
 
 	log.Println("Setup script will start server, run bootstrap, and stop server automatically")

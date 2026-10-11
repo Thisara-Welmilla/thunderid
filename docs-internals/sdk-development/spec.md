@@ -1,16 +1,19 @@
 # SDK Development Specification
 
 - **Status:** Draft
-- **Version:** 0.2
+- **Version:** 0.4
 - **Related documents:**
   [threat-model.md](threat-model.md),
   [#5305](https://github.com/thunder-id/thunderid/issues/5305),
   [#3292](https://github.com/thunder-id/thunderid/discussions/3292),
   [#4065](https://github.com/thunder-id/thunderid/discussions/4065),
   [#5354](https://github.com/thunder-id/thunderid/discussions/5354),
+  [#5162](https://github.com/thunder-id/thunderid/issues/5162),
   [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749),
   [RFC 7636](https://datatracker.ietf.org/doc/html/rfc7636),
-  [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
+  [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html),
+  [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html),
+  [back-channel logout specification](../back-channel-logout/spec.md)
 
 ## Summary
 
@@ -325,6 +328,7 @@ this table already covers.
 | `discovery` | Object | No | Enabled | OIDC discovery behaviour. Discovered metadata MUST be fetched over HTTPS, and its `issuer` MUST match the expected issuer exactly before any endpoint from it is used. |
 | `endpoints` | Object | No | Discovered | Per-endpoint overrides for a server that does not publish discovery. Every override MUST use HTTPS and MUST share the origin of `baseUrl`, unless the application has explicitly allowed the other origin. |
 | `tokenRequest` | Object | No | Platform default | Token endpoint authentication and request shaping. |
+| `http` | Object | No | None | HTTP options. `http.fetcher` replaces the transport for [management operations](#management-operations) only. |
 
 **Session and tokens**
 
@@ -335,6 +339,7 @@ this table already covers.
 | `tokenLifecycle` | Object | No | Platform default | Refresh timing and lifecycle behaviour. |
 | `allowedExternalUrls` | List | No | Empty | Origins the SDK may attach an access token to when tokens are held in isolated storage. Every entry MUST use HTTPS. See [Token attachment](#token-attachment) for how entries are matched. |
 | `syncSession` | Boolean | No | `false` | Synchronizes the application session with the server session. Subject to third-party cookie restrictions. |
+| `backchannelLogout` | Object | No | Disabled | Server-side SDKs only. Turns on [back-channel logout handling](#back-channel-logout-handling): `enabled`, the `path` of the handler where the SDK mounts it, and the `store` that records ended sessions. An SDK that cannot receive the request MUST document the key as unsupported. |
 | `organizationHandle` | String | No | None | Organization identifier, required when a custom domain is configured. |
 | `organizationChain` | Object | No | None | Chained authentication across organization contexts. |
 
@@ -402,6 +407,105 @@ some platforms and not on others. An SDK adding an operation in this position MU
 Organization operations (listing, reading, and switching organizations) are a specification
 target and are deliberately not part of the required surface yet. An SDK MUST NOT ship a
 partial implementation of them ahead of a specification update.
+
+#### Management operations
+
+Management operations let an application administer ThunderID resources, so that an
+organization can build its own console, or embed part of one in its product, without calling
+the management API by hand. They are optional: an SDK MAY ship them, and one that does MUST
+follow this section.
+
+The initial resources are applications, users, and agents. Each exposes the same five
+operations, named for the resource in the platform's idiom (`getApplications`,
+`client.applications.list`, and so on):
+
+| Operation | Contract |
+|---|---|
+| List | Returns one page of the resource, with the total count. Accepts `limit` and `offset`, and a `filter` where the server supports one. |
+| Get | Returns a single resource by identifier. |
+| Create | Creates the resource and returns it as the server stored it. |
+| Update | Replaces the resource's mutable fields and returns the updated resource. |
+| Delete | Deletes the resource. Returns nothing. |
+
+Requirements:
+
+1. Requests are authorized with the signed-in user's access token. The SDK MUST NOT mint,
+   widen, or cache a separate credential for them. Whether a call succeeds is the server's
+   decision, and the token needs the permissions the server requires for that resource.
+2. The management API can run on a different host from the authorization server. The request
+   URL for each resource MUST come from, in order: an explicit URL passed to the call, then an
+   `endpoints` override for that resource's collection (`applications`, `users`, `agents`),
+   then `baseUrl` followed by the collection path. A single resource is addressed as the
+   collection URL followed by its identifier.
+3. The transport MUST be replaceable by the application through a `fetcher`. A `fetcher` passed
+   to a single call takes precedence over `http.fetcher` supplied at initialization, which takes
+   precedence over the SDK's default authenticated transport. `http.fetcher` applies to
+   management operations only. Authentication, token, and flow requests MUST keep using the
+   SDK's own transport until this specification says otherwise.
+4. A Core Lib or Framework Specific SDK MAY wrap these operations in its framework's reactive
+   model, such as a hook, an observable object, or a state holder. The wrapper MUST NOT depend
+   on a third-party data fetching or caching library, so an application can use its own.
+5. The SDK MUST NOT produce a user-visible side effect from a management operation. It does not
+   show a notification, translate a message, or write to the application's log. Success and
+   failure are reported to the caller, who decides what the user sees.
+6. A resource returned by these operations is a server record, not the signed-in user. It MUST
+   NOT reuse a type name the SDK already uses for the authenticated user.
+7. HTTP 403 and 404 MUST surface as distinct API error codes, so a caller can tell a missing
+   permission from a missing resource.
+
+#### Back-channel logout handling
+
+When a session ends at the ThunderID server, the server notifies every application that took
+part in it and registered a back-channel logout URI, by sending a logout token to that URI
+([OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html);
+what the server sends is defined in the
+[back-channel logout specification](../back-channel-logout/spec.md)). Handling the notification
+lets an application end its own session at once, rather than when its tokens next fail. It is
+optional: an SDK MAY ship it, and one that does MUST follow this section.
+
+It applies only where the SDK runs on a server the ThunderID server can reach, which is the Node
+Platform SDK and the Framework Specific SDKs built on it. An SDK that runs only in a browser or
+in a mobile application has nothing that can receive the request. It MUST NOT expose the
+operation, and it relies on revocation instead: the server revokes the session's tokens, so the
+next refresh fails.
+
+| Operation | Contract |
+|---|---|
+| `handleBackchannelLogout` | Takes the raw `logout_token`. Validates it per [Security requirements](#security-requirements), ends every local session it names, and returns the `sid`, the `sub`, and the number of sessions ended. Fails with a documented error when the token is not valid. |
+
+A Framework Specific SDK exposes the operation as a request handler in its framework's idiom,
+such as a middleware factory, a route handler, or a server route, mounted at the path the
+application registered as its back-channel logout URI.
+
+Requirements:
+
+1. The request is a `POST` with an `application/x-www-form-urlencoded` body carrying one
+   `logout_token` parameter. The handler MUST reject any other method or content type and MUST
+   cap the size of the body it reads. It MUST NOT require a session cookie or any other
+   credential: the token's signature is the authentication.
+2. The handler answers `200` when the token is valid, including when it names no session the
+   application holds, so that a retried notification is harmless. It answers `400` when the
+   request or the token is not valid. It answers a `5xx` only when it could not record the
+   logout, which tells the server to retry. Every response carries `Cache-Control: no-store`.
+3. A token with a `sid` ends the sessions bound to that `sid`. A token with only a `sub` ends
+   every session of that subject that began before the token was issued, so a user who has
+   already signed in again is not signed out a second time. To make the first possible, the SDK
+   MUST record the `sid` of the ID token against the session it creates at sign-in.
+4. Ending a session here is local. The SDK MUST NOT call the revocation or end session
+   endpoint, which the server has already dealt with, and MUST NOT redirect.
+5. Where sessions are held on the server, the SDK removes the session's stored state. Where the
+   session is held in a cookie, which the server cannot delete, the SDK MUST record the logout
+   and refuse every later request that presents a matching session, for at least as long as such
+   a session could remain valid.
+6. Whatever records the logout, the session store or the list of ended sessions, MUST be
+   replaceable by the application. The default MAY be in memory, and the SDK MUST document that a
+   deployment with more than one instance needs a shared one, because the notification reaches
+   only one of them.
+7. Ending the SDK's session does not recall an access token the application already handed to a
+   browser or to another service. That token stays usable until it expires, and the SDK MUST
+   document this.
+8. An SDK that cannot decrypt an encrypted logout token MUST document that back-channel logout
+   is unsupported for a client configured for ID token encryption.
 
 ### Framework integration
 
@@ -571,6 +675,18 @@ audience, expiry, and nonce where one was sent. The issuer MUST match exactly, n
 suffix. JWKS keys are cached, and re-fetched once on a verification failure to tolerate key
 rotation.
 
+**Logout token validation.** An SDK that handles back-channel logout accepts a logout token only
+when all of these hold: the signature verifies against the server JWKS with an algorithm the SDK
+accepts for ID tokens; the `typ` header is `logout+jwt`; the issuer matches exactly and the
+audience contains the client identifier; `iat` and `exp` are within the configured clock
+tolerance; the `events` claim has a `http://schemas.openid.net/event/backchannel-logout` member;
+there is no `nonce`; and a `sid` or a `sub` is present. The `typ`, `events`, and `nonce` checks
+are what stop an ID token from being replayed as a logout token, and none of these checks can be
+configured off. The endpoint is unauthenticated, so the JWKS re-fetch that a verification failure
+allows MUST be bounded in rate: otherwise a token with an unknown key identifier makes the SDK
+fetch on every request. A `jti` seen before SHOULD be refused for the lifetime of its token. The
+token MUST NOT be logged.
+
 **Credentials.** In embedded mode, credentials are submitted immediately and MUST NOT be
 retained beyond the call. Transport is HTTPS with no exception: the loopback allowance that
 `baseUrl` carries for local development does not extend to embedded mode, so a client
@@ -583,7 +699,9 @@ and before any caller-supplied logger is invoked.
 
 **Sessions.** Access tokens are refreshed ahead of expiry, refresh tokens are rotated on use
 with stored tokens updated atomically, concurrent refreshes are deduplicated to a single
-in-flight request, and sign-out revokes server-side before clearing local state.
+in-flight request, and sign-out revokes server-side before clearing local state. An SDK that
+handles back-channel logout binds each session to the `sid` of its ID token, so the session can
+be found when the server reports that `sid` ended.
 
 Threats, trust boundaries, and residual risks are analysed in
 [threat-model.md](threat-model.md).
@@ -660,8 +778,9 @@ this contract. Three levels are required, using each ecosystem's standard toolin
 each error it can raise. Security behaviour that this specification makes mandatory MUST be
 covered by a test that fails if the behaviour is removed: PKCE challenge derivation, state
 generation and comparison, ID token validation, the storage default, refresh deduplication,
-and revocation ordering on sign-out. Tests MUST NOT reach the network; server interactions are
-stubbed at the transport boundary.
+revocation ordering on sign-out, and, where the SDK handles back-channel logout, each check in
+logout token validation. Tests MUST NOT reach the network; server interactions are stubbed at
+the transport boundary.
 
 **Reference parity tests.** Where an SDK reimplements behaviour that another SDK already
 defines, and the output has to match across platforms, the reimplementation MUST be tested
@@ -950,9 +1069,46 @@ I need.
 - **AC8.6:** Given a bridged SDK, when its Dart or JavaScript source is inspected, then it
   contains no OAuth 2.0 or OIDC protocol implementation.
 
+### R9. Back-channel logout handled the same way wherever an SDK can receive it
+
+**Requirement:** As a developer whose application shares a ThunderID session with other
+applications, I want the SDK to end my application's session when the server reports that the
+session ended, so a user who signs out elsewhere is not left signed in to my application.
+
+**Acceptance criteria:**
+
+- **AC9.1:** Given a valid logout token whose `sid` is bound to a live session, when the handler
+  processes it, then that session ends and the next request that presents it is treated as
+  unauthenticated.
+- **AC9.2:** Given a valid logout token with a `sub` and no `sid`, when the handler processes
+  it, then every session of that subject that began before the token was issued ends, and a
+  session that began afterwards is unaffected.
+- **AC9.3:** Given a valid logout token that names no session the application holds, when the
+  handler processes it, then it answers `200` and nothing changes.
+- **AC9.4:** Given a logout token with a signature that does not verify, an issuer or audience
+  that does not match, or a lifetime outside the clock tolerance, when the handler processes it,
+  then it answers `400` and no session ends.
+- **AC9.5:** Given an ID token, or any token without the `logout+jwt` type, without the
+  back-channel logout event, or with a `nonce`, when the handler processes it, then it answers
+  `400` and no session ends.
+- **AC9.6:** Given the handler ends a session, when its outbound calls are inspected, then it
+  made no call to the revocation or end session endpoint and sent no redirect.
+- **AC9.7:** Given a stream of tokens with a key identifier the SDK does not hold, when the
+  handler processes them, then the JWKS endpoint is fetched no more often than the bound allows.
+- **AC9.8:** Given an SDK that runs only in a browser or a mobile application, when its public
+  surface is inspected, then it does not expose `handleBackchannelLogout`, and its documentation
+  says why.
+- **AC9.9:** Given the handler processes any request, when its log output is inspected, then it
+  contains no logout token.
+- **AC9.10:** Given an SDK that holds the session in a cookie, when a logout is recorded and a
+  later request presents a matching session, then the request is treated as unauthenticated
+  until that session could no longer be valid.
+
 ## Change log
 
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-10 | Initial specification. |
 | 0.2 | 2026-09-15 | Cross-SDK parity enforcement stated as an outcome. How a check reads and records the decision is left to the implementation. |
+| 0.3 | 2026-09-26 | Management operations for applications, users, and agents added as an optional capability. |
+| 0.4 | 2026-10-06 | Back-channel logout handling added as an optional capability for SDKs with a server runtime. |

@@ -62,8 +62,9 @@ func (s *AgentClientAttributesTestSuite) SetupSuite() {
 	s.agentTypeSnapshot = snapshot
 
 	_, err = testutils.CreateAgentType(testutils.UserType{
-		Name: "default",
-		OUID: s.ouID,
+		Handle:      "default",
+		DisplayName: "Default",
+		OUID:        s.ouID,
 		Schema: map[string]interface{}{
 			"modelProvider": map[string]interface{}{"type": "string"},
 			"description":   map[string]interface{}{"type": "string"},
@@ -74,8 +75,9 @@ func (s *AgentClientAttributesTestSuite) SetupSuite() {
 	s.Require().NoError(err)
 
 	entityTypeID, err := testutils.CreateUserType(testutils.UserType{
-		Name: "agent-client-attrs-owner",
-		OUID: s.ouID,
+		Handle:      "agent-client-attrs-owner",
+		DisplayName: "Agent Client Attrs Owner",
+		OUID:        s.ouID,
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{"type": "string"},
 			"password": map[string]interface{}{"type": "string", "credential": true},
@@ -120,13 +122,16 @@ func (s *AgentClientAttributesTestSuite) TearDownSuite() {
 		_ = testutils.DeleteUserType(s.entityTypeID)
 	}
 	// Restore the shared agent type before deleting the OU it points at, or the singleton is left
-	// referencing a deleted OU and a later suite's restore fails.
+	// referencing a deleted OU and a later suite's restore fails. A failed restore keeps the OU:
+	// leaking one is cheaper than every later suite inheriting a dangling reference.
+	agentTypeRestored := true
 	if s.agentTypeSnapshot != nil {
 		if err := testutils.RestoreAgentType(s.agentTypeSnapshot); err != nil {
 			s.T().Errorf("teardown: failed to restore the default agent type: %v", err)
+			agentTypeRestored = false
 		}
 	}
-	if s.ouID != "" {
+	if s.ouID != "" && agentTypeRestored {
 		_ = testutils.DeleteOrganizationUnit(s.ouID)
 	}
 }

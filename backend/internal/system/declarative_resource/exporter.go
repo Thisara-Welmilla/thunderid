@@ -13,8 +13,19 @@ import (
 
 // ResourceRules defines variables and array variables to parameterize for a resource type.
 type ResourceRules struct {
-	Variables             []string `yaml:"Variables,omitempty"`
-	ArrayVariables        []string `yaml:"ArrayVariables,omitempty"`
+	Variables      []string `yaml:"Variables,omitempty"`
+	ArrayVariables []string `yaml:"ArrayVariables,omitempty"`
+	// SecretVariables are parameterized exactly as Variables are, and additionally reported as
+	// credentials.
+	//
+	// The distinction is not cosmetic. A value placed in a data plane's variable collection is
+	// returned by a read; one placed in its secret collection never is. A client secret listed
+	// under Variables would therefore be readable by anything allowed to list variables, which is
+	// the difference the two collections exist to make.
+	//
+	// A dynamic property carries this on itself, through IsSecret. A field named by a rule has
+	// nothing to carry it, so it is named here instead.
+	SecretVariables       []string `yaml:"SecretVariables,omitempty"`
 	DynamicPropertyFields []string `yaml:"DynamicPropertyFields,omitempty"`
 }
 
@@ -48,6 +59,27 @@ type ResourceExporter interface {
 // to tailor rules based on the resource's own data (e.g. omit client_secret for public clients).
 type PerResourceRuler interface {
 	GetResourceRulesForResource(resource interface{}) *ResourceRules
+}
+
+// ReferenceWriter is implemented by an exporter that writes some placeholders itself rather than
+// leaving them to the parameterizer, so it can write them in the style the export uses: a value
+// reference such as "sec:NAME" where the export writes references, a template placeholder such as
+// "{{.NAME}}" where it writes templates.
+type ReferenceWriter interface {
+	WriteValueReferences(references bool)
+}
+
+// ValueCapturer keeps the values a resource's export refers to by name, so that whatever later
+// resolves those names finds them.
+//
+// A service that writes a resource hands it here once the write has succeeded, while it still holds
+// what a read would not return, such as a client secret it has just generated. The resource type is
+// the one its exporter is registered under.
+//
+// It is optional and best-effort: a service with none behaves exactly as before, and a capture that
+// fails is logged by the capturer and never fails the write that triggered it.
+type ValueCapturer interface {
+	CaptureValues(ctx context.Context, resourceType string, resource interface{})
 }
 
 // ExportError represents errors that occurred during export.

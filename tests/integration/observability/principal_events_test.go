@@ -45,7 +45,8 @@ const (
 )
 
 var obsUserType = testutils.UserType{
-	Name: obsUserTypeName,
+	Handle:      obsUserTypeName,
+	DisplayName: "Obs Principal Person",
 	Schema: map[string]interface{}{
 		"username": map[string]interface{}{"type": "string"},
 		"password": map[string]interface{}{"type": "string", "credential": true},
@@ -151,8 +152,9 @@ func (ts *PrincipalEventsTestSuite) SetupSuite() {
 	ts.agentTypeSnapshot = snapshot
 
 	_, err = testutils.CreateAgentType(testutils.UserType{
-		Name: "default",
-		OUID: ouID,
+		Handle:      "default",
+		DisplayName: "Default",
+		OUID:        ouID,
 		Schema: map[string]interface{}{
 			"description": map[string]interface{}{"type": "string"},
 		},
@@ -235,16 +237,19 @@ func (ts *PrincipalEventsTestSuite) TearDownSuite() {
 		_ = testutils.DeleteResourceServerWithChildren(ts.resourceServerID)
 	}
 	// Restore the shared agent type before deleting the OU it points at, or the singleton is left
-	// referencing a deleted OU and a later suite's restore fails.
+	// referencing a deleted OU and a later suite's restore fails. A failed restore keeps the OU:
+	// leaking one is cheaper than every later suite inheriting a dangling reference.
+	agentTypeRestored := true
 	if ts.agentTypeSnapshot != nil {
 		if err := testutils.RestoreAgentType(ts.agentTypeSnapshot); err != nil {
 			ts.T().Errorf("teardown: failed to restore the default agent type: %v", err)
+			agentTypeRestored = false
 		}
 	}
 	if ts.entityTypeID != "" {
 		_ = testutils.DeleteUserType(ts.entityTypeID)
 	}
-	if ts.ouID != "" {
+	if ts.ouID != "" && agentTypeRestored {
 		_ = testutils.DeleteOrganizationUnit(ts.ouID)
 	}
 }

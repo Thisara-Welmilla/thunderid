@@ -30,6 +30,8 @@ const (
 	resourceTypePresentationDefinition  = "presentation_definition"
 	resourceTypeCredentialConfiguration = "credential_configuration" //nolint:gosec
 	resourceTypeServerConfig            = "server_config"
+	resourceTypeGateway                 = "gateway"
+	resourceTypeNotificationTemplate    = "notification_template"
 	resourceTypeUnknown                 = "unknown"
 )
 
@@ -109,6 +111,8 @@ func isKnownResourceType(resourceType string) bool {
 		resourceTypePresentationDefinition:  {},
 		resourceTypeCredentialConfiguration: {},
 		resourceTypeServerConfig:            {},
+		resourceTypeGateway:                 {},
+		resourceTypeNotificationTemplate:    {},
 	}
 
 	_, exists := knownTypes[resourceType]
