@@ -226,6 +226,12 @@ function warningMessage(
         'No translation for "{{token}}" in any language; the template will fail to send until it is added.',
         {token},
       );
+    case 'unknownContext':
+      return t(
+        'notificationTemplatePreview.warnings.unknownContext',
+        '"{{token}}" is not a recognized context value and will not be substituted when the template is sent.',
+        {token},
+      );
     default:
       return token;
   }

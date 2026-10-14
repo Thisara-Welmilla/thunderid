@@ -19,12 +19,27 @@ export interface ParsedToken {
 /** A token the preview cannot render faithfully. */
 export interface TemplateWarning {
   severity: 'error' | 'warning';
-  code: 'unsupported' | 'designNotAllowed' | 'designUnresolved' | 'missingTranslation';
+  code: 'unsupported' | 'designNotAllowed' | 'designUnresolved' | 'missingTranslation' | 'unknownContext';
   token: string;
 }
 
 /** Namespace that notification-template {{t(key)}} tokens resolve under (matches the backend). */
 export const NOTIFICATION_NAMESPACE = 'notification';
+
+/**
+ * Context keys the runtime actually injects when a notification is sent — the set the token catalog
+ * offers (configure-notification-templates `CONTEXT_TOKENS`) and the backend flow executors / authn
+ * service populate (`backend/internal/flow/executor/*`, `backend/internal/authn`). A {{ctx(key)}}
+ * outside this set is never substituted on send and renders literally, so the editor flags it like a
+ * missing translation. Keep in sync with `CONTEXT_TOKENS` and the backend executors.
+ */
+export const KNOWN_CONTEXT_KEYS: ReadonlySet<string> = new Set([
+  'appName',
+  'otpCode',
+  'expiryTime',
+  'magicLink',
+  'inviteLink',
+]);
 
 const TOKEN_BLOCK_REGEX = /\{\{([\s\S]*?)\}\}/g;
 const VALID_PLACEHOLDER_REGEX = /^(ctx|t|design)\(([A-Za-z0-9_.-]+)\)$/;
@@ -147,6 +162,14 @@ function collectFieldWarnings(
       }
       continue;
     }
+    if (token.kind === 'ctx') {
+      // ctx is left literal for the runtime to substitute; but a key the runtime never injects (not in
+      // the offered catalog) will render literally on send — surface it like a missing translation.
+      if (token.key !== undefined && !KNOWN_CONTEXT_KEYS.has(token.key)) {
+        warnings.push({severity: 'error', code: 'unknownContext', token: token.raw});
+      }
+      continue;
+    }
     if (
       !skipMissingTranslation &&
       token.kind === 't' &&
@@ -157,7 +180,6 @@ function collectFieldWarnings(
       // no value in any language and the renderer fails the send — surface it as an error, not a warning.
       warnings.push({severity: 'error', code: 'missingTranslation', token: token.raw});
     }
-    // ctx is the expected runtime case — left literal, not warned.
   }
   return warnings;
 }

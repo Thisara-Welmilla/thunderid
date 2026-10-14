@@ -50,13 +50,13 @@ describe('NotificationTemplatePreview', () => {
       <NotificationTemplatePreview
         channel="email"
         subject="{{t(otp.subject)}}"
-        body="<p>{{ctx(otp)}}</p>"
+        body="<p>{{ctx(otpCode)}}</p>"
         locale="en-US"
       />,
     );
 
     expect(screen.getByText('Your verification code')).toBeInTheDocument();
-    expect(emailSrcDoc()).toContain('{{ctx(otp)}}');
+    expect(emailSrcDoc()).toContain('{{ctx(otpCode)}}');
   });
 
   it('resolves {{design(key)}} against the theme in the email body', () => {
@@ -74,7 +74,7 @@ describe('NotificationTemplatePreview', () => {
       <NotificationTemplatePreview
         channel="email"
         subject="{{t(otp.subject)}}"
-        body="<p>{{ctx(otp)}}</p>"
+        body="<p>{{ctx(otpCode)}}</p>"
         locale="en-US"
       />,
     );
@@ -107,6 +107,12 @@ describe('NotificationTemplatePreview', () => {
     expect(screen.getByText(/No translation for/i)).toBeInTheDocument();
   });
 
+  it('warns when an unknown context token is used', () => {
+    render(<NotificationTemplatePreview channel="email" body="{{ctx(unknownKey)}}" locale="en-US" />);
+
+    expect(screen.getByText(/is not a recognized context value/i)).toBeInTheDocument();
+  });
+
   it('suppresses missing-translation warnings until translations have loaded', () => {
     // Fetch still in flight: translations empty and not yet successful.
     setTranslations({}, false);
@@ -119,9 +125,9 @@ describe('NotificationTemplatePreview', () => {
   it('renders the resolved text for the SMS channel', () => {
     setTranslations({'sms.body': 'Your code'});
 
-    render(<NotificationTemplatePreview channel="sms" body="{{t(sms.body)}} {{ctx(otp)}}" locale="en-US" />);
+    render(<NotificationTemplatePreview channel="sms" body="{{t(sms.body)}} {{ctx(otpCode)}}" locale="en-US" />);
 
-    expect(screen.getByText('Your code {{ctx(otp)}}')).toBeInTheDocument();
+    expect(screen.getByText('Your code {{ctx(otpCode)}}')).toBeInTheDocument();
     expect(document.querySelector('iframe[title="Email preview"]')).toBeNull();
   });
 

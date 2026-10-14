@@ -10,9 +10,11 @@ import {useEffect, useRef, useState} from 'react';
 import type {JSX} from 'react';
 import {useTranslation} from 'react-i18next';
 
+import {withFlowLocale} from '../../utils/flowLocale';
+
 export default function SignInBox(): JSX.Element {
   const {resolve, resolveAll} = useTemplateLiteralResolver();
-  const {t} = useTranslation();
+  const {t, i18n} = useTranslation();
   const {isDesignEnabled} = useDesign();
 
   const [formInputs, setFormInputs] = useState<Record<string, string>>({});
@@ -196,7 +198,7 @@ export default function SignInBox(): JSX.Element {
                           onInputChange={updateInput}
                           onValidate={validateForm}
                           onSubmit={(action, inputs) => {
-                            void onSubmit({inputs, action: action.id}).finally(() => {
+                            void onSubmit({inputs: withFlowLocale(inputs, i18n.language), action: action.id}).finally(() => {
                               setFormInputs({});
                               setFieldErrors({});
                             });

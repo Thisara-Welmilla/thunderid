@@ -17,12 +17,13 @@ import {useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useSearchParams} from 'react-router';
 import RouteConfig from '../../configs/RouteConfig';
+import {withFlowLocale} from '../../utils/flowLocale';
 
 export default function RecoveryBox(): JSX.Element {
   const {resolveAll} = useTemplateLiteralResolver();
   const [searchParams] = useSearchParams();
 
-  const {t} = useTranslation();
+  const {t, i18n} = useTranslation();
   const logger = useLogger('RecoveryBox');
   const {isDesignEnabled} = useDesign();
   const [flowError, setFlowError] = useState<string | null>(null);
@@ -122,7 +123,7 @@ export default function RecoveryBox(): JSX.Element {
                         onSubmit={(action, inputs) => {
                           const isTrigger =
                             action.eventType === EmbeddedFlowEventType.Trigger || action.eventType === 'TRIGGER';
-                          void handleSubmit(action, inputs, isTrigger);
+                          void handleSubmit(action, withFlowLocale(inputs, i18n.language), isTrigger);
                         }}
                       />
                     ))}
