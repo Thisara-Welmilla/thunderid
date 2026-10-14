@@ -11,6 +11,7 @@ export {
   type NotificationTemplatePreviewProps,
   type NotificationChannel,
 } from './NotificationTemplatePreview/NotificationTemplatePreview';
+export {KNOWN_CONTEXT_KEYS} from './NotificationTemplatePreview/templateTokens';
 
 // Components
 export {default as LayoutPresetThumbnail, type LayoutPresetVariant} from './components/layouts/LayoutPresetThumbnail';

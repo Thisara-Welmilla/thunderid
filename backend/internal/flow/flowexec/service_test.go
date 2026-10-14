@@ -331,6 +331,68 @@ func TestInitiateFlowSuccessScenarios(t *testing.T) {
 	}
 }
 
+// InitiateFlow stores the init-context locale (e.g. from OIDC ui_locales) in shared runtime data
+// so notification executors can render templates in it.
+func TestInitiateFlowSeedsLocaleIntoSharedRuntimeData(t *testing.T) {
+	appID := testAppID
+
+	testConfig := &config.Config{}
+	_ = config.InitializeServerRuntime("/tmp/test", testConfig)
+
+	flowFactory, _ := core.Initialize(cache.Initialize(config.GetServerRuntime().Config.Cache, "test-deployment"))
+	testGraph := flowFactory.CreateGraph("auth-graph-1", providers.FlowTypeAuthentication, 1)
+
+	mockClient := &inboundmodel.InboundClient{ID: "app-id-123", AuthFlowID: "auth-graph-1"}
+	mockEntity := &providers.Entity{ID: appID, Category: providers.EntityCategoryApp}
+
+	mockStore := newFlowStoreInterfaceMock(t)
+	mockInboundClient := inboundclientmock.NewInboundClientServiceInterfaceMock(t)
+	mockEntityProvider := entityprovidermock.NewEntityProviderInterfaceMock(t)
+	mockFlowProvider := NewFlowProviderMock(t)
+	mockGraphBuilder := NewGraphBuilderInterfaceMock(t)
+	mockCrypto := cryptomock.NewRuntimeCryptoProviderMock(t)
+
+	// Capture the serialized context handed to Encrypt so we can assert the locale was stored.
+	var capturedPlaintext string
+	mockCrypto.EXPECT().Encrypt(mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.MatchedBy(func(pt []byte) bool { capturedPlaintext = string(pt); return true })).
+		Return([]byte("encrypted-ctx"), nil, nil)
+
+	service := &flowExecService{
+		graphBuilder:  mockGraphBuilder,
+		flowProvider:  mockFlowProvider,
+		flowStore:     mockStore,
+		actorProvider: actorprovider.Initialize(mockInboundClient, mockEntityProvider, noopAuthnMgr(), nil, nil),
+		transactioner: &stubTransactioner{},
+		cryptoSvc:     mockCrypto,
+		cfg:           testFlowExecCfg,
+		serverConfigSvc: stubServerConfig{cfg: flowconfig.FlowSectionConfig{
+			AuthFlow: flowconfig.FlowTypeConfig{DefaultHandle: testDefaultAuthFlowHandle},
+		}},
+	}
+
+	mockInboundClient.EXPECT().GetInboundClientByEntityID(mock.Anything, appID).Return(mockClient, nil)
+	mockEntityProvider.EXPECT().GetEntity(appID).
+		Return(mockEntity, (*entityprovider.EntityProviderError)(nil))
+	mockFlowProvider.EXPECT().GetFlow(mock.Anything, "auth-graph-1").
+		Return(&providers.CompleteFlowDefinition{ID: "auth-graph-1"}, nil)
+	mockGraphBuilder.EXPECT().GetGraph(mock.Anything, mock.Anything).Return(testGraph, nil)
+	mockStore.EXPECT().StoreFlowContext(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	initContext := &FlowInitContext{
+		ApplicationID: appID,
+		FlowType:      "AUTHENTICATION",
+		Locale:        "fr-FR",
+	}
+
+	executionID, svcErr := service.InitiateFlow(context.Background(), initContext)
+
+	assert.NotEmpty(t, executionID)
+	assert.Nil(t, svcErr)
+	assert.Contains(t, capturedPlaintext, "sharedRuntimeData")
+	assert.Contains(t, capturedPlaintext, "fr-FR")
+}
+
 func TestInitiateFlowErrorScenarios(t *testing.T) {
 	appID := testAppID
 

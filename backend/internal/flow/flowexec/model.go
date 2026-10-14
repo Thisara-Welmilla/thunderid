@@ -284,6 +284,7 @@ type FlowRequest struct {
 	ChallengeToken string            `json:"challengeToken,omitempty"`
 	Action         string            `json:"action"`
 	Inputs         map[string]string `json:"inputs"`
+	Locale         string            `json:"locale,omitempty"`
 }
 
 // FlowInitContext represents the context for initiating a new flow with runtime data
@@ -294,6 +295,9 @@ type FlowInitContext struct {
 	InitialInputs    map[string]string
 	ExpirySeconds    int64
 	InitiatorRequest *providers.InitiatorRequest
+	// Locale is the initiator's language tag (e.g. from OIDC ui_locales); stored in shared runtime
+	// data so notification executors render templates in it. Empty leaves it unset.
+	Locale string
 }
 
 // FlowContextDB represents the database row for a flow context.

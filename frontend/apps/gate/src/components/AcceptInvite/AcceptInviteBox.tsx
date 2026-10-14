@@ -11,6 +11,7 @@ import {useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useNavigate, useSearchParams} from 'react-router';
 import RouteConfig from '../../configs/RouteConfig';
+import {withFlowLocale} from '../../utils/flowLocale';
 
 export interface FlowChangeResponse {
   flowStatus?: string;
@@ -28,7 +29,7 @@ export default function AcceptInviteBox(): JSX.Element {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const {resolveFlowTemplateLiterals} = useThunderID();
-  const {t} = useTranslation();
+  const {t, i18n} = useTranslation();
   const {getServerUrl} = useConfig();
   const logger = useLogger('AcceptInviteBox');
 
@@ -198,7 +199,7 @@ export default function AcceptInviteBox(): JSX.Element {
                       resolve={resolveFlowTemplateLiterals}
                       onInputChange={handleInputChange}
                       onSubmit={(action, inputs) => {
-                        void handleSubmit(action, inputs);
+                        void handleSubmit(action, withFlowLocale(inputs, i18n.language));
                       }}
                     />
                   ))}

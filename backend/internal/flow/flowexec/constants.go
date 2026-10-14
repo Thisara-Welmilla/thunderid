@@ -19,6 +19,10 @@ const (
 	// applicationTypePropertyKey is the InboundClient.Properties key under which the application
 	// type is stored.
 	applicationTypePropertyKey = "type"
+
+	// flowInputKeyLocale carries the validated locale on the inputs map from the handler to
+	// prepareContext, which promotes it to shared runtime data and removes it from user inputs.
+	flowInputKeyLocale = "__locale"
 )
 
 // flowInitiationMode classifies how an application is permitted to initiate a new authentication

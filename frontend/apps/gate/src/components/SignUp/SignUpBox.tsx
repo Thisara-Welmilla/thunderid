@@ -18,11 +18,12 @@ import {useRef, useState} from 'react';
 import {Trans, useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router';
 import RouteConfig from '../../configs/RouteConfig';
+import {withFlowLocale} from '../../utils/flowLocale';
 
 export default function SignUpBox(): JSX.Element {
   const navigate = useNavigate();
   const {resolveFlowTemplateLiterals: resolve, meta} = useThunderID();
-  const {t} = useTranslation();
+  const {t, i18n} = useTranslation();
   const {isDesignEnabled} = useDesign();
   // For React Router navigate() — basename is handled by the router.
   const signInPath = RouteConfig.signIn();
@@ -217,7 +218,7 @@ export default function SignUpBox(): JSX.Element {
                             i: Record<string, string>,
                             s: boolean,
                           ) => Promise<void>
-                        )(action, inputs, isTrigger);
+                        )(action, withFlowLocale(inputs, i18n.language), isTrigger);
                       }}
                     />
                   ))}

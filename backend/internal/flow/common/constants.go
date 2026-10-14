@@ -174,6 +174,8 @@ const (
 	RuntimeKeyRequiredOptionalAttributes = "required_optional_attributes"
 	// RuntimeKeyRequiredLocales holds the space-separated locales requested for claims.
 	RuntimeKeyRequiredLocales = "required_locales"
+	// RuntimeKeyLocale holds the client's current UI language (BCP 47) in shared runtime data.
+	RuntimeKeyLocale = "locale"
 	// RuntimeKeyConsentID holds the consent record ID after consent has been recorded.
 	RuntimeKeyConsentID = "consent_id"
 	// RuntimeKeyStepTimeout holds the expiry timestamp for the current flow step.

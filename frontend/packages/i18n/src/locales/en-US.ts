@@ -4639,6 +4639,8 @@ const translations = {
       'Design token "{{token}}" does not match any value in the selected theme; it is shown as-is and may not render.',
     'notificationTemplatePreview.warnings.missingTranslation':
       'No translation for "{{token}}" in any language; the template will fail to send until it is added.',
+    'notificationTemplatePreview.warnings.unknownContext':
+      '"{{token}}" is not a recognized context value and will not be substituted when the template is sent.',
     'themes.section.title': 'Themes',
     'themes.actions.add.label': 'Add Theme',
     'themes.empty_state.message': 'No themes yet',

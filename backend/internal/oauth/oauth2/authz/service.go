@@ -28,6 +28,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/revocation"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
 	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/utils"
@@ -633,6 +634,7 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 		FlowType:         string(providers.FlowTypeAuthentication),
 		RuntimeData:      runtimeData,
 		InitiatorRequest: initiatorReq,
+		Locale:           resolveUILocale(oauthParams.UILocales),
 	}
 
 	executionID, flowErr := as.flowExecService.InitiateFlow(ctx, flowInitCtx)
@@ -1398,4 +1400,15 @@ func mapFlowErrorTypeToOAuthError(errorType, description string) (string, string
 	}
 
 	return code, message
+}
+
+// resolveUILocale returns the first canonical BCP 47 tag from an OIDC ui_locales value
+// (space-separated, highest priority first), or "" when none are valid.
+func resolveUILocale(uiLocales string) string {
+	for _, tag := range strings.Fields(uiLocales) {
+		if canonical, ok := i18nmgt.NormaliseBCP47Tag(tag); ok {
+			return canonical
+		}
+	}
+	return ""
 }

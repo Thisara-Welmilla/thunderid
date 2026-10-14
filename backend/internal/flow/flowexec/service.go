@@ -22,6 +22,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/flow/session"
 	sysContext "github.com/thunder-id/thunderid/internal/system/context"
 	"github.com/thunder-id/thunderid/internal/system/cryptolib"
+	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/observability/event"
@@ -913,6 +914,15 @@ func prepareContext(ctx *EngineContext, action string, inputs map[string]string)
 		ctx.InterceptorSharedData = make(map[string]string)
 	}
 
+	// Promote a client-supplied locale into shared runtime data. If none is sent this step, keep the
+	// locale a previous step already stored. Drop invalid tags so a bad value never overwrites a good one.
+	if locale, ok := ctx.UserInputs[flowInputKeyLocale]; ok {
+		delete(ctx.UserInputs, flowInputKeyLocale)
+		if normalized, valid := i18nmgt.NormaliseBCP47Tag(locale); valid {
+			ctx.setSharedRuntimeData(common.RuntimeKeyLocale, normalized)
+		}
+	}
+
 	// Set the action if provided
 	if action != "" {
 		ctx.CurrentAction = action
@@ -971,6 +981,9 @@ func (s *flowExecService) InitiateFlow(ctx context.Context,
 	// Replace the RuntimeData with initContext RuntimeData
 	engineCtx.RuntimeData = initContext.RuntimeData
 	engineCtx.SetInitiatorRequest(initContext.InitiatorRequest)
+	if initContext.Locale != "" {
+		engineCtx.setSharedRuntimeData(common.RuntimeKeyLocale, initContext.Locale)
+	}
 
 	// Store the context without executing the flow
 	if storeErr := s.storeContext(ctx, engineCtx, 0, logger); storeErr != nil {
@@ -1026,6 +1039,9 @@ func (s *flowExecService) InitiateAndExecute(ctx context.Context,
 
 	engineCtx.RuntimeData = initContext.RuntimeData
 	engineCtx.SetInitiatorRequest(initContext.InitiatorRequest)
+	if initContext.Locale != "" {
+		engineCtx.setSharedRuntimeData(common.RuntimeKeyLocale, initContext.Locale)
+	}
 	prepareContext(engineCtx, "", initContext.InitialInputs)
 
 	flowStep, flowErr := s.flowEngine.Execute(engineCtx)
