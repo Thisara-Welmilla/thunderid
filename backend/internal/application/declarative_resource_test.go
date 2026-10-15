@@ -104,12 +104,29 @@ func (s *ApplicationExporterTestSuite) TestGetResourceByID_Success() {
 	}
 
 	s.mockService.EXPECT().GetApplication(mock.Anything, "app1").Return(expectedApp, nil)
+	s.mockService.EXPECT().ExportSharingPolicies(mock.Anything, "app1").Return(nil, nil)
 
 	resource, name, err := s.exporter.GetResourceByID(context.Background(), "app1")
 
 	assert.Nil(s.T(), err)
 	assert.Equal(s.T(), "Test App", name)
-	assert.Equal(s.T(), expectedApp, resource)
+	assert.NotNil(s.T(), resource)
+}
+
+// A failure to read the policies fails the export rather than writing a document that silently
+// shares with nobody.
+func (s *ApplicationExporterTestSuite) TestGetResourceByID_SharingFailureFailsTheExport() {
+	serviceError := &tidcommon.ServiceError{Code: "SHR-5000"}
+
+	s.mockService.EXPECT().GetApplication(mock.Anything, "app1").
+		Return(&providers.Application{ID: "app1", Name: "Test App"}, nil)
+	s.mockService.EXPECT().ExportSharingPolicies(mock.Anything, "app1").Return(nil, serviceError)
+
+	resource, name, err := s.exporter.GetResourceByID(context.Background(), "app1")
+
+	assert.Nil(s.T(), resource)
+	assert.Empty(s.T(), name)
+	assert.Equal(s.T(), serviceError, err)
 }
 
 func (s *ApplicationExporterTestSuite) TestGetResourceByID_Error() {

@@ -547,7 +547,12 @@ const sidebars: SidebarsConfig = {
                 {
                   type: 'doc',
                   id: 'guides/mcp/mcp-clients/register-a-client',
-                  label: 'Register in the Console',
+                  label: 'Configure Manually',
+                },
+                {
+                  type: 'doc',
+                  id: 'guides/mcp/mcp-clients/client-id-metadata-document',
+                  label: 'Client ID Metadata Document',
                 },
                 {
                   type: 'doc',
@@ -673,8 +678,8 @@ const sidebars: SidebarsConfig = {
                 },
                 {
                   type: 'doc',
-                  id: 'guides/smtp-server/smtp-server-configuration',
-                  label: 'SMTP Server',
+                  id: 'guides/notifications/email-providers',
+                  label: 'Email Providers',
                 },
                 {
                   type: 'doc',
@@ -724,9 +729,22 @@ const sidebars: SidebarsConfig = {
           ],
         },
         {
-          type: 'doc',
-          id: 'guides/organization-units',
+          type: 'category',
           label: 'Organization Units',
+          collapsed: true,
+          collapsible: true,
+          items: [
+            {
+              type: 'doc',
+              id: 'guides/organization-units/manage-organization-units',
+              label: 'Manage Organization Units',
+            },
+            {
+              type: 'doc',
+              id: 'guides/organization-units/machine-to-machine-access',
+              label: 'Machine-to-Machine (M2M) Access for Organization Units',
+            },
+          ],
         },
         {
           type: 'category',
@@ -1097,6 +1115,11 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'key-concepts/tokens',
           label: 'Tokens',
+        },
+        {
+          type: 'doc',
+          id: 'key-concepts/resource-sharing',
+          label: 'Resource Sharing',
         },
         {
           type: 'category',

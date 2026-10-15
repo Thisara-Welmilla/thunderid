@@ -156,7 +156,7 @@ type Resource struct {
 	Handle       string   `yaml:"handle"                json:"handle"`
 	Description  string   `yaml:"description,omitempty" json:"description,omitempty"`
 	Parent       *string  `yaml:"-"                     json:"-"`                // Resolved parent ID
-	ParentHandle string   `yaml:"parent,omitempty"      json:"parent,omitempty"` // Parent handle during YAML parsing only
+	ParentHandle string   `yaml:"parent,omitempty"      json:"parent,omitempty"` // Parent reference; the parent's full path once processed
 	Permission   string   `yaml:"-"                     json:"-"`                // Computed permission string
 	Actions      []Action `yaml:"actions,omitempty"     json:"actions,omitempty"`
 }
@@ -708,6 +708,14 @@ type User struct {
 	Attributes json.RawMessage `json:"attributes,omitempty"`
 	Display    string          `json:"display,omitempty"`
 	IsReadOnly bool            `json:"isReadOnly"`
+	// LinkedAccount, set on create, records the user's linked account in the same write.
+	LinkedAccount *LinkedAccount `json:"-"`
+}
+
+// LinkedAccount names a subject at a connection.
+type LinkedAccount struct {
+	IdpID string
+	Sub   string
 }
 
 // Agent is the service-level model for agent create operations.
@@ -716,7 +724,6 @@ type Agent struct {
 	OUID        string          `json:"ouId"`
 	OUHandle    string          `json:"ouHandle,omitempty"`
 	Type        string          `json:"type"`
-	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	LogoURL     string          `json:"logoUrl,omitempty"`
 	Owner       string          `json:"owner,omitempty"`
@@ -773,6 +780,9 @@ type Entity struct {
 	Attributes       json.RawMessage `json:"attributes,omitempty"`
 	SystemAttributes json.RawMessage `json:"systemAttributes,omitempty"`
 	IsReadOnly       bool            `json:"isReadOnly"`
+	// Display is the value of the entity type's display attribute, falling back to the entity ID.
+	// It is populated only by callers that resolve it, such as the actor provider for agents.
+	Display string `json:"display,omitempty"`
 }
 
 // EntityGroup represents a group with basic information for entity group membership queries.
@@ -816,10 +826,10 @@ type UserTypeAttributeMapping struct {
 	Attributes []AttributeMapping `json:"attributes,omitempty" yaml:"attributes,omitempty"`
 }
 
-// AccountLinking configures which attributes resolve the local user for an incoming federated
-// identity when the subject identifier does not. Attributes is a list of external claim names (each
-// resolved to its local counterpart via the IdP's attribute mappings); those with a value are matched
-// together to resolve a unique local user.
+// AccountLinking configures which attributes name an existing local user for an incoming federated
+// identity that has no recorded link. Attributes is a list of external claim names. Each one matches
+// on every local attribute the IdP's attribute mappings copy it to and on the local attribute of the
+// same name; every attribute with a value must match.
 type AccountLinking struct {
 	Attributes []string `json:"attributes,omitempty" yaml:"attributes,omitempty"`
 }
@@ -1287,10 +1297,18 @@ type InboundAuthConfigWithSecret struct {
 	OAuthConfig *OAuthConfigWithSecret `json:"config,omitempty" yaml:"config,omitempty" jsonschema:"OAuth/OIDC configuration. Required when type is 'oauth2'. Defines OAuth grant types, redirect URIs, client authentication, and PKCE settings."`
 }
 
-// InitiatorRequest holds the original HTTP request data that triggered the flow.
+// InitiatorRequest holds the original HTTP request data that triggered the flow (e.g. the OAuth2
+// authorization request). It is persisted with the flow context for redirect-based flows.
 type InitiatorRequest struct {
 	Headers     map[string][]string `json:"headers,omitempty"     yaml:"headers,omitempty"`
 	QueryParams map[string][]string `json:"queryParams,omitempty" yaml:"queryParams,omitempty"`
+}
+
+// CurrentRequest holds the HTTP request data driving the current flow step. Unlike InitiatorRequest
+// it is transient: it rides on the request context for one execution and is never persisted.
+type CurrentRequest struct {
+	Headers     map[string][]string
+	QueryParams map[string][]string
 }
 
 // NodeContext holds the context for a specific node in the flow execution.
@@ -1476,6 +1494,9 @@ type Event struct {
 
 	// Status indicates the outcome of the event (e.g., "success", "failure", "in_progress").
 	Status string `json:"status"`
+
+	// ServerIdentifier is the identifier of the deployment that generated the event.
+	ServerIdentifier string `json:"server_identifier"`
 
 	// Data contains event-specific structured data.
 	// Use this to store any additional information relevant to the event type.

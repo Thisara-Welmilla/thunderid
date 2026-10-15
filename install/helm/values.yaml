@@ -447,6 +447,10 @@ configuration:
     # MCP clients should register through Dynamic Client Registration instead.
     cimd:
       enabled: true
+    # Maximum revocation entries one role, group or scope change may record; a larger change is refused.
+    revocation:
+      criteria:
+        maxEntriesPerChange: 10000
     # Report an authentication flow failure that maps to the OAuth server_error code to the client.
     sendServerErrorsToClient: false
     # Client token endpoint auth methods allowed during registration.
@@ -587,7 +591,8 @@ configuration:
   #   application: composite
   #   identity_provider: declarative
   # Supported keys: user, group, role, theme, layout, translation, agent, user_type,
-  # organization_unit, identity_provider, application, server_config, resource.
+  # organization_unit, identity_provider, application, server_config, resource,
+  # notification_template.
   stores: {}
 
 

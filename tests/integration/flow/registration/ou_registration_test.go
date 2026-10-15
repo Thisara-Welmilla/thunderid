@@ -342,7 +342,7 @@ var (
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
 		AllowedUserTypes:          []string{dynamicEntityType.Handle},
 		AssertionConfig: map[string]interface{}{
-			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
+			"userAttributes": []string{"userTypeHandle", "ouId", "ouName", "ouHandle"},
 		},
 	}
 
@@ -355,7 +355,7 @@ var (
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
 		AllowedUserTypes:          []string{dynamicEntityType.Handle},
 		AssertionConfig: map[string]interface{}{
-			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
+			"userAttributes": []string{"userTypeHandle", "ouId", "ouName", "ouHandle"},
 		},
 	}
 
@@ -627,7 +627,7 @@ func (ts *OURegistrationFlowTestSuite) TestBasicRegistrationFlowWithOU() {
 
 			jwtClaims, err := testutils.DecodeJWT(flowStep.Assertion)
 			ts.Require().NoError(err)
-			ts.Require().Equal(dynamicEntityType.Handle, jwtClaims.UserType)
+			ts.Require().Equal(dynamicEntityType.Handle, jwtClaims.UserTypeHandle)
 			ts.Require().NotEmpty(jwtClaims.OUID)
 
 			user, err := testutils.FindUserByAttribute("username", username)
@@ -808,7 +808,7 @@ func (ts *OURegistrationFlowTestSuite) TestSMSRegistrationFlowWithOUCreation() {
 
 			jwtClaims, err := testutils.DecodeJWT(flowStep.Assertion)
 			ts.Require().NoError(err)
-			ts.Require().Equal(dynamicEntityType.Handle, jwtClaims.UserType)
+			ts.Require().Equal(dynamicEntityType.Handle, jwtClaims.UserTypeHandle)
 			ts.Require().NotEmpty(jwtClaims.OUID)
 
 			user, err := testutils.FindUserByAttribute("mobile_number", mobileNumber)

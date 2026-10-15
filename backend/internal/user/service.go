@@ -266,7 +266,8 @@ func (us *userService) GetUsersByPath(
 			for _, u := range fetchedUsers {
 				userTypes = append(userTypes, u.Type)
 			}
-			displayAttrPaths := ResolveDisplayAttributePaths(ctx, userTypes, us.entityTypeService, logger)
+			displayAttrPaths := entitytype.ResolveDisplayAttributePaths(
+				ctx, entitytype.TypeCategoryUser, userTypes, us.entityTypeService, logger)
 
 			users = make([]providers.User, len(ouResponse.Users))
 			for i, ouUser := range ouResponse.Users {
@@ -309,6 +310,9 @@ func (us *userService) CreateUser(
 	if user == nil {
 		return nil, &ErrorInvalidRequestFormat
 	}
+	if user.LinkedAccount != nil && (user.LinkedAccount.IdpID == "" || user.LinkedAccount.Sub == "") {
+		return nil, &ErrorInvalidRequestFormat
+	}
 
 	// Check if caller is authorized to create users in the target OU.
 	if svcErr := us.checkUserAccess(ctx, security.ActionCreateUser, user.OUID, ""); svcErr != nil {
@@ -332,7 +336,7 @@ func (us *userService) CreateUser(
 
 	e := userToEntity(user)
 	submitted := user.Attributes
-	created, err := us.entityService.CreateEntity(ctx, e, nil)
+	created, err := us.entityService.CreateEntity(ctx, e, nil, user.LinkedAccount)
 	if err != nil {
 		if svcErr := mapEntityError(err); svcErr != nil {
 			return nil, svcErr
@@ -415,8 +419,8 @@ func (us *userService) GetUser(
 	}
 
 	if includeDisplay {
-		displayAttrPaths := ResolveDisplayAttributePaths(
-			ctx, []string{user.Type}, us.entityTypeService, logger)
+		displayAttrPaths := entitytype.ResolveDisplayAttributePaths(
+			ctx, entitytype.TypeCategoryUser, []string{user.Type}, us.entityTypeService, logger)
 		user.Display = utils.ResolveDisplay(
 			user.ID, user.Type, user.Attributes, displayAttrPaths)
 
@@ -997,8 +1001,8 @@ func (us *userService) populateUserDisplayNames(ctx context.Context, users []pro
 		userTypes = append(userTypes, u.Type)
 	}
 
-	displayAttrPaths := ResolveDisplayAttributePaths(
-		ctx, userTypes, us.entityTypeService, logger)
+	displayAttrPaths := entitytype.ResolveDisplayAttributePaths(
+		ctx, entitytype.TypeCategoryUser, userTypes, us.entityTypeService, logger)
 
 	// Resolve display for each user.
 	for i := range users {
@@ -1176,6 +1180,8 @@ func mapEntityError(err error) *tidcommon.ServiceError {
 		return &ErrorAttributeConflict
 	case errors.Is(err, entity.ErrInvalidCredential):
 		return &ErrorInvalidCredential
+	case errors.Is(err, entity.ErrLinkedAccountConflict):
+		return &ErrorLinkedAccountConflict
 	default:
 		return nil
 	}

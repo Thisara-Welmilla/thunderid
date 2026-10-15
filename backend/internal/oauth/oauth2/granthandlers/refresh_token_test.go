@@ -224,7 +224,7 @@ func (suite *RefreshTokenGrantHandlerTestSuite) TestHandleGrant_ReplayRevokesTok
 	}
 
 	suite.mockTokenValidator.On("ValidateRefreshToken", mock.Anything, reusedToken).
-		Return(nil, revocation.ErrTokenRevoked)
+		Return(nil, revocation.ErrTokenIDRevoked)
 	suite.mockCriteriaRevoker.On("RevokeTokenFamily", mock.Anything, "tfid-reuse",
 		revocation.RevocationReasonRefreshReplay).Return(nil)
 
@@ -234,6 +234,32 @@ func (suite *RefreshTokenGrantHandlerTestSuite) TestHandleGrant_ReplayRevokesTok
 	suite.Require().NotNil(errResp)
 	assert.Equal(suite.T(), constants.ErrorInvalidGrant, errResp.Error)
 	suite.mockCriteriaRevoker.AssertExpectations(suite.T())
+}
+
+func (suite *RefreshTokenGrantHandlerTestSuite) TestHandleGrant_CriteriaRevokedDoesNotRevokeTokenFamily() {
+	suite.testCfg.OAuth.Revocation.TokenFamily.OnRefreshReplay = boolPtr(true)
+	suite.rebuildHandlerWithConfig()
+
+	payload := base64.RawURLEncoding.EncodeToString([]byte(
+		`{"jti":"jti-current","tfid":"tfid-live","access_token_sub":"user-1",` +
+			`"access_token_aud":"https://api.example.com","scope":"read"}`))
+	narrowedToken := "eyJhbGciOiJub25lIn0." + payload + ".sig"
+	req := &model.TokenRequest{
+		GrantType:    string(providers.GrantTypeRefreshToken),
+		ClientID:     testClientID,
+		RefreshToken: narrowedToken,
+	}
+
+	suite.mockTokenValidator.On("ValidateRefreshToken", mock.Anything, narrowedToken).
+		Return(nil, revocation.ErrTokenRevoked)
+
+	resp, errResp := suite.handler.HandleGrant(context.Background(), req, suite.oauthApp)
+
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(errResp)
+	assert.Equal(suite.T(), constants.ErrorInvalidGrant, errResp.Error)
+	suite.mockCriteriaRevoker.AssertNotCalled(suite.T(), "RevokeTokenFamily", mock.Anything, mock.Anything,
+		mock.Anything)
 }
 
 // Validation is client-agnostic so introspection can reuse it, which puts the ownership check on the

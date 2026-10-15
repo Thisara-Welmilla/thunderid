@@ -211,7 +211,7 @@ func RestoreAgentType(snapshot *AgentTypeSnapshot) error {
 
 	ouID := snapshot.OUID
 	if _, err := GetOrganizationUnit(ouID); err != nil {
-		bootstrapOUID, lookupErr := findBootstrapOUID()
+		bootstrapOUID, lookupErr := FindBootstrapOUID()
 		if lookupErr != nil {
 			return fmt.Errorf("snapshot OU %s is gone and the bootstrap OU is unavailable: %w",
 				ouID, lookupErr)
@@ -271,8 +271,8 @@ func RestoreAgentType(snapshot *AgentTypeSnapshot) error {
 	return nil
 }
 
-// findBootstrapOUID resolves the long-lived `default` organization unit seeded at bootstrap.
-func findBootstrapOUID() (string, error) {
+// FindBootstrapOUID resolves the long-lived `default` organization unit seeded at bootstrap.
+func FindBootstrapOUID() (string, error) {
 	req, err := http.NewRequest("GET", TestServerURL+"/organization-units?limit=100", nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create OU list request: %w", err)
@@ -1196,6 +1196,38 @@ func FindUserByAttribute(key, value string) (*User, error) {
 	return nil, nil
 }
 
+// GetUserFromAssertion returns the user a flow assertion was issued for, looked up by the assertion's
+// subject. A federated flow resolves its identity to exactly one user, and this is that user.
+func GetUserFromAssertion(assertion string) (*User, error) {
+	claims, err := DecodeJWT(assertion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode the assertion: %w", err)
+	}
+
+	req, err := http.NewRequest("GET", TestServerURL+"/users/"+claims.Sub, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create get user request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := GetHTTPClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send get user request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(body))
+	}
+
+	var user User
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return nil, fmt.Errorf("failed to parse get user response: %w", err)
+	}
+	return &user, nil
+}
+
 // CreateGroup creates a group via API and returns the group ID
 func CreateGroup(group Group) (string, error) {
 	groupJSON, err := json.Marshal(group)
@@ -1663,6 +1695,16 @@ func DeleteResourceServer(rsID string) error {
 // CreateAction creates an action on a resource server and returns the action ID.
 func CreateAction(resourceServerID string, action Action) (string, error) {
 	return createAction(resourceServerID, action)
+}
+
+// CreateResourceAction creates an action nested under a resource and returns the action ID.
+func CreateResourceAction(resourceServerID, resourceID string, action Action) (string, error) {
+	return createActionUnderResource(resourceServerID, resourceID, action)
+}
+
+// DeleteResourceAction deletes an action nested under a resource.
+func DeleteResourceAction(resourceServerID, resourceID, actionID string) error {
+	return deleteActionAtResource(resourceServerID, resourceID, actionID)
 }
 
 // GetActionsByResourceServer returns the IDs of the actions defined on a resource server.

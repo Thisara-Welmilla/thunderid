@@ -475,6 +475,7 @@ OAuth 2.0 and OpenID Connect settings.
 | `oauth.dcr.insecure` | `false` | If `true`, allows insecure dynamic client registration (development only) |
 | `oauth.client_assertion.max_lifetime` | `300` | Maximum lifetime of a `private_key_jwt` client assertion in seconds. The `exp` claim must not be later than `iat` plus this value, or the current time plus this value when `iat` is absent |
 | `oauth.client_assertion.max_iat_age` | `60` | Maximum age of a `private_key_jwt` client assertion's `iat` claim in seconds. Assertions with an older `iat` are rejected |
+| `oauth.cimd.enabled` | `true` | If `true`, advertises `client_id_metadata_document_supported` in the authorization server metadata, so MCP clients that support Client ID Metadata Documents identify themselves with one. Set it to `false` if MCP clients should register through Dynamic Client Registration instead. It doesn't affect registering clients from a document in the Console. See [Register an MCP Client from Its Metadata Document](../../guides/mcp/mcp-clients/client-id-metadata-document) |
 | `oauth.allowed_auth_methods` | `["client_secret_basic", "client_secret_post", "private_key_jwt", "none"]` | Client token endpoint authentication methods allowed during client registration |
 | `oauth.allowed_response_types` | `["code"]` | OAuth response types allowed during client registration |
 | `oauth.allowed_grant_types` | `["client_credentials", "authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange", "urn:openid:params:grant-type:ciba", "urn:ietf:params:oauth:grant-type:jwt-bearer"]` | OAuth grant types allowed during client registration |
@@ -850,23 +851,11 @@ Treat `attribute_cache.encryption.enabled` as a set-once value. It is applied on
 
 ## Email Configuration
 
-<ProductName /> sends emails through an SMTP server for features such as magic link authentication and user invitations. This configuration is optional. Without a configured SMTP server, email-dependent features remain unavailable. Add the following configuration to `deployment.yaml` to configure an SMTP server.
+<ProductName /> sends email through email providers that you create as connections, and each email step in a flow selects the provider it sends through. See [Configure an Email Provider](../../guides/notifications/email-providers).
 
-```yaml
-email:
-  smtp:
-    host: "smtp.example.com"
-    port: 587
-    username: "your-username"
-    password: "your-password"
-    from_address: "noreply@example.com"
-    enable_start_tls: true
-    enable_authentication: true
-```
-
-For the full property reference and provider-specific examples, see [Configure SMTP Server](../../guides/smtp-server/smtp-server-configuration).
-
-On Kubernetes, set these properties under `configuration.email.smtp` in your Helm values rather than editing `deployment.yaml`. The chart also sources the SMTP password from a Kubernetes Secret. See [Email](../deployment-paths/kubernetes#email).
+:::warning
+If you are upgrading from an earlier release, remove the `email.smtp` block from `deployment.yaml`, or `configuration.email.smtp` from your Helm values. The server does not start while `deployment.yaml` has an `email` block, and the Helm chart does not render while `configuration.email.smtp.host` is set. To move those settings to an email provider, see [Migrate From `email.smtp`](../../guides/notifications/email-providers#migrate-from-emailsmtp).
+:::
 
 ## Notification Configuration
 

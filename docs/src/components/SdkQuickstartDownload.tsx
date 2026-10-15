@@ -16,14 +16,15 @@ interface SdkReleaseAsset {
   sizeLabel: string;
 }
 
-interface SdkReleaseEntry {
+interface EcosystemReleaseEntry {
   assets: SdkReleaseAsset[];
   packageId: string;
   packageName: string | null;
+  type: 'sdk' | 'sample';
 }
 
-interface SdkReleasesData {
-  releases: SdkReleaseEntry[];
+interface EcosystemReleasesData {
+  releases: EcosystemReleaseEntry[];
 }
 
 /**
@@ -31,7 +32,7 @@ interface SdkReleasesData {
  */
 interface SdkQuickstartDownloadProps {
   /**
-   * The `packageId` of the SDK package, as tracked in `sdk-releases.json` (e.g. `react`, `nextjs`, `express`).
+   * The `packageId` of the SDK package, as tracked in `ecosystem-releases.json` (e.g. `react`, `nextjs`, `express`).
    */
   packageId: string;
   /**
@@ -110,7 +111,7 @@ const Actions = styled('div')({
 
 /**
  * Renders up to two callouts above a quickstart: one offering the prewritten LLM prompt for the package,
- * and one linking to the latest quickstart sample archive, sourced from `/data/sdk-releases.json`. Each
+ * and one linking to the latest quickstart sample archive, sourced from `/data/ecosystem-releases.json`. Each
  * callout is omitted when its source is missing, and nothing renders when neither is available.
  */
 export default function SdkQuickstartDownload({
@@ -132,10 +133,10 @@ export default function SdkQuickstartDownload({
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(withBaseUrl('/data/sdk-releases.json'), {signal: controller.signal})
-      .then((r) => r.json() as Promise<SdkReleasesData>)
+    fetch(withBaseUrl('/data/ecosystem-releases.json'), {signal: controller.signal})
+      .then((r) => r.json() as Promise<EcosystemReleasesData>)
       .then((data) => {
-        const entry = data.releases?.find((release) => release.packageId === packageId);
+        const entry = data.releases?.find((release) => release.type === 'sdk' && release.packageId === packageId);
         const match = entry?.assets.find((a) => a.downloadUrl.endsWith('.zip'));
         if (!entry || !match) return;
         setPackageName(entry.packageName ?? '');

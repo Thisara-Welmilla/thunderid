@@ -41,7 +41,6 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/usermgtprovider"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/common"
-	"github.com/thunder-id/thunderid/pkg/thunderidengine/config"
 	engineconfig "github.com/thunder-id/thunderid/pkg/thunderidengine/config"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 )
@@ -201,7 +200,7 @@ func New(mux *http.ServeMux, opts ...Option) *Engine {
 	oauthConfig := oauthconfig.Config{
 		DeploymentID:               engineCtx.serverConfig.Identifier,
 		RuntimeTransientDBType:     engineCtx.runtimeTransientDBType,
-		BaseURL:                    config.GetServerURL(&engineCtx.serverConfig),
+		BaseURL:                    engineconfig.GetServerURL(&engineCtx.serverConfig),
 		JWT:                        engineCtx.jwtConfig,
 		OAuth:                      engineCtx.oauthConfig,
 		GateClient:                 engineCtx.gateClientConfig,
@@ -214,10 +213,11 @@ func New(mux *http.ServeMux, opts ...Option) *Engine {
 
 	engineCtx.dpopVerifier = dpop.Initialize(oauthConfig, jti.Initialize(engineCtx.runtimeStoreProvider),
 		engineCtx.runtimeCryptoSvc)
-	tokenFamilyRevocationTTL := time.Duration(engineCtx.oauthConfig.RefreshToken.ValidityPeriod) * time.Second
-	revocationEnforcer, revocationService := revocation.Initialize(engineCtx.jwtService,
-		engineCtx.observabilitySvc, tokenFamilyRevocationTTL,
-		engineCtx.oauthConfig.Revocation.TokenFamily.OnExplicitRevokeEnabled())
+	revocationEnforcer, revocationService, err := revocation.Initialize(oauthConfig, engineCtx.jwtService,
+		engineCtx.observabilitySvc)
+	if err != nil {
+		logger.Fatal(ctx, "Failed to initialize revocation service", log.Error(err))
+	}
 
 	// CORS origins come from the engine's static OriginConfig; unlike the full server there is no
 	// server-config store to back a dynamic matcher. An empty config leaves CORS disabled (matcher

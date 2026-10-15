@@ -22,6 +22,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/role"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	systemutils "github.com/thunder-id/thunderid/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/user"
 )
 
 // entityRef locates where an entity is provisioned: its entity type within the category, and the
@@ -134,6 +135,51 @@ func (p *provisioningExecutor) Execute(ctx *providers.NodeContext) (*providers.E
 		return execResp, nil
 	}
 
+	// A resolved user needs no provisioning. Checked before required inputs so the user is not
+	// prompted for attributes they already have. Registration flows still apply the existing-user
+	// rules.
+	if ctx.FlowType == providers.FlowTypeAuthentication {
+		if resolvedID := p.GetUserIDFromContext(ctx, execResp, p.authnProvider); resolvedID != "" {
+			logger.Debug(ctx.Context, "User already exists, skipping provisioning")
+			execResp.Status = providers.ExecComplete
+			return execResp, nil
+		}
+	}
+
+	// Unsettled linking candidates mean provisioning would duplicate one of those accounts. Checked
+	// before the registration shortcut below, so an account a failed verification signed in does not
+	// complete the registration.
+	if ctx.RuntimeData[common.RuntimeKeyLinkingCandidateUserIDs] != "" {
+		logger.Debug(ctx.Context, "Linking candidate was never verified, refusing to provision")
+		execResp.Status = providers.ExecFailure
+		execResp.Error = &ErrUnverifiedLinkingCandidate
+		return execResp, nil
+	}
+
+	// A federated identity resolves a user only through its recorded link, and no input can change
+	// which user that is, so registration applies the existing-user rules before prompting for
+	// attributes. A link is unique across OUs, so cross-OU provisioning cannot create a second user
+	// with it in another OU either.
+	if ctx.FlowType == providers.FlowTypeRegistration && federatedIdentityFrom(ctx) != nil {
+		if resolvedID := p.GetUserIDFromContext(ctx, execResp, p.authnProvider); resolvedID != "" {
+			logger.Debug(ctx.Context, "Federated identity is already linked to a user")
+			linkedElsewhere, err := p.isLinkedUserOutsideTargetOU(ctx, category, resolvedID)
+			if err != nil {
+				return nil, err
+			}
+			if linkedElsewhere {
+				execResp.Status = providers.ExecFailure
+				execResp.Error = &ErrFederatedIdentityAlreadyLinked
+			} else if isAllowRegistrationWithExistingUserRuntimeFlagSet(ctx) {
+				execResp.Status = providers.ExecComplete
+			} else {
+				execResp.Status = providers.ExecFailure
+				execResp.Error = errForEntityCategory(ErrEntityAlreadyExists, category)
+			}
+			return execResp, nil
+		}
+	}
+
 	// Authentication only auto-provisions the categories it can authenticate, and only when it
 	// marked the entity eligible.
 	if ctx.FlowType == providers.FlowTypeAuthentication && traitsFor(category).autoProvisionedAtAuthentication {
@@ -160,7 +206,29 @@ func (p *provisioningExecutor) Execute(ctx *providers.NodeContext) (*providers.E
 		return execResp, nil
 	}
 
-	return p.completeProvisioning(ctx, category, entityID, execResp, logger)
+	return p.completeProvisioning(ctx, category, entityID, execResp, logger), nil
+}
+
+// isLinkedUserOutsideTargetOU reports whether cross-OU provisioning targets an OU other than the one
+// the linked user is in, which is the only case where provisioning would need a second user with the
+// same link.
+func (p *provisioningExecutor) isLinkedUserOutsideTargetOU(ctx *providers.NodeContext,
+	category entitytype.TypeCategory, userID string) (bool, error) {
+	if !isCrossOUProvisioningAllowed(ctx) {
+		return false, nil
+	}
+	ref, err := p.getTargetEntityRef(ctx, category)
+	if err != nil {
+		return false, err
+	}
+	if ref.ouID == "" {
+		return false, nil
+	}
+	linkedUser, getErr := p.entityProvider.GetEntity(userID)
+	if getErr != nil {
+		return false, errors.New("failed to retrieve the linked user")
+	}
+	return linkedUser.OUID != ref.ouID, nil
 }
 
 // categoryFromMode maps the node's mode property onto the entity category it works on. A mode is
@@ -223,8 +291,8 @@ func (p *provisioningExecutor) prepareProvisioning(ctx *providers.NodeContext,
 }
 
 // resolveExistingEntity identifies an entity that already matches the provisioning attributes and
-// decides whether provisioning can still go ahead. A false return means execResp already carries
-// the outcome of the node.
+// decides whether provisioning can still go ahead. A user this execution already resolved is the
+// existing user. A false return means execResp already carries the outcome of the node.
 //
 // With no attributes to match on there is nothing to identify by, which is reachable whenever a
 // schema declares every attribute optional and none is supplied. Identification is skipped rather
@@ -233,6 +301,17 @@ func (p *provisioningExecutor) resolveExistingEntity(ctx *providers.NodeContext,
 	category entitytype.TypeCategory, identifyingAttrs map[string]interface{},
 	execResp *providers.ExecutorResponse, logger *log.Logger,
 ) (bool, error) {
+	if category == entitytype.TypeCategoryUser {
+		if resolvedID := p.GetUserIDFromContext(ctx, execResp, p.authnProvider); resolvedID != "" {
+			return p.handleExistingEntity(ctx, category, resolvedID, execResp, logger)
+		}
+		// A federated identity resolves an existing user only through its recorded link, so it is
+		// never matched on attributes.
+		if federatedIdentityFrom(ctx) != nil {
+			return true, nil
+		}
+	}
+
 	if len(identifyingAttrs) == 0 {
 		logger.Debug(ctx.Context, "No identifying attributes provided, skipping identification")
 		return true, nil
@@ -315,19 +394,19 @@ func (p *provisioningExecutor) createEntity(ctx *providers.NodeContext, category
 // authentication as the provisioned entity, and the runtime flags the rest of the flow reads.
 func (p *provisioningExecutor) completeProvisioning(ctx *providers.NodeContext,
 	category entitytype.TypeCategory, entityID string, execResp *providers.ExecutorResponse,
-	logger *log.Logger) (*providers.ExecutorResponse, error) {
+	logger *log.Logger) *providers.ExecutorResponse {
 	if err := p.assignGroupsAndRoles(ctx, category, entityID); err != nil {
 		logger.Error(ctx.Context, "Failed to assign groups and roles to the provisioned entity",
 			log.MaskedString(log.LoggerKeyEntityID, entityID),
 			log.Error(err))
 		execResp.Status = providers.ExecFailure
 		execResp.Error = errForEntityCategory(ErrProvisioningAssignmentFailed, category)
-		return execResp, nil
+		return execResp
 	}
 
 	p.authenticateProvisionedEntity(ctx, category, entityID, execResp)
 	if execResp.Status == providers.ExecFailure {
-		return execResp, nil
+		return execResp
 	}
 
 	execResp.Status = providers.ExecComplete
@@ -337,7 +416,7 @@ func (p *provisioningExecutor) completeProvisioning(ctx *providers.NodeContext,
 		execResp.RuntimeData[common.RuntimeKeyUserAutoProvisioned] = dataValueTrue
 	}
 
-	return execResp, nil
+	return execResp
 }
 
 // authenticateProvisionedEntity authenticates the newly provisioned entity and updates the
@@ -806,11 +885,16 @@ func (p *provisioningExecutor) createUserInStore(nodeCtx *providers.NodeContext,
 		return nil, errForEntityCategory(ErrProvisioningFailed, entitytype.TypeCategoryUser)
 	}
 
-	createdUser, svcErr := p.userMgtProvider.CreateUser(nodeCtx.Context, &providers.User{
+	user := &providers.User{
 		OUID:       targetRef.ouID,
 		Type:       targetRef.entityType,
 		Attributes: attributesJSON,
-	})
+	}
+	// The user service records a federated sign-in's link in the same write that creates the user.
+	if federated := federatedIdentityFrom(nodeCtx); federated != nil {
+		user.LinkedAccount = &providers.LinkedAccount{IdpID: federated.IdpID, Sub: federated.Sub}
+	}
+	createdUser, svcErr := p.userMgtProvider.CreateUser(nodeCtx.Context, user)
 	if svcErr != nil {
 		return nil, svcErr
 	}
@@ -822,9 +906,10 @@ func (p *provisioningExecutor) createUserInStore(nodeCtx *providers.NodeContext,
 	return createdUser, nil
 }
 
-// createAgentInStore provisions an agent through the agent management provider. Name, description,
-// logo and owner are columns on the agent record rather than schema attributes, and are forwarded
-// as collected: the agent service owns their validation.
+// createAgentInStore provisions an agent through the agent management provider. Description, logo
+// and owner are carried on the agent record rather than as schema attributes, and are forwarded as
+// collected: the agent service owns their validation. The name is a schema attribute and travels
+// with the other attributes.
 func (p *provisioningExecutor) createAgentInStore(nodeCtx *providers.NodeContext,
 	agentAttributes map[string]interface{}) (*providers.Agent, *tidcommon.ServiceError) {
 	logger := p.logger.With(log.String(log.LoggerKeyExecutionID, nodeCtx.ExecutionID))
@@ -850,7 +935,6 @@ func (p *provisioningExecutor) createAgentInStore(nodeCtx *providers.NodeContext
 	agent := &providers.Agent{
 		OUID:        targetRef.ouID,
 		Type:        targetRef.entityType,
-		Name:        collectedValue(nodeCtx, nameKey),
 		Description: collectedValue(nodeCtx, descriptionKey),
 		LogoURL:     collectedValue(nodeCtx, logoURLKey),
 		Owner:       nodeCtx.RuntimeData[ownerIDKey],
@@ -951,6 +1035,9 @@ func (p *provisioningExecutor) handleCreateEntityError(
 	}
 	if svcErr.Code == traitsFor(category).attributeConflictCode {
 		return errForEntityCategory(ErrProvisioningAttributeConflict, category)
+	}
+	if svcErr.Code == user.ErrorLinkedAccountConflict.Code {
+		return &ErrFederatedIdentityAlreadyLinked
 	}
 	logger.Error(ctx.Context, "Failed to create the entity in the store",
 		log.String("errorCode", svcErr.Code), log.String("message", svcErr.Error.DefaultValue))

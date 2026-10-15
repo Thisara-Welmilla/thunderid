@@ -66,7 +66,7 @@ func testEntity(id string) *providers.Entity {
 }
 
 func (s *ServiceTestSuite) TestCreateEntity_NilEntity() {
-	_, err := s.svc.CreateEntity(s.ctx, nil, nil)
+	_, err := s.svc.CreateEntity(s.ctx, nil, nil, nil)
 	s.ErrorIs(err, ErrEntityNotFound)
 }
 
@@ -74,7 +74,7 @@ func (s *ServiceTestSuite) TestCreateEntity_StoreCreateFails() {
 	e := testEntity("e1")
 	s.store.On("CreateEntity", mock.Anything, *e, json.RawMessage(nil), json.RawMessage(nil)).
 		Return(s.testErr)
-	_, err := s.svc.CreateEntity(s.ctx, e, nil)
+	_, err := s.svc.CreateEntity(s.ctx, e, nil, nil)
 	s.Error(err)
 }
 
@@ -83,7 +83,7 @@ func (s *ServiceTestSuite) TestCreateEntity_GetAfterCreateFails() {
 	s.store.On("CreateEntity", mock.Anything, *e, json.RawMessage(nil), json.RawMessage(nil)).
 		Return(nil)
 	s.store.On("GetEntity", mock.Anything, e.ID).Return(providers.Entity{}, s.testErr)
-	_, err := s.svc.CreateEntity(s.ctx, e, nil)
+	_, err := s.svc.CreateEntity(s.ctx, e, nil, nil)
 	s.Error(err)
 }
 
@@ -92,9 +92,47 @@ func (s *ServiceTestSuite) TestCreateEntity_Success() {
 	s.store.On("CreateEntity", mock.Anything, *e, json.RawMessage(nil), json.RawMessage(nil)).
 		Return(nil)
 	s.store.On("GetEntity", mock.Anything, e.ID).Return(*e, nil)
-	got, err := s.svc.CreateEntity(s.ctx, e, nil)
+	got, err := s.svc.CreateEntity(s.ctx, e, nil, nil)
 	s.NoError(err)
 	s.Equal(e.ID, got.ID)
+}
+
+// A new entity linked to a subject another entity holds is refused before anything is written, and
+// a subject nobody holds is written as the entity's linkedIds.
+func (s *ServiceTestSuite) TestCreateEntity_LinkedAccount() {
+	other := "someone-else"
+	for name, tc := range map[string]struct {
+		holder  *string
+		lookErr error
+		wantErr error
+	}{
+		"free":      {lookErr: ErrEntityNotFound},
+		"held":      {holder: &other, wantErr: ErrLinkedAccountConflict},
+		"ambiguous": {lookErr: ErrAmbiguousEntity, wantErr: ErrLinkedAccountConflict},
+	} {
+		s.Run(name, func() {
+			s.SetupTest()
+			e := testEntity("e-linked")
+			s.store.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").
+				Return(tc.holder, tc.lookErr).Once()
+			if tc.wantErr == nil {
+				s.store.On("CreateEntity", mock.Anything, mock.MatchedBy(func(got providers.Entity) bool {
+					return string(got.SystemAttributes) == `{"linkedIds":{"idp-a":{"sub-1":{}}}}`
+				}), json.RawMessage(nil), json.RawMessage(nil)).Return(nil).Once()
+				s.store.On("GetEntity", mock.Anything, e.ID).Return(*e, nil).Once()
+			}
+
+			_, err := s.svc.CreateEntity(s.ctx, e, nil, &providers.LinkedAccount{IdpID: "idp-a", Sub: "sub-1"})
+
+			if tc.wantErr == nil {
+				s.NoError(err)
+				return
+			}
+			s.ErrorIs(err, tc.wantErr)
+			s.store.AssertNotCalled(s.T(), "CreateEntity", mock.Anything, mock.Anything, mock.Anything,
+				mock.Anything)
+		})
+	}
 }
 
 func (s *ServiceTestSuite) TestGetEntity_Success() {
@@ -289,7 +327,7 @@ func (s *ServiceTestSuite) TestUpdateSystemCredentials_Delegates() {
 	existingEntity := testEntity("e1")
 	s.store.On("GetEntityWithCredentials", mock.Anything, "e1").
 		Return(&entityWithCredentials{Entity: existingEntity, SchemaCredentials: nil, SystemCredentials: nil}, nil)
-	s.store.On("UpdateSystemCredentials", mock.Anything, "e1", mock.AnythingOfType("json.RawMessage")).Return(nil)
+	s.store.On("UpdateSystemCredentials", mock.Anything, "e1", mock.IsType(json.RawMessage(nil))).Return(nil)
 	s.NoError(s.svc.UpdateSystemCredentials(s.ctx, "e1", creds))
 }
 
@@ -303,10 +341,10 @@ func (s *ServiceTestSuite) TestUpdateCredentials_StampsCredentialMarkerPreservin
 	s.store.On("GetEntityWithCredentials", mock.Anything, e.ID).
 		Return(&entityWithCredentials{Entity: e}, nil)
 	s.store.On("LockEntity", mock.Anything, e.ID).Return(*e, nil)
-	s.store.On("UpdateCredentials", mock.Anything, e.ID, mock.AnythingOfType("json.RawMessage")).Return(nil)
+	s.store.On("UpdateCredentials", mock.Anything, e.ID, mock.IsType(json.RawMessage(nil))).Return(nil)
 
 	var written json.RawMessage
-	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.AnythingOfType("json.RawMessage")).
+	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.IsType(json.RawMessage(nil))).
 		Run(func(args mock.Arguments) {
 			written, _ = args.Get(2).(json.RawMessage)
 		}).Return(nil)
@@ -324,16 +362,16 @@ func (s *ServiceTestSuite) TestUpdateSystemCredentials_StampsOnClientSecretRotat
 	e := testEntity("e-cs")
 	s.store.On("GetEntityWithCredentials", mock.Anything, e.ID).
 		Return(&entityWithCredentials{Entity: e}, nil)
-	s.store.On("UpdateSystemCredentials", mock.Anything, e.ID, mock.AnythingOfType("json.RawMessage")).
+	s.store.On("UpdateSystemCredentials", mock.Anything, e.ID, mock.IsType(json.RawMessage(nil))).
 		Return(nil)
 	s.store.On("LockEntity", mock.Anything, e.ID).Return(*e, nil)
-	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.AnythingOfType("json.RawMessage")).
+	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.IsType(json.RawMessage(nil))).
 		Return(nil)
 
 	s.NoError(s.svc.UpdateSystemCredentials(s.ctx, e.ID, json.RawMessage(`{"clientSecret":"rotated"}`)))
 
 	s.store.AssertCalled(s.T(), "UpdateSystemAttributes", mock.Anything, e.ID,
-		mock.AnythingOfType("json.RawMessage"))
+		mock.IsType(json.RawMessage(nil)))
 }
 
 // Enrolling a passkey adds an authentication option rather than replacing one, so it must not
@@ -344,13 +382,13 @@ func (s *ServiceTestSuite) TestUpdateSystemCredentials_NoStampForOtherCredential
 		e := testEntity("e-other")
 		s.store.On("GetEntityWithCredentials", mock.Anything, e.ID).
 			Return(&entityWithCredentials{Entity: e}, nil).Once()
-		s.store.On("UpdateSystemCredentials", mock.Anything, e.ID, mock.AnythingOfType("json.RawMessage")).
+		s.store.On("UpdateSystemCredentials", mock.Anything, e.ID, mock.IsType(json.RawMessage(nil))).
 			Return(nil).Once()
 
 		s.NoError(s.svc.UpdateSystemCredentials(s.ctx, e.ID, json.RawMessage(creds)))
 
 		s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, e.ID,
-			mock.AnythingOfType("json.RawMessage"))
+			mock.IsType(json.RawMessage(nil)))
 	}
 }
 
@@ -723,7 +761,7 @@ func (s *ServiceTestSuite) TestUpdateSystemAttributes_PreservesCredentialMarker(
 	s.store.On("LockEntity", mock.Anything, e.ID).Return(*e, nil)
 
 	var written json.RawMessage
-	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.AnythingOfType("json.RawMessage")).
+	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.IsType(json.RawMessage(nil))).
 		Run(func(args mock.Arguments) { written, _ = args.Get(2).(json.RawMessage) }).Return(nil)
 
 	s.NoError(s.svc.UpdateSystemAttributes(s.ctx, e.ID, json.RawMessage(`{"name":"New"}`)))
@@ -892,6 +930,35 @@ func (s *ServiceTestSuite) TestLinkAccount_RecordsLink() {
 	s.NoError(s.svc.LinkAccount(s.ctx, e.ID, "idp-a", "sub-1"))
 	s.JSONEq(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`, string(written))
 	s.store.AssertNotCalled(s.T(), "GetEntity", mock.Anything, mock.Anything)
+}
+
+// linkedIds a caller writes into the system attributes are dropped, so a link is created only through
+// the typed link and its conflict check.
+func (s *ServiceTestSuite) TestCreateEntity_CallerLinkedIDsDropped() {
+	e := testEntity("e-raw-links")
+	e.SystemAttributes = json.RawMessage(`{"name":"x","linkedIds":{"idp-a":{"sub-1":{}}}}`)
+	s.store.On("CreateEntity", mock.Anything, mock.MatchedBy(func(got providers.Entity) bool {
+		return string(got.SystemAttributes) == `{"name":"x"}`
+	}), json.RawMessage(nil), json.RawMessage(nil)).Return(nil).Once()
+	s.store.On("GetEntity", mock.Anything, e.ID).Return(*e, nil).Once()
+
+	_, err := s.svc.CreateEntity(s.ctx, e, nil, nil)
+	s.NoError(err)
+	s.store.AssertNotCalled(s.T(), "ResolveLinkedAccount", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A link missing its connection or subject names nothing, so the create is refused before anything
+// is looked up or written.
+func (s *ServiceTestSuite) TestCreateEntity_IncompleteLinkRejected() {
+	for name, link := range map[string]providers.LinkedAccount{
+		"no connection": {Sub: "sub-1"},
+		"no subject":    {IdpID: "idp-a"},
+	} {
+		s.Run(name, func() {
+			_, err := s.svc.CreateEntity(s.ctx, testEntity("e-linked"), nil, &link)
+			s.ErrorIs(err, ErrBadAttributesInRequest)
+		})
+	}
 }
 
 func (s *ServiceTestSuite) TestLinkAccount_AddsSecondConnection() {
@@ -1074,7 +1141,7 @@ func (s *ServiceTestSuite) TestUpdateSystemAttributes_NoMarkerPassesThrough() {
 	s.store.On("LockEntity", mock.Anything, e.ID).Return(*e, nil)
 
 	var written json.RawMessage
-	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.AnythingOfType("json.RawMessage")).
+	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.IsType(json.RawMessage(nil))).
 		Run(func(args mock.Arguments) { written, _ = args.Get(2).(json.RawMessage) }).Return(nil)
 
 	s.NoError(s.svc.UpdateSystemAttributes(s.ctx, e.ID, json.RawMessage(`{"name":"New"}`)))
@@ -1096,7 +1163,7 @@ func (s *ServiceTestSuite) TestCreateEntity_TooManyIndexedValuesRejectedBeforeSc
 	e := testEntity("e1")
 	e.Attributes = emailArrayAttrs(maxIndexedValuesPerAttribute + 1)
 
-	_, err := svc.CreateEntity(s.ctx, e, nil)
+	_, err := svc.CreateEntity(s.ctx, e, nil, nil)
 	s.ErrorIs(err, ErrSchemaValidationFailed)
 	s.ErrorIs(err, ErrIndexedValueLimitExceeded)
 }
@@ -1106,7 +1173,7 @@ func (s *ServiceTestSuite) TestCreateEntity_TooManyIndexedSystemValuesRejected()
 	e := testEntity("e1")
 	e.SystemAttributes = emailArrayAttrs(maxIndexedValuesPerAttribute + 1)
 
-	_, err := svc.CreateEntity(s.ctx, e, nil)
+	_, err := svc.CreateEntity(s.ctx, e, nil, nil)
 	s.ErrorIs(err, ErrIndexedValueLimitExceeded)
 }
 
@@ -1123,7 +1190,7 @@ func (s *ServiceTestSuite) TestUpdateSystemAttributes_ValuesAtLimitAccepted() {
 	svc, store := s.newServiceWithIndexedEmail()
 	attrs := emailArrayAttrs(maxIndexedValuesPerAttribute)
 	store.On("LockEntity", mock.Anything, "e1").Return(*testEntity("e1"), nil)
-	store.On("UpdateSystemAttributes", mock.Anything, "e1", mock.AnythingOfType("json.RawMessage")).Return(nil)
+	store.On("UpdateSystemAttributes", mock.Anything, "e1", mock.IsType(json.RawMessage(nil))).Return(nil)
 
 	s.NoError(svc.UpdateSystemAttributes(s.ctx, "e1", attrs))
 }

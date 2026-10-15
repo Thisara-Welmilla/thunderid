@@ -344,3 +344,103 @@ func (ts *MCPTestSuite) TestInitialize_NoToken_Rejected() {
 
 	ts.Assert().Equal(http.StatusUnauthorized, resp.StatusCode)
 }
+
+const (
+	appRevocationClientID    = "mcp-app-revocation-client"
+	appRevocationRedirectURI = "https://localhost:3000/mcp-app-revocation/callback"
+
+	applicationDeletionFlowHandle = "default-application-deletion-flow"
+	administrationFlowType        = "ADMINISTRATION"
+)
+
+// A token issued through an application is rejected at /mcp once that application is deleted, as it is
+// at the REST gate. Deletion revokes the application's OAuth client, so the token's subject is still
+// valid and only the client check refuses it.
+func (ts *MCPTestSuite) TestInitialize_DeletedApplicationToken_Rejected() {
+	appID, err := testutils.CreateApplication(testutils.Application{
+		Name:        "MCP App Revocation Test App",
+		Description: "Application whose token is used at /mcp before and after deletion",
+		OUID:        ts.ouID,
+		Type:        "fullstack",
+		InboundAuthConfig: []map[string]interface{}{
+			{
+				"type": "oauth2",
+				"config": map[string]interface{}{
+					"clientId":                appRevocationClientID,
+					"redirectUris":            []string{appRevocationRedirectURI},
+					"grantTypes":              []string{"authorization_code"},
+					"responseTypes":           []string{"code"},
+					"tokenEndpointAuthMethod": "none",
+					"publicClient":            true,
+					"pkceRequired":            true,
+				},
+			},
+		},
+	})
+	ts.Require().NoError(err, "failed to create application")
+	deleted := false
+	defer func() {
+		if !deleted {
+			_ = testutils.DeleteApplication(appID)
+		}
+	}()
+
+	tokenResp, err := testutils.ObtainAccessTokenWithPassword(appRevocationClientID, appRevocationRedirectURI,
+		"system", testutils.AdminUsername, testutils.AdminPassword, true, "", mcpResourceIdentifier)
+	ts.Require().NoError(err, "failed to obtain a token through the application")
+	token := tokenResp.AccessToken
+
+	resp := ts.initializeMCPSession(token)
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	ts.Require().Equalf(http.StatusOK, resp.StatusCode, "the token must work before deletion: %s", string(body))
+	ts.Require().Equal(http.StatusOK, ts.restStatus(token), "the token must work at REST before deletion")
+
+	ts.runApplicationDeletionFlow(appID)
+	deleted = true
+
+	ts.Require().Eventually(func() bool {
+		resp := ts.initializeMCPSession(token)
+		defer resp.Body.Close()
+		return resp.StatusCode == http.StatusUnauthorized
+	}, 5*time.Second, 250*time.Millisecond,
+		"a token of a deleted application must be rejected at /mcp once the revocation cache has synced")
+	ts.Equal(http.StatusUnauthorized, ts.restStatus(token),
+		"the REST gate must reject the same token")
+}
+
+// restStatus calls a REST endpoint the "system" scope permits with the token.
+func (ts *MCPTestSuite) restStatus(token string) int {
+	req, err := http.NewRequest(http.MethodGet, testServerURL+"/organization-units/"+ts.ouID, nil)
+	ts.Require().NoError(err)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := ts.client.Do(req)
+	ts.Require().NoError(err)
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode
+}
+
+// runApplicationDeletionFlow deletes the application through the shipped deletion flow, which revokes
+// its OAuth client before removing the record.
+func (ts *MCPTestSuite) runApplicationDeletionFlow(appID string) {
+	flowID, err := testutils.GetFlowIDByHandle(applicationDeletionFlowHandle, administrationFlowType)
+	ts.Require().NoError(err, "failed to resolve the application deletion flow")
+
+	adminToken, err := testutils.GetAccessToken()
+	ts.Require().NoError(err, "failed to obtain the admin token")
+
+	reqBody := `{"flowId":"` + flowID + `","inputs":{"targetApplicationId":"` + appID + `"}}`
+	req, err := http.NewRequest(http.MethodPost, testServerURL+"/flow/execute", bytes.NewBufferString(reqBody))
+	ts.Require().NoError(err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+
+	resp, err := ts.client.Do(req)
+	ts.Require().NoError(err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	ts.Require().Equalf(http.StatusOK, resp.StatusCode, "deletion flow failed: %s", string(body))
+	ts.Require().Containsf(string(body), `"COMPLETE"`, "deletion flow must complete: %s", string(body))
+}

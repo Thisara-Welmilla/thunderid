@@ -13,9 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/thunder-id/thunderid/internal/system/cmodels"
 	"github.com/thunder-id/thunderid/internal/system/config"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/export"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
@@ -29,6 +31,10 @@ const minHashPrefix = 7
 
 // hashPrefix is what a version's hash, or a prefix of it, looks like.
 var hashPrefix = regexp.MustCompile(`^[0-9a-f]{` + strconv.Itoa(minHashPrefix) + `,64}$`)
+
+// currentVersion names the configuration as it stands, read but not captured. Only a read of one
+// version takes it: an apply, a revert and a diff need a version that was kept.
+const currentVersion = "current"
 
 // VersionServiceInterface captures this deployment's configuration as versions and applies them to
 // the gateways it administers.
@@ -102,7 +108,7 @@ func (l *gatewayLocks) lock(gatewayID string) func() {
 }
 
 func newVersionService(gateways storeInterface, versions versionStoreInterface,
-	exporter export.ExportServiceInterface, client gatewayClientInterface) VersionServiceInterface {
+	exporter export.ExportServiceInterface, client gatewayClientInterface) *versionService {
 	return &versionService{
 		gateways: gateways,
 		versions: versions,
@@ -130,8 +136,7 @@ func configurationExport() *export.ExportRequest {
 		Users: all, Groups: all,
 		OrganizationUnits: all, ResourceServers: all, Roles: all, Flows: all, Translations: all,
 		Layouts: all, Themes: all, ServerConfigs: all, CredentialConfigurations: all,
-		PresentationDefinitions: all,
-		Options:                 &export.ExportOptions{IncludeDependencies: true, Format: "yaml"},
+		PresentationDefinitions: all, Options: &export.ExportOptions{IncludeDependencies: true, Format: "yaml"},
 	}
 }
 
@@ -143,7 +148,7 @@ func (s *versionService) Capture(ctx context.Context, req CaptureRequest) (*Vers
 	// A resource the export could not write, such as a user without a username, is left out of the
 	// version as the export leaves it out of its own answer, and is named in the capture's answer so
 	// the administrator sees what the version is missing.
-	var skipped []export.ExportError
+	var skipped []declarativeresource.ExportError
 	if exported.Summary != nil {
 		skipped = exported.Summary.Errors
 	}
@@ -153,10 +158,7 @@ func (s *versionService) Capture(ctx context.Context, req CaptureRequest) (*Vers
 			log.String("error", failed.Error))
 	}
 
-	documents := make([]string, 0, len(exported.Files))
-	for _, file := range exported.Files {
-		documents = append(documents, strings.TrimSpace(file.Content))
-	}
+	documents := documentsOf(exported)
 
 	sealed := ""
 	if exported.EnvFile != nil {
@@ -231,7 +233,42 @@ func (s *versionService) ListVersions(ctx context.Context) ([]Version, *tidcommo
 }
 
 func (s *versionService) GetVersion(ctx context.Context, ref string) (*Version, *tidcommon.ServiceError) {
-	return s.resolve(ctx, ref)
+	if strings.TrimSpace(ref) == currentVersion {
+		return s.current(ctx)
+	}
+	version, svcErr := s.resolve(ctx, ref)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	read := *version
+	read.References = referencesOf(version.Resources)
+	return &read, nil
+}
+
+// current reads the configuration as it stands, the way a capture reads it, without keeping it. Its
+// references say what each value is for as soon as a resource is written, before any capture, and its
+// hash is the one a capture would give it.
+func (s *versionService) current(ctx context.Context) (*Version, *tidcommon.ServiceError) {
+	exported, svcErr := s.exporter.ExportResources(ctx, configurationExport())
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	content := joinBundle(documentsOf(exported))
+	version := &Version{Hash: versionHash(content), CreatedAt: time.Now().UTC(), Resources: content,
+		References: referencesOf(content)}
+	if exported.Summary != nil {
+		version.Skipped = exported.Summary.Errors
+	}
+	return version, nil
+}
+
+// documentsOf returns each file an export wrote as one document.
+func documentsOf(exported *export.ExportResponse) []string {
+	documents := make([]string, 0, len(exported.Files))
+	for _, file := range exported.Files {
+		documents = append(documents, strings.TrimSpace(file.Content))
+	}
+	return documents
 }
 
 // resolve reads the version a reference names: its hash, a prefix of at least minHashPrefix of its
@@ -523,6 +560,9 @@ func (s *versionService) missingValues(ctx context.Context, gw *Gateway, key str
 		s.logger.Error(ctx, "Failed to read which values a gateway holds", log.String("gatewayId", gw.ID),
 			log.Error(err))
 		return nil, &ErrorGatewayUnreachable
+	}
+	if !missing.empty() {
+		missing.References = referencesTo(content, missing)
 	}
 	return missing, nil
 }

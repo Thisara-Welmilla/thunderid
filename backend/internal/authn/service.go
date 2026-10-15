@@ -26,6 +26,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/authn/passkey"
 	authnprovidercm "github.com/thunder-id/thunderid/internal/authnprovider/common"
 	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
+	"github.com/thunder-id/thunderid/internal/entitytype"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/notification"
 	notifcommon "github.com/thunder-id/thunderid/internal/notification/common"
@@ -101,6 +102,7 @@ type authenticationService struct {
 	oidcService            oidc.OIDCAuthnServiceInterface
 	googleService          google.GoogleOIDCAuthnServiceInterface
 	githubService          github.GithubOAuthAuthnServiceInterface
+	entityTypeService      entitytype.EntityTypeServiceInterface
 }
 
 // newAuthenticationService creates a new instance of AuthenticationService.
@@ -117,6 +119,7 @@ func newAuthenticationService(
 	oidcAuthnSvc oidc.OIDCAuthnServiceInterface,
 	googleAuthnSvc google.GoogleOIDCAuthnServiceInterface,
 	githubAuthnSvc github.GithubOAuthAuthnServiceInterface,
+	entityTypeSvc entitytype.EntityTypeServiceInterface,
 ) AuthenticationServiceInterface {
 	return &authenticationService{
 		idpService:             idpSvc,
@@ -131,6 +134,7 @@ func newAuthenticationService(
 		oidcService:            oidcAuthnSvc,
 		googleService:          googleAuthnSvc,
 		githubService:          githubAuthnSvc,
+		entityTypeService:      entityTypeSvc,
 	}
 }
 
@@ -191,6 +195,7 @@ func (as *authenticationService) AuthenticateWithCredentials(ctx context.Context
 
 		authenticatedUser := &providers.Entity{
 			ID:         entityRef.EntityID,
+			Category:   providers.EntityCategory(entityRef.EntityCategory),
 			Type:       entityRef.EntityType,
 			OUID:       entityRef.OUID,
 			Attributes: authUserAttributesJSON,
@@ -287,6 +292,7 @@ func (as *authenticationService) VerifyOTP(ctx context.Context, sessionToken str
 	if !skipAssertion {
 		userForAssertion := &providers.Entity{
 			ID:         entityRef.EntityID,
+			Category:   providers.EntityCategory(entityRef.EntityCategory),
 			Type:       entityRef.EntityType,
 			OUID:       entityRef.OUID,
 			Attributes: nil, // Attributes not needed for assertion generation in OTP flow
@@ -405,15 +411,18 @@ func (as *authenticationService) FinishIDPAuthentication(ctx context.Context, re
 		return nil, as.mapFederatedAuthnError(ctx, svcErr, logger)
 	}
 
+	// This API has no flow to verify an account before linking it, so only a recorded link signs a
+	// federated identity in here. One without a link resolves to nobody and fails.
 	_, entityRef, svcErr := as.authnProvider.GetEntityReference(ctx, authUser)
 	if svcErr != nil {
-		return nil, as.mapCredentialsGetAttributesError(ctx, svcErr, logger)
+		return nil, as.mapFederatedAuthnError(ctx, svcErr, logger)
 	}
 
 	user := &providers.Entity{
-		ID:   entityRef.EntityID,
-		Type: entityRef.EntityType,
-		OUID: entityRef.OUID,
+		ID:       entityRef.EntityID,
+		Category: providers.EntityCategory(entityRef.EntityCategory),
+		Type:     entityRef.EntityType,
+		OUID:     entityRef.OUID,
 	}
 
 	authResponse := &common.AuthenticationResponse{
@@ -481,8 +490,16 @@ func (as *authenticationService) validateAndAppendAuthAssertion(
 
 	// Prepare JWT claims
 	jwtClaims := make(map[string]interface{})
-	if user.Type != "" {
-		jwtClaims["userType"] = user.Type
+	// User type claims apply only to users.
+	if user.Type != "" && user.Category == providers.EntityCategoryUser {
+		displayName, svcErr := as.resolveUserTypeDisplayName(ctx, user.Type, logger)
+		if svcErr != nil {
+			return svcErr
+		}
+		jwtClaims[oauth2const.ClaimUserTypeHandle] = user.Type
+		if displayName != "" {
+			jwtClaims[oauth2const.ClaimUserTypeName] = displayName
+		}
 	}
 	if user.OUID != "" {
 		jwtClaims["ouId"] = user.OUID
@@ -510,6 +527,21 @@ func (as *authenticationService) validateAndAppendAuthAssertion(
 
 	authResponse.Assertion = token
 	return nil
+}
+
+// resolveUserTypeDisplayName resolves the display name of a user type from its handle.
+func (as *authenticationService) resolveUserTypeDisplayName(ctx context.Context, handle string,
+	logger *log.Logger) (string, *tidcommon.ServiceError) {
+	entityType, svcErr := as.entityTypeService.GetEntityTypeByHandle(ctx, entitytype.TypeCategoryUser, handle)
+	if svcErr != nil {
+		logger.Error(ctx, "Failed to fetch entity type details", log.String("handle", handle),
+			log.String("error", svcErr.ErrorDescription.DefaultValue))
+		return "", &tidcommon.InternalServerError
+	}
+	if entityType == nil {
+		return "", nil
+	}
+	return entityType.DisplayName, nil
 }
 
 // getAssertionResult generates or updates an assertion result based on existing context.
@@ -613,11 +645,10 @@ func (as *authenticationService) verifyAssertionSubject(ctx context.Context, ass
 func (as *authenticationService) mapFederatedAuthnError(ctx context.Context, svcErr *tidcommon.ServiceError,
 	logger *log.Logger) *tidcommon.ServiceError {
 	switch svcErr.Code {
-	case authnprovidermgr.ErrorAuthenticationFailed.Code:
-		return &ErrorFederatedAuthenticationFailed
-	case authnprovidermgr.ErrorUserNotFound.Code:
-		return &ErrorFederatedAuthenticationFailed
-	case authnprovidermgr.ErrorInvalidRequest.Code:
+	// Ambiguity here means more than one user holds a recorded link to the same federated subject.
+	case authnprovidermgr.ErrorAuthenticationFailed.Code, authnprovidermgr.ErrorUserNotFound.Code,
+		authnprovidermgr.ErrorAmbiguousUser.Code, authnprovidermgr.ErrorInvalidRequest.Code,
+		authnprovidermgr.ErrorGetEntityReferenceClientError.Code:
 		return &ErrorFederatedAuthenticationFailed
 	default:
 		logger.Error(ctx, "Error occurred while performing federated authentication",
@@ -901,9 +932,10 @@ func (as *authenticationService) buildPasskeyAuthenticationResponse(ctx context.
 	}
 
 	userForAssertion := &providers.Entity{
-		ID:   entityRef.EntityID,
-		Type: entityRef.EntityType,
-		OUID: entityRef.OUID,
+		ID:       entityRef.EntityID,
+		Category: providers.EntityCategory(entityRef.EntityCategory),
+		Type:     entityRef.EntityType,
+		OUID:     entityRef.OUID,
 	}
 	if svcErr := as.validateAndAppendAuthAssertion(ctx, authResponse, userForAssertion,
 		common.AuthenticatorPasskey, existingAssertion, logger); svcErr != nil {

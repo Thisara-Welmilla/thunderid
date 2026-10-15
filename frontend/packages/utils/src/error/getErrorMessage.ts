@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type {ApiError} from '@thunderid/types';
+import type {FlowExecutionError} from '../flow/administrationFlow';
 
 /**
  * A minimal subset of the i18next TFunction interface used by {@link getErrorMessage}.
@@ -15,6 +16,9 @@ type TranslateFn = (key: string, options?: Record<string, unknown>) => string;
  * caller's own namespace (e.g. `errors.APP-1020`), then against the shared `common` namespace (e.g.
  * `common:errors.SSE-4030`) for codes that are shared across services rather than owned by one feature. If
  * neither resolves, falls back to the provided generic key.
+ *
+ * A refused administration flow step is resolved the same way from the code the thrown error carries,
+ * with the step's params interpolated into the message.
  *
  * @param error - The error thrown by the mutation
  * @param t - The i18next translation function scoped to the relevant namespace. Must forward an explicit `ns:`
@@ -47,6 +51,17 @@ export default function getErrorMessage(
     if (specific) {
       return specific;
     }
+  } else {
+    const flowError = flowErrorOf(error);
+
+    if (flowError?.code) {
+      const options = {...(flowError.message?.params ?? flowError.description?.params), defaultValue: ''};
+      const specific = t(`errors.${flowError.code}`, options) || t(`common:errors.${flowError.code}`, options);
+
+      if (specific) {
+        return specific;
+      }
+    }
   }
 
   if (fallbackDefaultValue !== undefined) {
@@ -54,4 +69,18 @@ export default function getErrorMessage(
   }
 
   return t(fallbackKey);
+}
+
+/**
+ * Reads the step error a failed flow reports on the thrown error, as `FlowExecutionFailure` and the embedded
+ * create flows both do. An axios transport error also carries a `code` (e.g. `ERR_NETWORK`), which is not one.
+ */
+function flowErrorOf(error: Error): FlowExecutionError | undefined {
+  const candidate = error as Error & {code?: string; error?: FlowExecutionError; isAxiosError?: boolean};
+
+  if (candidate.isAxiosError) {
+    return undefined;
+  }
+
+  return {...candidate.error, code: candidate.code ?? candidate.error?.code};
 }

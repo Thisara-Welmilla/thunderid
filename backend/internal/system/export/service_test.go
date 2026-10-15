@@ -81,6 +81,8 @@ func (suite *ExportServiceTestSuite) SetupTest() {
 	_ = config.InitializeServerRuntime(tempDir, testConfig)
 
 	suite.appServiceMock = applicationmock.NewApplicationServiceInterfaceMock(suite.T())
+	suite.appServiceMock.EXPECT().ExportSharingPolicies(mock.Anything, mock.Anything).
+		Return(nil, nil).Maybe()
 	suite.idpServiceMock = idpmock.NewIDPServiceInterfaceMock(suite.T())
 	suite.mockNotificationService = notificationmock.NewNotificationSenderMgtSvcInterfaceMock(suite.T())
 	suite.mockEntityTypeService = entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
@@ -280,6 +282,18 @@ func (suite *ExportServiceTestSuite) TestExportResources_CompleteOAuthApplicatio
 
 	assert.Equal(suite.T(), 1, result.Summary.ResourceTypes["application"])
 	assert.Equal(suite.T(), int64(len(file.Content)), file.Size)
+}
+
+// A list the resource does not have is still a range in its document, so the .env gives it as an
+// empty list an import can range over rather than as no value.
+func (suite *ExportServiceTestSuite) TestGenerateEnvFile_AbsentListIsAnEmptyList() {
+	envFile := (&exportService{}).generateEnvFile([]ExportFile{{Content: "clientId: {{.APP_CLIENT_ID}}\n" +
+		"redirectUris:\n{{- range .APP_REDIRECT_URIS}}\n  - {{.}}\n{{- end}}\n" +
+		"scopes:\n{{- range .APP_SCOPES}}\n  - {{.}}\n{{- end}}\n"}},
+		map[string]string{"APP_SCOPES": `["openid"]`})
+
+	suite.Require().NotNil(envFile)
+	suite.Equal("APP_CLIENT_ID=\nAPP_REDIRECT_URIS=[]\nAPP_SCOPES=[\"openid\"]\n", envFile.Content)
 }
 
 // TestExportResources_HyphenatedApplicationName tests that a resource name containing a hyphen
@@ -1373,10 +1387,11 @@ func (suite *ExportServiceTestSuite) TestExportResources_WithGroupByTypeStructur
 	appFiles := 0
 	idpFiles := 0
 	for _, file := range result.Files {
-		if file.ResourceType == "application" {
+		switch file.ResourceType {
+		case "application":
 			assert.Equal(suite.T(), "applications", file.FolderPath)
 			appFiles++
-		} else if file.ResourceType == "connection" {
+		case "connection":
 			assert.Equal(suite.T(), "connections", file.FolderPath)
 			idpFiles++
 		}

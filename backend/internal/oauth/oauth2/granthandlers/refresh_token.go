@@ -114,9 +114,10 @@ func (h *refreshTokenGrantHandler) resolveRefreshToken(ctx context.Context,
 				ErrorDescription: "Token revocation status could not be verified",
 			}
 		}
-		// A revoked (already-rotated) refresh token presented again is a replay signal: revoke
-		// the whole token family so the attacker's freshly rotated tokens die too (RFC 9700 §4.14.2).
-		if errors.Is(err, revocation.ErrTokenRevoked) {
+		// Only the token's own jti on the deny list (an already-rotated token presented again) is a
+		// replay signal: revoke the whole token family so the attacker's freshly rotated tokens die too
+		// (RFC 9700 §4.14.2). A criteria hit, such as a lost scope, is not reuse and only rejects.
+		if errors.Is(err, revocation.ErrTokenIDRevoked) {
 			h.revokeTokenFamilyOnReplay(ctx, tokenRequest.RefreshToken, logger)
 		}
 		return nil, &model.ErrorResponse{

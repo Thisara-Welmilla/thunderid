@@ -117,11 +117,7 @@ export default function UserDeleteDialog({
               )}
             </List>
           </Alert>
-        ) : (
-          <Alert severity="info" sx={{mb: 2}}>
-            {t('delete.usages.none', 'No agents currently list this user as their owner.')}
-          </Alert>
-        )}
+        ) : null}
 
         {error && (
           <Alert severity="error" sx={{mt: 2}}>

@@ -178,7 +178,7 @@ var (
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
 		AllowedUserTypes:          []string{googleRegGroupRoleEntityType.Handle},
 		AssertionConfig: map[string]interface{}{
-			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
+			"userAttributes": []string{"userTypeHandle", "ouId", "ouName", "ouHandle"},
 		},
 	}
 )
@@ -432,12 +432,12 @@ func (ts *GoogleRegistrationGroupRoleTestSuite) TestGoogleRegistrationWithGroupA
 	jwtClaims, err := testutils.DecodeJWT(completeFlowStep.Assertion)
 	ts.Require().NoError(err, "Failed to decode JWT assertion")
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
-	ts.Require().Equal(googleRegGroupRoleEntityType.Handle, jwtClaims.UserType, "Expected userType to match")
+	ts.Require().Equal(googleRegGroupRoleEntityType.Handle, jwtClaims.UserTypeHandle, "Expected userTypeHandle to match")
 	ts.Require().Equal(googleRegGroupRoleTestAppID, jwtClaims.Aud, "Expected aud to match application ID")
 
 	// Step 4: Verify user was created
-	user, err := testutils.FindUserByAttribute("sub", "google-group-role-user-789")
-	ts.Require().NoError(err, "Failed to retrieve user by sub")
+	user, err := testutils.GetUserFromAssertion(completeFlowStep.Assertion)
+	ts.Require().NoError(err, "Failed to retrieve the user the assertion was issued for")
 	ts.Require().NotNil(user, "User should be found after registration")
 
 	// Store the created user for cleanup

@@ -102,7 +102,7 @@ func Initialize(
 	grantHandlerProvider := granthandlers.Initialize(
 		jwtService, oauth2AuthzService, tokenBuilder, tokenValidator,
 		attributeCacheSvc, ouService, authzService, actorProvider, resourceService,
-		cibaService, revocationSvc, revocationSvc, cfg)
+		cibaService, revocationSvc, revocationSvc, enforcementService, cfg)
 
 	token.Initialize(mux, jwtService, actorProvider, authnProvider, grantHandlerProvider,
 		scopeValidator, observabilitySvc, discoveryService, dpopVerifier, jtiStore, ouService, cfg)

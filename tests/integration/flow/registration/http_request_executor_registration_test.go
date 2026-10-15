@@ -207,7 +207,7 @@ var (
 		IsRegistrationFlowEnabled: true,
 		AllowedUserTypes:          []string{httpRequestRegTestEntityType.Handle},
 		AssertionConfig: map[string]interface{}{
-			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
+			"userAttributes": []string{"userTypeHandle", "ouId", "ouName", "ouHandle"},
 		},
 	}
 )

@@ -191,3 +191,49 @@ type ApplicationListResponse struct {
 	Count        int                        `json:"count"`
 	Applications []BasicApplicationResponse `json:"applications"`
 }
+
+// SharingPolicyRequest is a sharing policy as this API accepts one, which is narrower than what
+// the framework can hold. It carries no policy id and no terms: the id is the framework's to mint
+// on an interactive create, and an application declares no overlay fields for terms to govern.
+// Declaring either here would accept bodies the published schema refuses.
+type SharingPolicyRequest struct {
+	InitiatingOUID string                        `json:"initiatingOuId,omitempty"`
+	AllUnits       *SharingAllUnitsRequest       `json:"allUnits,omitempty"`
+	ChildUnits     *SharingChildUnitsRequest     `json:"childUnits,omitempty"`
+	OtherTreeRoots *SharingOtherTreeRootsRequest `json:"otherTreeRoots,omitempty"`
+	Version        int                           `json:"version,omitempty"`
+}
+
+// SharingAllUnitsRequest is the section reaching every organization unit. A create may not state
+// it; an edit restates it to rewrite the exclusions of a policy that already holds it.
+type SharingAllUnitsRequest struct {
+	ExcludedOUIDs []string `json:"excludedOuIds,omitempty"`
+}
+
+// SharingChildUnitsRequest is the section about the organization units beneath the issuer, with
+// the fields the schema lists.
+type SharingChildUnitsRequest struct {
+	Mode          string                    `json:"mode"`
+	ExcludedOUIDs []string                  `json:"excludedOuIds,omitempty"`
+	Units         []SharingChildUnitRequest `json:"units,omitempty"`
+}
+
+// SharingChildUnitRequest names one direct child of the issuer and how far the application
+// carries from it.
+type SharingChildUnitRequest struct {
+	OUID  string `json:"ouId"`
+	Reach string `json:"reach"`
+}
+
+// SharingOtherTreeRootsRequest is the section about the root organization units of other trees,
+// with the fields the schema lists.
+type SharingOtherTreeRootsRequest struct {
+	Mode          string                   `json:"mode"`
+	ExcludedOUIDs []string                 `json:"excludedOuIds,omitempty"`
+	Units         []SharingRootUnitRequest `json:"units,omitempty"`
+}
+
+// SharingRootUnitRequest names the root organization unit of one other tree.
+type SharingRootUnitRequest struct {
+	OUID string `json:"ouId"`
+}

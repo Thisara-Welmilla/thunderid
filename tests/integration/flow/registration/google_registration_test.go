@@ -4,7 +4,6 @@
 package registration
 
 import (
-	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
@@ -234,7 +233,7 @@ var (
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
 		AllowedUserTypes:          []string{googleRegEntityType.Handle},
 		AssertionConfig: map[string]interface{}{
-			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
+			"userAttributes": []string{"userTypeHandle", "ouId", "ouName", "ouHandle"},
 		},
 	}
 )
@@ -510,27 +509,21 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowCompleteSuc
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
 
 	// Validate JWT contains expected user type and OU ID
-	ts.Require().Equal(googleRegEntityType.Handle, jwtClaims.UserType, "Expected userType to match created schema")
+	ts.Require().Equal(googleRegEntityType.Handle, jwtClaims.UserTypeHandle, "Expected userTypeHandle to match created schema")
 	ts.Require().NotEmpty(jwtClaims.OUID, "Expected ouId to be present")
 	ts.Require().Equal(googleRegTestAppID, jwtClaims.Aud, "Expected aud to match the application ID")
 	ts.Require().NotEmpty(jwtClaims.Sub, "JWT subject should not be empty")
 
 	// Verify the user was created by searching via the user API
-	user, err := testutils.FindUserByAttribute("sub", "google-reg-user-456")
+	user, err := testutils.GetUserFromAssertion(completeFlowStep.Assertion)
 	if err != nil {
-		ts.T().Fatalf("Failed to retrieve user by sub: %v", err)
+		ts.T().Fatalf("Failed to retrieve the user the assertion was issued for: %v", err)
 	}
 	ts.Require().NotNil(user, "User should be found in user list after registration")
 
 	// Store the created user for cleanup
 	if user != nil {
 		ts.config.CreatedUserIDs = append(ts.config.CreatedUserIDs, user.ID)
-
-		// Verify user attributes
-		var attributes map[string]interface{}
-		err = json.Unmarshal(user.Attributes, &attributes)
-		ts.Require().NoError(err, "Should be able to unmarshal user attributes")
-		ts.Require().Equal("google-reg-user-456", attributes["sub"], "User sub should match")
 	}
 }
 
@@ -612,7 +605,7 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowDuplicateUs
 	ts.Require().Equal("COMPLETE", completeFlowStep.FlowStatus, "First registration should complete successfully")
 
 	// Store created user for cleanup
-	user, err := testutils.FindUserByAttribute("sub", "google-reg-user-456")
+	user, err := testutils.GetUserFromAssertion(completeFlowStep.Assertion)
 	if err == nil && user != nil {
 		ts.config.CreatedUserIDs = append(ts.config.CreatedUserIDs, user.ID)
 	}
@@ -671,7 +664,7 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowWithExistin
 	ts.Require().Equal("COMPLETE", completeFlowStep.FlowStatus, "First registration should complete successfully")
 
 	// Store created user for cleanup
-	user, err := testutils.FindUserByAttribute("sub", "google-reg-user-456")
+	user, err := testutils.GetUserFromAssertion(completeFlowStep.Assertion)
 	if err == nil && user != nil {
 		ts.config.CreatedUserIDs = append(ts.config.CreatedUserIDs, user.ID)
 	}
@@ -723,11 +716,11 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowWithExistin
 
 	// Verify that the JWT is for the same user (existing user ID should match)
 	ts.Require().Equal(firstUserID, jwtClaims.Sub, "JWT subject should match the existing user ID")
-	ts.Require().Equal(googleRegEntityType.Handle, jwtClaims.UserType, "User type should match")
+	ts.Require().Equal(googleRegEntityType.Handle, jwtClaims.UserTypeHandle, "User type handle should match")
 	ts.Require().Equal(googleRegTestAppID, jwtClaims.Aud, "Audience should match the application ID")
 
 	// Verify that no new user was created - should still be the same user
-	userAfter, err := testutils.FindUserByAttribute("sub", "google-reg-user-456")
+	userAfter, err := testutils.FindUserByAttribute("email", "reguser@gmail.com")
 	ts.Require().NoError(err, "Should be able to find the user")
 	ts.Require().NotNil(userAfter, "User should still exist")
 	ts.Require().Equal(firstUserID, userAfter.ID, "User ID should be the same (no new user created)")

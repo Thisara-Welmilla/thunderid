@@ -24,7 +24,7 @@ import (
 type EntityServiceInterface interface {
 	// Core CRUD
 	CreateEntity(ctx context.Context, entity *providers.Entity,
-		systemCredentials json.RawMessage) (*providers.Entity, error)
+		systemCredentials json.RawMessage, link *providers.LinkedAccount) (*providers.Entity, error)
 	GetEntity(ctx context.Context, entityID string) (*providers.Entity, error)
 	GetCredentialsByType(ctx context.Context, entityID string,
 		credType string) ([]StoredCredential, error)
@@ -127,13 +127,27 @@ func newEntityService(
 	}
 }
 
-// CreateEntity creates a new entity.
+// CreateEntity creates a new entity, linked to the identity provider subject link names when it is
+// set. Links come only from link: any linkedIds in the entity's system attributes are dropped.
 // Uses a transaction to ensure the entity row and its indexed identifiers are created atomically.
 func (s *entityService) CreateEntity(ctx context.Context, entity *providers.Entity,
-	systemCredentials json.RawMessage) (*providers.Entity, error) {
+	systemCredentials json.RawMessage, link *providers.LinkedAccount) (*providers.Entity, error) {
 	if entity == nil {
 		return nil, ErrEntityNotFound
 	}
+	if link != nil && (link.IdpID == "" || link.Sub == "") {
+		return nil, ErrBadAttributesInRequest
+	}
+	sysAttrs, err := withoutLinkedIDs(entity.SystemAttributes)
+	if err != nil {
+		return nil, err
+	}
+	if link != nil {
+		if sysAttrs, err = withLinkedSubject(sysAttrs, link.IdpID, link.Sub); err != nil {
+			return nil, err
+		}
+	}
+	entity.SystemAttributes = sysAttrs
 
 	if entity.ID == "" {
 		id, err := sysutils.GenerateUUIDv7()
@@ -170,6 +184,11 @@ func (s *entityService) CreateEntity(ctx context.Context, entity *providers.Enti
 
 	var created providers.Entity
 	err = s.transactioner.Transact(ctx, func(txCtx context.Context) error {
+		if link != nil {
+			if err := s.ensureLinkedSubjectUnclaimed(txCtx, entity.ID, link.IdpID, link.Sub); err != nil {
+				return err
+			}
+		}
 		if err := s.store.CreateEntity(txCtx, *entity, schemaCredsJSON, hashedSysCreds); err != nil {
 			return err
 		}
@@ -422,46 +441,13 @@ func (s *entityService) LinkAccount(ctx context.Context, entityID, idpID, sub st
 			return err
 		}
 
-		holder, err := s.store.ResolveLinkedAccount(txCtx, idpID, sub)
-		switch {
-		case errors.Is(err, ErrAmbiguousEntity):
-			return ErrLinkedAccountConflict
-		case err != nil && !errors.Is(err, ErrEntityNotFound):
-			return err
-		case holder != nil && *holder != entityID:
-			return ErrLinkedAccountConflict
-		}
-
-		attrs := map[string]interface{}{}
-		if len(current.SystemAttributes) > 0 {
-			if err := json.Unmarshal(current.SystemAttributes, &attrs); err != nil {
-				return fmt.Errorf("failed to unmarshal system attributes: %w", err)
-			}
-		}
-
-		links, err := objectAt(attrs, authnprovidercm.SystemAttrLinkedIDs)
-		if err != nil {
+		if err := s.ensureLinkedSubjectUnclaimed(txCtx, entityID, idpID, sub); err != nil {
 			return err
 		}
-		if hasLinkedSubject(links, idpID, sub) {
-			return nil
-		}
-		if len(linkedIdentifierRows(links)) >= maxIndexedValuesPerAttribute {
-			return fmt.Errorf("%w: %s holds at most %d links", ErrIndexedValueLimitExceeded,
-				authnprovidercm.SystemAttrLinkedIDs, maxIndexedValuesPerAttribute)
-		}
 
-		subjects, err := objectAt(links, idpID)
-		if err != nil {
+		merged, err := withLinkedSubject(current.SystemAttributes, idpID, sub)
+		if err != nil || merged == nil {
 			return err
-		}
-		subjects[sub] = map[string]interface{}{}
-		links[idpID] = subjects
-		attrs[authnprovidercm.SystemAttrLinkedIDs] = links
-
-		merged, err := json.Marshal(attrs)
-		if err != nil {
-			return fmt.Errorf("failed to marshal system attributes: %w", err)
 		}
 		return s.store.UpdateSystemAttributes(txCtx, entityID, merged)
 	})
@@ -940,6 +926,78 @@ func (s *entityService) UpdateSystemCredentials(ctx context.Context, entityID st
 		}
 		return s.store.UpdateSystemAttributes(txCtx, entityID, markedAttrs)
 	})
+}
+
+// withoutLinkedIDs returns systemAttributes without their linkedIds, unchanged when there are none.
+func withoutLinkedIDs(systemAttributes json.RawMessage) (json.RawMessage, error) {
+	if len(systemAttributes) == 0 {
+		return systemAttributes, nil
+	}
+	attrs := map[string]interface{}{}
+	if err := json.Unmarshal(systemAttributes, &attrs); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal system attributes: %w", err)
+	}
+	if _, ok := attrs[authnprovidercm.SystemAttrLinkedIDs]; !ok {
+		return systemAttributes, nil
+	}
+	delete(attrs, authnprovidercm.SystemAttrLinkedIDs)
+	stripped, err := json.Marshal(attrs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal system attributes: %w", err)
+	}
+	return stripped, nil
+}
+
+// withLinkedSubject returns systemAttributes with the subject added to its linkedIds at the
+// connection, or nil when the subject is already there.
+func withLinkedSubject(systemAttributes json.RawMessage, idpID, sub string) (json.RawMessage, error) {
+	attrs := map[string]interface{}{}
+	if len(systemAttributes) > 0 {
+		if err := json.Unmarshal(systemAttributes, &attrs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal system attributes: %w", err)
+		}
+	}
+
+	links, err := objectAt(attrs, authnprovidercm.SystemAttrLinkedIDs)
+	if err != nil {
+		return nil, err
+	}
+	if hasLinkedSubject(links, idpID, sub) {
+		return nil, nil
+	}
+	if len(linkedIdentifierRows(links)) >= maxIndexedValuesPerAttribute {
+		return nil, fmt.Errorf("%w: %s holds at most %d links", ErrIndexedValueLimitExceeded,
+			authnprovidercm.SystemAttrLinkedIDs, maxIndexedValuesPerAttribute)
+	}
+
+	subjects, err := objectAt(links, idpID)
+	if err != nil {
+		return nil, err
+	}
+	subjects[sub] = map[string]interface{}{}
+	links[idpID] = subjects
+	attrs[authnprovidercm.SystemAttrLinkedIDs] = links
+
+	merged, err := json.Marshal(attrs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal system attributes: %w", err)
+	}
+	return merged, nil
+}
+
+// ensureLinkedSubjectUnclaimed returns ErrLinkedAccountConflict when an entity other than entityID
+// holds the subject at the connection.
+func (s *entityService) ensureLinkedSubjectUnclaimed(ctx context.Context, entityID, idpID, sub string) error {
+	holder, err := s.store.ResolveLinkedAccount(ctx, idpID, sub)
+	switch {
+	case errors.Is(err, ErrAmbiguousEntity):
+		return ErrLinkedAccountConflict
+	case err != nil && !errors.Is(err, ErrEntityNotFound):
+		return err
+	case holder != nil && *holder != entityID:
+		return ErrLinkedAccountConflict
+	}
+	return nil
 }
 
 // hasLinkedSubject reports whether a subject is already recorded for a connection.

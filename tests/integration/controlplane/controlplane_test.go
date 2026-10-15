@@ -188,6 +188,77 @@ func (ts *ControlPlaneTestSuite) TestExportRefersToValuesAndImportKeepsTheRefere
 		"the import resolved a reference a Control Plane has no value for")
 }
 
+// A list such as an application's redirect URIs is exported as a list holding one reference, so
+// each deployment supplies its own addresses, as many as it has.
+func (ts *ControlPlaneTestSuite) TestExportRefersToAListAsOneReference() {
+	name := unique("CP List App")
+	appID, err := testutils.CreateApplication(testutils.Application{
+		OUID:         ts.ouID,
+		Name:         name,
+		ClientID:     unique("cp-list-client"),
+		ClientSecret: unique("cp-list-secret"),
+		RedirectURIs: []string{"https://cp-list-one.example.com/callback", "https://cp-list-two.example.com/callback"},
+	})
+	ts.Require().NoError(err)
+	defer func() { _ = testutils.DeleteApplication(appID) }()
+
+	var exported struct {
+		Resources string `json:"resources"`
+	}
+	status, raw := ts.call(http.MethodPost, "/export", map[string]any{"applications": []string{appID}}, &exported)
+	ts.Require().Equal(http.StatusOK, status, string(raw))
+
+	variable := strings.ToUpper(strings.NewReplacer(" ", "_", "-", "_").Replace(name))
+	ts.Regexp(`redirectUris:\s*\n\s*- var:APPLICATION_`+variable+`_REDIRECT_URIS\s*\n`, exported.Resources)
+	ts.NotContains(exported.Resources, "cp-list-one.example.com", "the export carried an address")
+	ts.NotContains(exported.Resources, "cp-list-two.example.com", "the export carried an address")
+}
+
+// A resource server imported into a Control Plane keeps its identifier as the reference it was
+// exported with, and the Control Plane's own export of it refers to the same name, even once the
+// resource server is renamed.
+func (ts *ControlPlaneTestSuite) TestAnImportedResourceServerKeepsItsIdentifierReference() {
+	name := unique("CP Reference Orders")
+	rsID := ts.createResourceServer(name, "https://"+unique("cp-reference-orders")+".example.com")
+
+	var exported struct {
+		Resources string `json:"resources"`
+	}
+	status, raw := ts.call(http.MethodPost, "/export", map[string]any{"resourceServers": []string{rsID}}, &exported)
+	ts.Require().Equal(http.StatusOK, status, string(raw))
+	reference := "var:" + variableName("RESOURCE_SERVER", name, "IDENTIFIER")
+	ts.Require().Contains(exported.Resources, "identifier: "+reference)
+
+	ts.Require().NoError(testutils.DeleteResourceServer(rsID))
+	var imported importOutcome
+	status, raw = ts.call(http.MethodPost, "/import", map[string]any{
+		"content": exported.Resources,
+		"options": map[string]any{"target": "runtime", "continueOnError": true},
+	}, &imported)
+	ts.Require().Equal(http.StatusOK, status, string(raw))
+	ts.Require().Equal(0, imported.Summary.Failed, string(raw))
+	ts.Require().Equal(1, imported.Summary.Imported, string(raw))
+
+	var server struct {
+		Identifier string `json:"identifier"`
+		Delimiter  string `json:"delimiter"`
+	}
+	status, raw = ts.call(http.MethodGet, "/resource-servers/"+rsID, nil, &server)
+	ts.Require().Equal(http.StatusOK, status, string(raw))
+	ts.Equal(reference, server.Identifier, "the import resolved a reference a Control Plane has no value for")
+	ts.Equal(".", server.Delimiter)
+
+	status, raw = ts.call(http.MethodPut, "/resource-servers/"+rsID, map[string]any{
+		"name":       unique("CP Renamed Orders"),
+		"identifier": reference,
+		"ouId":       ts.ouID,
+	}, nil)
+	ts.Require().Equal(http.StatusOK, status, string(raw))
+	status, raw = ts.call(http.MethodPost, "/export", map[string]any{"resourceServers": []string{rsID}}, &exported)
+	ts.Require().Equal(http.StatusOK, status, string(raw))
+	ts.Contains(exported.Resources, "identifier: "+reference, "the export named the identifier again")
+}
+
 // A Control Plane runs no executor, so a flow is validated against the static executor catalog:
 // a known executor is accepted and an unknown one refused.
 func (ts *ControlPlaneTestSuite) TestFlowsAreValidatedAgainstTheExecutorCatalog() {

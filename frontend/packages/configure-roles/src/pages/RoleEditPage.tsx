@@ -118,7 +118,7 @@ export default function RoleEditPage(): JSX.Element {
     };
 
     try {
-      await updateRole.mutateAsync({roleId, data: updatedData});
+      await updateRole.mutateAsync({roleId, data: updatedData, current: role});
       setEditedRole({});
       await refetch();
     } catch (err: unknown) {

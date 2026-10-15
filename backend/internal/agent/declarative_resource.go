@@ -87,7 +87,7 @@ func (e *agentExporter) GetAllResourceIDs(ctx context.Context) ([]string, *tidco
 // GetResourceByID retrieves an agent by its ID for export.
 func (e *agentExporter) GetResourceByID(
 	ctx context.Context, id string) (interface{}, string, *tidcommon.ServiceError) {
-	a, err := e.service.GetAgent(ctx, id, false)
+	a, err := e.service.GetAgent(ctx, id, true)
 	if err != nil {
 		return nil, "", err
 	}
@@ -99,7 +99,7 @@ func (e *agentExporter) GetResourceByID(
 			a.AttributesYAML = attrs
 		}
 	}
-	return a, a.Name, nil
+	return a, a.Display, nil
 }
 
 // ValidateResource validates an agent resource prior to export.
@@ -112,11 +112,30 @@ func (e *agentExporter) ValidateResource(ctx context.Context,
 	}
 
 	if err := declarativeresource.ValidateResourceName(ctx,
-		a.Name, resourceTypeAgent, id, "AGT_VALIDATION_ERROR", logger); err != nil {
+		a.Display, resourceTypeAgent, id, "AGT_VALIDATION_ERROR", logger); err != nil {
 		return "", err
 	}
 
-	return a.Name, nil
+	return a.Display, nil
+}
+
+// ViewResource shows an exported agent as a read of it returns it. The read carries the agent's
+// client ID at its top level and never its client secret, so the view does the same.
+func (e *agentExporter) ViewResource(_ context.Context, document *yaml.Node) (interface{}, error) {
+	return declarativeresource.DecodeView(document, func(a *model.AgentGetResponse) (interface{}, error) {
+		var err error
+		if len(a.AttributesYAML) > 0 {
+			a.Attributes, err = json.Marshal(a.AttributesYAML)
+		}
+		for _, inbound := range a.InboundAuthConfig {
+			if inbound.OAuthConfig == nil {
+				continue
+			}
+			a.ClientID = inbound.OAuthConfig.ClientID
+			inbound.OAuthConfig.ClientSecret = ""
+		}
+		return a, err
+	})
 }
 
 // GetResourceRules returns parameterization rules for agents with OAuth.
@@ -207,7 +226,6 @@ func makeAgentEntityParser(
 			OUID:        req.OUID,
 			OUHandle:    req.OUHandle,
 			Type:        req.Type,
-			Name:        req.Name,
 			Description: req.Description,
 			LogoURL:     req.LogoURL,
 			Owner:       req.Owner,
@@ -243,7 +261,7 @@ func makeAgentEntityParser(
 		// agent.OUID may have been resolved from OUHandle by ValidateAgent.
 		e, sysCredsJSON, buildErr := buildAgentEntity(
 			req.ID, req.Type, agent.OUID, attributesJSON,
-			req.Name, req.Description, req.Owner, clientID, clientSecret,
+			req.Description, req.Owner, clientID, clientSecret,
 		)
 		if buildErr != nil {
 			return nil, nil, nil, fmt.Errorf("failed to build agent entity for '%s': %w", req.ID, buildErr)
@@ -281,7 +299,6 @@ func makeAgentInboundParser(agentSvc AgentServiceInterface) func([]byte) (*inbou
 			OUID:        req.OUID,
 			OUHandle:    req.OUHandle,
 			Type:        req.Type,
-			Name:        req.Name,
 			Description: req.Description,
 			LogoURL:     req.LogoURL,
 			Owner:       req.Owner,

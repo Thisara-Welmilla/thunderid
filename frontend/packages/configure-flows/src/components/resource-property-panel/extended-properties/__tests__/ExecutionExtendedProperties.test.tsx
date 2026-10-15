@@ -1,4 +1,4 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 import {render, screen, fireEvent} from '@testing-library/react';
@@ -1797,6 +1797,26 @@ describe('ExecutionExtendedProperties', () => {
     });
   });
 
+  describe('Account Linking Executor', () => {
+    const linkingResource = {
+      id: 'linking-1',
+      data: {
+        action: {
+          executor: {
+            name: ExecutionTypes.AccountLinking,
+          },
+        },
+        properties: {},
+      },
+    } as unknown as Resource;
+
+    it('should render NoConfigProperties message', () => {
+      render(<ExecutionExtendedProperties resource={linkingResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.noConfig.description')).toBeInTheDocument();
+    });
+  });
+
   describe('Identifying Executor', () => {
     const identifyingResource = {
       id: 'identifying-executor-1',
@@ -1880,6 +1900,31 @@ describe('ExecutionExtendedProperties', () => {
         }),
         identifyingResource,
       );
+    });
+  });
+
+  describe('Access change executors', () => {
+    const makeResource = (name: string, mode: string): Resource =>
+      ({
+        id: `${name}-1`,
+        data: {
+          action: {
+            executor: {name, mode},
+          },
+        },
+      }) as unknown as Resource;
+
+    it.each([
+      [ExecutionTypes.AccessChangeValidator, 'role_deletion', 'accessChangeValidator'],
+      [ExecutionTypes.RoleExecutor, 'role_deletion', 'roleExecutor'],
+      [ExecutionTypes.GroupExecutor, 'group_membership_removal', 'groupExecutor'],
+      [ExecutionTypes.CriteriaRevocation, 'advance_cutoff', 'criteriaRevocation'],
+    ])('should route %s to its mode selector and hide the inputs editor', (name, mode, namespace) => {
+      render(<ExecutionExtendedProperties resource={makeResource(name, mode)} onChange={mockOnChange} />);
+
+      expect(screen.getByText(`flows:core.executions.${namespace}.description`)).toBeInTheDocument();
+      expect(screen.getByText(`flows:core.executions.${namespace}.mode.label`)).toBeInTheDocument();
+      expect(screen.queryByText('flows:core.executions.inputs.title')).not.toBeInTheDocument();
     });
   });
 

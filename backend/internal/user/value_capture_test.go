@@ -77,7 +77,7 @@ func newCapturingUserService(t *testing.T, capturer declarativeresource.ValueCap
 // what it returns.
 func TestCreateUser_CapturesTheSubmittedCredentials(t *testing.T) {
 	entities := entitymock.NewEntityServiceInterfaceMock(t)
-	entities.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+	entities.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&providers.Entity{Attributes: json.RawMessage(`{"username":"alice","email":"a@x.test"}`)}, nil)
 	capturer := &recordingCapturer{}
 	service := newCapturingUserService(t, capturer, entities)
@@ -97,7 +97,7 @@ func TestCreateUser_CapturesTheSubmittedCredentials(t *testing.T) {
 // A user created without a credential has nothing to capture.
 func TestCreateUser_WithoutCredentialsCapturesNothing(t *testing.T) {
 	entities := entitymock.NewEntityServiceInterfaceMock(t)
-	entities.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+	entities.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&providers.Entity{Attributes: json.RawMessage(`{"username":"alice"}`)}, nil)
 	capturer := &recordingCapturer{}
 	service := newCapturingUserService(t, capturer, entities)
@@ -113,7 +113,7 @@ func TestCreateUser_WithoutCredentialsCapturesNothing(t *testing.T) {
 // Credentials are named after the username, so a user without one has nothing captured.
 func TestCreateUser_WithoutAUsernameCapturesNothing(t *testing.T) {
 	entities := entitymock.NewEntityServiceInterfaceMock(t)
-	entities.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+	entities.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&providers.Entity{Attributes: json.RawMessage(`{"email":"a@x.test"}`)}, nil)
 	capturer := &recordingCapturer{}
 	service := newCapturingUserService(t, capturer, entities)

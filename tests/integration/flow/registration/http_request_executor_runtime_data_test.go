@@ -280,7 +280,7 @@ var (
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
 		AllowedUserTypes:          []string{httpRequestRuntimeDataEntityType.Handle},
 		AssertionConfig: map[string]interface{}{
-			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
+			"userAttributes": []string{"userTypeHandle", "ouId", "ouName", "ouHandle"},
 		},
 	}
 )
@@ -561,7 +561,7 @@ func (ts *HTTPRequestRuntimeDataRegistrationFlowTestSuite) TestHTTPRequestRuntim
 	ts.Require().Contains(notificationRequest.Headers["X-Idp-Id"], ts.idpID)
 	ts.Require().Contains(notificationRequest.Headers["X-Sender-Id"], ts.senderID)
 
-	user, err := testutils.FindUserByAttribute("sub", "runtime-data-google-user-123")
+	user, err := testutils.GetUserFromAssertion(flowStep.Assertion)
 	ts.Require().NoError(err, "User lookup should succeed after registration")
 	ts.Require().NotNil(user, "User should be created after flow completion")
 	if user != nil {

@@ -72,11 +72,12 @@ Every event shares one envelope:
   "timestamp": "2026-08-20T13:40:22.089281+05:30",
   "component": "AuthHandler",
   "status": "success",
+  "server_identifier": "default-deployment",
   "data": { }
 }
 ```
 
-`status` is one of `in_progress`, `success`, or `failure`. Everything specific to the event is under `data`.
+`status` is one of `in_progress`, `success`, or `failure`. `server_identifier` is the [`server.identifier`](../configuration#server-configuration) of the deployment that emitted the event, and the OpenTelemetry output carries it as the `server.identifier` span attribute. Everything specific to the event is under `data`.
 
 ### Event Types
 

@@ -38,6 +38,7 @@ schema:
     type: string
     displayName: Mobile Number
     required: false
+    regex: "^\\+[1-9]\\d{1,14}$"
   sub:
     type: string
     displayName: Subject
@@ -61,7 +62,14 @@ id: 01900000-0000-7000-8000-000000000011
 handle: default
 displayName: Default
 ouHandle: default
+systemAttributes:
+  display: name
 schema:
+  name:
+    type: string
+    displayName: Name
+    required: true
+    unique: true
   modelProvider:
     type: string
     displayName: Model Provider
@@ -2125,6 +2133,7 @@ nodes:
   type: TASK_EXECUTION
   executor:
     name: CriteriaRevocationExecutor
+    mode: revoke
   onSuccess: regenerate_secret
   layout:
     size:
@@ -2137,13 +2146,26 @@ nodes:
   type: TASK_EXECUTION
   executor:
     name: ClientSecretExecutor
-  onSuccess: end
+  onSuccess: advance_cutoff
   layout:
     size:
       width: 250
       height: 113
     position:
       x: 1200
+      y: 175
+- id: advance_cutoff
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: advance_cutoff
+  onSuccess: end
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 1490
       y: 175
 - id: end
   type: END
@@ -2152,7 +2174,564 @@ nodes:
       width: 85
       height: 34
     position:
-      x: 1520
+      x: 1810
+      y: 200
+---
+resource_type: flow
+id: 01900000-0000-7000-8000-000000000081
+name: Default Role Assignment Removal Flow
+handle: default-role-assignment-removal-flow
+flowType: ADMINISTRATION
+nodes:
+- id: start
+  type: START
+  onSuccess: permission_validator
+  layout:
+    size:
+      width: 101
+      height: 34
+    position:
+      x: 100
+      y: 200
+- id: permission_validator
+  type: TASK_EXECUTION
+  properties:
+    requiredScopes:
+    - system
+  executor:
+    name: PermissionValidator
+  onSuccess: pre_role_assignment_removal
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 300
+      y: 175
+- id: pre_role_assignment_removal
+  type: TASK_EXECUTION
+  executor:
+    name: AccessChangeValidator
+    mode: role_assignment_removal
+  onSuccess: revoke_scopes
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 580
+      y: 175
+- id: revoke_scopes
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: revoke
+  onSuccess: remove_assignment
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 900
+      y: 175
+- id: remove_assignment
+  type: TASK_EXECUTION
+  executor:
+    name: RoleExecutor
+    mode: role_assignment_removal
+  onSuccess: advance_cutoff
+  layout:
+    size:
+      width: 230
+      height: 113
+    position:
+      x: 1180
+      y: 175
+- id: advance_cutoff
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: advance_cutoff
+  onSuccess: end
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 1470
+      y: 175
+- id: end
+  type: END
+  layout:
+    size:
+      width: 85
+      height: 34
+    position:
+      x: 1790
+      y: 200
+---
+resource_type: flow
+id: 01900000-0000-7000-8000-00000000007c
+name: Default Action Deletion Flow
+handle: default-action-deletion-flow
+flowType: ADMINISTRATION
+nodes:
+- id: start
+  type: START
+  onSuccess: permission_validator
+  layout:
+    size:
+      width: 101
+      height: 34
+    position:
+      x: 100
+      y: 200
+- id: permission_validator
+  type: TASK_EXECUTION
+  properties:
+    requiredScopes:
+    - system
+  executor:
+    name: PermissionValidator
+  onSuccess: pre_action_deletion
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 300
+      y: 175
+- id: pre_action_deletion
+  type: TASK_EXECUTION
+  executor:
+    name: AccessChangeValidator
+    mode: action_deletion
+  onSuccess: revoke_scopes
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 580
+      y: 175
+- id: revoke_scopes
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: revoke
+  onSuccess: delete_action
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 900
+      y: 175
+- id: delete_action
+  type: TASK_EXECUTION
+  executor:
+    name: ActionDeletionExecutor
+  onSuccess: advance_cutoff
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 1180
+      y: 175
+- id: advance_cutoff
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: advance_cutoff
+  onSuccess: end
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 1470
+      y: 175
+- id: end
+  type: END
+  layout:
+    size:
+      width: 85
+      height: 34
+    position:
+      x: 1790
+      y: 200
+---
+resource_type: flow
+id: 01900000-0000-7000-8000-00000000007d
+name: Default Role Deletion Flow
+handle: default-role-deletion-flow
+flowType: ADMINISTRATION
+nodes:
+- id: start
+  type: START
+  onSuccess: permission_validator
+  layout:
+    size:
+      width: 101
+      height: 34
+    position:
+      x: 100
+      y: 200
+- id: permission_validator
+  type: TASK_EXECUTION
+  properties:
+    requiredScopes:
+    - system
+  executor:
+    name: PermissionValidator
+  onSuccess: pre_role_deletion
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 300
+      y: 175
+- id: pre_role_deletion
+  type: TASK_EXECUTION
+  executor:
+    name: AccessChangeValidator
+    mode: role_deletion
+  onSuccess: revoke_scopes
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 580
+      y: 175
+- id: revoke_scopes
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: revoke
+  onSuccess: delete_role
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 900
+      y: 175
+- id: delete_role
+  type: TASK_EXECUTION
+  executor:
+    name: RoleExecutor
+    mode: role_deletion
+  onSuccess: advance_cutoff
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 1180
+      y: 175
+- id: advance_cutoff
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: advance_cutoff
+  onSuccess: end
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 1470
+      y: 175
+- id: end
+  type: END
+  layout:
+    size:
+      width: 85
+      height: 34
+    position:
+      x: 1790
+      y: 200
+---
+resource_type: flow
+id: 01900000-0000-7000-8000-00000000007e
+name: Default Group Deletion Flow
+handle: default-group-deletion-flow
+flowType: ADMINISTRATION
+nodes:
+- id: start
+  type: START
+  onSuccess: permission_validator
+  layout:
+    size:
+      width: 101
+      height: 34
+    position:
+      x: 100
+      y: 200
+- id: permission_validator
+  type: TASK_EXECUTION
+  properties:
+    requiredScopes:
+    - system:group
+  executor:
+    name: PermissionValidator
+  onSuccess: pre_group_deletion
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 300
+      y: 175
+- id: pre_group_deletion
+  type: TASK_EXECUTION
+  executor:
+    name: AccessChangeValidator
+    mode: group_deletion
+  onSuccess: revoke_scopes
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 580
+      y: 175
+- id: revoke_scopes
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: revoke
+  onSuccess: delete_group
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 900
+      y: 175
+- id: delete_group
+  type: TASK_EXECUTION
+  executor:
+    name: GroupExecutor
+    mode: group_deletion
+  onSuccess: advance_cutoff
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 1180
+      y: 175
+- id: advance_cutoff
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: advance_cutoff
+  onSuccess: end
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 1470
+      y: 175
+- id: end
+  type: END
+  layout:
+    size:
+      width: 85
+      height: 34
+    position:
+      x: 1790
+      y: 200
+---
+resource_type: flow
+id: 01900000-0000-7000-8000-00000000007f
+name: Default Group Membership Removal Flow
+handle: default-group-membership-removal-flow
+flowType: ADMINISTRATION
+nodes:
+- id: start
+  type: START
+  onSuccess: permission_validator
+  layout:
+    size:
+      width: 101
+      height: 34
+    position:
+      x: 100
+      y: 200
+- id: permission_validator
+  type: TASK_EXECUTION
+  properties:
+    requiredScopes:
+    - system:group
+  executor:
+    name: PermissionValidator
+  onSuccess: pre_group_membership_removal
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 300
+      y: 175
+- id: pre_group_membership_removal
+  type: TASK_EXECUTION
+  executor:
+    name: AccessChangeValidator
+    mode: group_membership_removal
+  onSuccess: revoke_scopes
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 580
+      y: 175
+- id: revoke_scopes
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: revoke
+  onSuccess: remove_member
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 900
+      y: 175
+- id: remove_member
+  type: TASK_EXECUTION
+  executor:
+    name: GroupExecutor
+    mode: group_membership_removal
+  onSuccess: advance_cutoff
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 1180
+      y: 175
+- id: advance_cutoff
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: advance_cutoff
+  onSuccess: end
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 1470
+      y: 175
+- id: end
+  type: END
+  layout:
+    size:
+      width: 85
+      height: 34
+    position:
+      x: 1790
+      y: 200
+---
+resource_type: flow
+id: 01900000-0000-7000-8000-000000000080
+name: Default Role Permission Removal Flow
+handle: default-role-permission-removal-flow
+flowType: ADMINISTRATION
+nodes:
+- id: start
+  type: START
+  onSuccess: permission_validator
+  layout:
+    size:
+      width: 101
+      height: 34
+    position:
+      x: 100
+      y: 200
+- id: permission_validator
+  type: TASK_EXECUTION
+  properties:
+    requiredScopes:
+    - system
+  executor:
+    name: PermissionValidator
+  onSuccess: pre_role_permission_removal
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 300
+      y: 175
+- id: pre_role_permission_removal
+  type: TASK_EXECUTION
+  executor:
+    name: AccessChangeValidator
+    mode: role_permission_removal
+  onSuccess: revoke_scopes
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 580
+      y: 175
+- id: revoke_scopes
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: revoke
+  onSuccess: update_permissions
+  layout:
+    size:
+      width: 206
+      height: 113
+    position:
+      x: 900
+      y: 175
+- id: update_permissions
+  type: TASK_EXECUTION
+  executor:
+    name: RoleExecutor
+    mode: role_permission_removal
+  onSuccess: advance_cutoff
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 1180
+      y: 175
+- id: advance_cutoff
+  type: TASK_EXECUTION
+  executor:
+    name: CriteriaRevocationExecutor
+    mode: advance_cutoff
+  onSuccess: end
+  layout:
+    size:
+      width: 260
+      height: 113
+    position:
+      x: 1470
+      y: 175
+- id: end
+  type: END
+  layout:
+    size:
+      width: 85
+      height: 34
+    position:
+      x: 1790
       y: 200
 ---
 resource_type: flow
@@ -2306,7 +2885,7 @@ nodes:
   type: TASK_EXECUTION
   executor:
     name: OwnerResolver
-  onSuccess: prompt_agent_name
+  onSuccess: provisioning
   onIncomplete: prompt_owner
   layout:
     size:
@@ -2359,50 +2938,6 @@ nodes:
     position:
       x: 580
       y: -320
-- id: prompt_agent_name
-  type: PROMPT
-  meta:
-    components:
-    - align: left
-      type: TEXT
-      id: text_header_agent_name
-      label: '{{ t(agentOnboarding:forms.agent_name.title) }}'
-      variant: HEADING_1
-    - align: left
-      type: TEXT
-      id: text_subtitle_agent_name
-      label: '{{ t(agentOnboarding:forms.agent_name.subtitle) }}'
-      variant: HEADING_6
-    - type: BLOCK
-      id: block_agent_name
-      components:
-      - id: input_agent_name
-        ref: name
-        type: TEXT_INPUT
-        label: '{{ t(agentOnboarding:forms.agent_name.fields.name.label) }}'
-        required: true
-        placeholder: '{{ t(agentOnboarding:forms.agent_name.fields.name.placeholder) }}'
-      - type: ACTION
-        id: action_agent_name
-        label: '{{ t(agentOnboarding:forms.agent_name.actions.next.label) }}'
-        variant: PRIMARY
-        eventType: SUBMIT
-  prompts:
-  - inputs:
-    - ref: input_agent_name
-      identifier: name
-      type: TEXT_INPUT
-      required: true
-    action:
-      ref: action_agent_name
-      nextNode: provisioning
-  layout:
-    size:
-      width: 350
-      height: 410
-    position:
-      x: 900
-      y: 100
 - id: prompt_agent_details
   type: PROMPT
   meta:
@@ -2420,6 +2955,12 @@ nodes:
     - type: BLOCK
       id: block_agent_details
       components:
+      - id: input_agent_name
+        ref: name
+        type: TEXT_INPUT
+        label: '{{ t(agentOnboarding:forms.agent_details.fields.name.label) }}'
+        required: true
+        placeholder: '{{ t(agentOnboarding:forms.agent_details.fields.name.placeholder) }}'
       - id: input_agent_model_provider
         ref: modelProvider
         type: SELECT
@@ -2447,6 +2988,10 @@ nodes:
         eventType: SUBMIT
   prompts:
   - inputs:
+    - ref: input_agent_name
+      identifier: name
+      type: TEXT_INPUT
+      required: true
     - ref: input_agent_model_provider
       identifier: modelProvider
       type: SELECT
@@ -2465,9 +3010,9 @@ nodes:
   layout:
     size:
       width: 350
-      height: 566
+      height: 646
     position:
-      x: 1250
+      x: 1130
       y: 60
 - id: agent_attribute_uniqueness
   type: TASK_EXECUTION
@@ -2482,7 +3027,7 @@ nodes:
       width: 206
       height: 113
     position:
-      x: 1480
+      x: 1500
       y: 175
 - id: provisioning
   type: TASK_EXECUTION
@@ -2493,13 +3038,13 @@ nodes:
     name: ProvisioningExecutor
   onSuccess: agent_credentials
   onIncomplete: prompt_agent_details
-  onFailure: prompt_agent_name
+  onFailure: prompt_agent_details
   layout:
     size:
       width: 206
       height: 113
     position:
-      x: 1620
+      x: 900
       y: 175
 - id: agent_credentials
   type: PROMPT
@@ -2536,7 +3081,7 @@ nodes:
       width: 350
       height: 520
     position:
-      x: 1900
+      x: 1760
       y: 60
 - id: end
   type: END
@@ -2545,7 +3090,7 @@ nodes:
       width: 85
       height: 34
     position:
-      x: 2250
+      x: 2110
       y: 200
 ---
 resource_type: theme
@@ -5754,13 +6299,10 @@ translations:
     forms.owner.fields.owner.label: Owner
     forms.owner.fields.owner.placeholder: Select a user
     forms.owner.actions.next.label: Continue
-    forms.agent_name.title: Name Your Agent
-    forms.agent_name.subtitle: Give the agent a name you will recognize later.
-    forms.agent_name.fields.name.label: Name
-    forms.agent_name.fields.name.placeholder: Enter a name for the agent
-    forms.agent_name.actions.next.label: Continue
     forms.agent_details.title: Agent Details
-    forms.agent_details.subtitle: Describe the model this agent runs on and what it does.
+    forms.agent_details.subtitle: Name the agent and describe the model it runs on and what it does.
+    forms.agent_details.fields.name.label: Name
+    forms.agent_details.fields.name.placeholder: Enter a name for the agent
     forms.agent_details.fields.model_provider.label: Model Provider
     forms.agent_details.fields.model_provider.placeholder: Select a model provider
     forms.agent_details.fields.model.label: Model
@@ -6010,17 +6552,20 @@ translations:
   elements:
     fields.usertype.label: User Type
     fields.usertype.placeholder: Select User Type
+    forms.link_prompt.title: Link your account
+    forms.link_prompt.description: Your details matched the account below. Do you want to link to it permanently?
+    forms.link_prompt.actions.confirm.label: Link account
+    forms.link_prompt.actions.reject.label: No, I want a separate account
   signout:
     forms.confirm.title: Sign out?
     forms.confirm.description: You are about to sign out of your account. Do you want to continue?
     forms.confirm.actions.submit.label: Sign out
     errors.failed.description: Something went wrong. Please try again.
-  notification:
-    templates.list.title: Notification Templates
 ---
 resource_type: notification_template
 channel: email
 handle: user-invite
+ouHandle: default
 displayName: User Invitation Email
 description: Sent to invite a new user to complete their registration.
 content:
@@ -6043,6 +6588,7 @@ content:
 resource_type: notification_template
 channel: sms
 handle: user-invite
+ouHandle: default
 displayName: User Invitation SMS
 description: Sent to invite a new user to complete their registration.
 content:
@@ -6051,6 +6597,7 @@ content:
 resource_type: notification_template
 channel: email
 handle: self-registration
+ouHandle: default
 displayName: Self Registration Invite Email
 description: Sent to complete a self-service registration.
 content:
@@ -6073,6 +6620,7 @@ content:
 resource_type: notification_template
 channel: sms
 handle: self-registration
+ouHandle: default
 displayName: Self Registration Invite SMS
 description: Sent to complete a self-service registration.
 content:
@@ -6081,6 +6629,7 @@ content:
 resource_type: notification_template
 channel: email
 handle: magic-link
+ouHandle: default
 displayName: Magic Link Sign-In Email
 description: Sent to let a user sign in through a secure link.
 content:
@@ -6104,6 +6653,7 @@ content:
 resource_type: notification_template
 channel: email
 handle: password-recovery
+ouHandle: default
 displayName: Password Recovery Email
 description: Sent to let a user reset their account password.
 content:
@@ -6134,6 +6684,7 @@ content:
 resource_type: notification_template
 channel: email
 handle: ciba-notification
+ouHandle: default
 displayName: CIBA Authentication Notification Email
 description: Sent to approve a backchannel authentication request.
 content:
@@ -6159,6 +6710,7 @@ content:
 resource_type: notification_template
 channel: sms
 handle: ciba-notification
+ouHandle: default
 displayName: CIBA Authentication Notification SMS
 description: Sent to approve a backchannel authentication request.
 content:
@@ -6167,6 +6719,7 @@ content:
 resource_type: notification_template
 channel: email
 handle: otp
+ouHandle: default
 displayName: Email OTP Verification
 description: Sent to verify a user's email address with a one-time passcode.
 content:
@@ -6190,6 +6743,7 @@ content:
 resource_type: notification_template
 channel: sms
 handle: otp
+ouHandle: default
 displayName: SMS OTP Verification
 description: Sent to verify a user's phone number with a one-time passcode.
 content:

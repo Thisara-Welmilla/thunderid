@@ -15,6 +15,7 @@ import (
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 
 	agentmodel "github.com/thunder-id/thunderid/internal/agent/model"
+	"github.com/thunder-id/thunderid/internal/application"
 	appmodel "github.com/thunder-id/thunderid/internal/application/model"
 	"github.com/thunder-id/thunderid/internal/connection"
 	"github.com/thunder-id/thunderid/internal/connection/authzenpdp"
@@ -28,6 +29,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/secretresolver"
 	"github.com/thunder-id/thunderid/internal/vc/credential"
@@ -144,6 +146,12 @@ type roleAdapter interface {
 
 type roleAssignmentAdapter interface {
 	AddAssignments(ctx context.Context, id string, assignments []role.RoleAssignment) *tidcommon.ServiceError
+}
+
+// sharingPolicyAdapter applies the sharing policies a document carries for one resource.
+type sharingPolicyAdapter interface {
+	ReplacePoliciesForResource(ctx context.Context, rt sharing.ResourceType, resourceID, owningOUID string,
+		requests []sharing.PolicyRequest) (sharing.PolicyReplay, *sharing.PolicyReplayError)
 }
 
 type groupAdapter interface {
@@ -271,6 +279,7 @@ type importService struct {
 	entityTypeService              entityTypeAdapter
 	roleService                    roleAdapter
 	roleAssignmentService          roleAssignmentAdapter
+	sharingService                 sharingPolicyAdapter
 	groupService                   groupAdapter
 	resourceService                resourceServerAdapter
 	themeService                   themeAdapter
@@ -1062,6 +1071,16 @@ func (s *importService) importApplication(
 	if options.IsUpsertEnabled() && req.ID != "" {
 		updated, svcErr := s.applicationService.UpdateApplication(ctx, req.ID, appDTO)
 		if svcErr == nil {
+			stored, getErr := s.applicationService.GetApplication(ctx, updated.ID)
+			if getErr != nil {
+				return serviceErrorOutcome(resourceTypeApplication, updated.ID, updated.Name,
+					operationUpdate, getErr)
+			}
+			if outcome := s.applySharingPolicies(ctx, application.ApplicationSharingType,
+				resourceTypeApplication, updated.ID, updated.Name, stored.OUID,
+				req.SharingPolicies, operationUpdate); outcome != nil {
+				return *outcome
+			}
 			return ImportItemOutcome{
 				ResourceType: resourceTypeApplication,
 				ResourceID:   updated.ID,
@@ -1128,6 +1147,20 @@ func (s *importService) importApplication(
 			Code:         svcErr.Code,
 			Message:      svcErr.Error.DefaultValue,
 		}
+	}
+
+	// The policies come after the application exists, because a policy names the resource it
+	// governs. A refusal therefore has to undo the create: the caller is told the document failed
+	// and gets no id back, so an application left behind would hold the name and client id a retry
+	// needs.
+	if outcome := s.applySharingPolicies(ctx, application.ApplicationSharingType,
+		resourceTypeApplication, created.ID, created.Name, created.OUID,
+		req.SharingPolicies, operationCreate); outcome != nil {
+		if delErr := s.applicationService.DeleteApplication(ctx, created.ID); delErr != nil {
+			log.GetLogger().Error(ctx, "Failed to remove an application whose sharing policies were refused",
+				log.String("appID", created.ID), log.String("code", delErr.Code))
+		}
+		return *outcome
 	}
 
 	return ImportItemOutcome{

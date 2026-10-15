@@ -4,7 +4,6 @@
 package registration
 
 import (
-	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
@@ -253,7 +252,7 @@ var (
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
 		AllowedUserTypes:          []string{githubRegEntityType.Handle},
 		AssertionConfig: map[string]interface{}{
-			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
+			"userAttributes": []string{"userTypeHandle", "ouId", "ouName", "ouHandle"},
 		},
 	}
 )
@@ -524,27 +523,21 @@ func (ts *GithubRegistrationFlowTestSuite) TestGithubRegistrationFlowCompleteSuc
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
 
 	// Validate JWT contains expected user type and OU ID
-	ts.Require().Equal(githubRegEntityType.Handle, jwtClaims.UserType, "Expected userType to match created schema")
+	ts.Require().Equal(githubRegEntityType.Handle, jwtClaims.UserTypeHandle, "Expected userTypeHandle to match created schema")
 	ts.Require().NotEmpty(jwtClaims.OUID, "Expected ouId to be present")
 	ts.Require().Equal(githubRegTestAppID, jwtClaims.Aud, "Expected aud to match the application ID")
 	ts.Require().NotEmpty(jwtClaims.Sub, "JWT subject should not be empty")
 
 	// Verify the user was created by searching via the user API
-	user, err := testutils.FindUserByAttribute("sub", "67890")
+	user, err := testutils.GetUserFromAssertion(completeFlowStep.Assertion)
 	if err != nil {
-		ts.T().Fatalf("Failed to retrieve user by sub: %v", err)
+		ts.T().Fatalf("Failed to retrieve the user the assertion was issued for: %v", err)
 	}
 	ts.Require().NotNil(user, "User should be found in user list after registration")
 
 	// Store the created user for cleanup
 	if user != nil {
 		ts.config.CreatedUserIDs = append(ts.config.CreatedUserIDs, user.ID)
-
-		// Verify user attributes
-		var attributes map[string]interface{}
-		err = json.Unmarshal(user.Attributes, &attributes)
-		ts.Require().NoError(err, "Should be able to unmarshal user attributes")
-		ts.Require().Equal("67890", attributes["sub"], "User sub should match")
 	}
 }
 
@@ -626,7 +619,7 @@ func (ts *GithubRegistrationFlowTestSuite) TestGithubRegistrationFlowDuplicateUs
 	ts.Require().Equal("COMPLETE", completeFlowStep.FlowStatus, "First registration should complete successfully")
 
 	// Store created user for cleanup
-	user, err := testutils.FindUserByAttribute("sub", "67890")
+	user, err := testutils.GetUserFromAssertion(completeFlowStep.Assertion)
 	if err == nil && user != nil {
 		ts.config.CreatedUserIDs = append(ts.config.CreatedUserIDs, user.ID)
 	}

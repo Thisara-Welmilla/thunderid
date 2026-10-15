@@ -20,6 +20,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 	"github.com/thunder-id/thunderid/internal/system/log"
@@ -106,6 +107,8 @@ type layoutDeclarativeYAML struct {
 type notificationTemplateDeclarativeYAML struct {
 	Channel     string `yaml:"channel"`
 	Handle      string `yaml:"handle"`
+	OUID        string `yaml:"ouId,omitempty"`
+	OUHandle    string `yaml:"ouHandle,omitempty"`
 	DisplayName string `yaml:"displayName"`
 	Description string `yaml:"description"`
 	Content     struct {
@@ -862,15 +865,19 @@ func (s *importService) importResourceServerChildren(
 		}
 	}
 
-	// handleToID maps resource handle → created/resolved ID for parent resolution.
-	handleToID := make(map[string]string)
+	// pathToID maps a resource path (its permission) → created/resolved ID for parent resolution.
+	pathToID := make(map[string]string)
 
-	for i := range rs.Resources {
-		res := rs.Resources[i]
+	// A child is written after its parent, whichever order the document lists them in, so its
+	// parent path always resolves to an id already created or found. An export lists resources
+	// newest first, which puts a child before its parent.
+	ordered := parentsFirst(rs.Resources)
+	for i := range ordered {
+		res := ordered[i]
 
-		// Resolve ParentHandle to the parent ID using handles seen so far in this import.
+		// Resolve the parent path to the parent ID using resources seen so far in this import.
 		if res.ParentHandle != "" {
-			if parentID, ok := handleToID[res.ParentHandle]; ok {
+			if parentID, ok := pathToID[res.ParentHandle]; ok {
 				res.Parent = &parentID
 			}
 		}
@@ -883,7 +890,7 @@ func (s *importService) importResourceServerChildren(
 			// Resource already exists — look it up under the same parent scope to get its ID.
 			var parentID *string
 			if res.ParentHandle != "" {
-				if pid, ok := handleToID[res.ParentHandle]; ok {
+				if pid, ok := pathToID[res.ParentHandle]; ok {
 					parentID = &pid
 				}
 			}
@@ -904,7 +911,7 @@ func (s *importService) importResourceServerChildren(
 			created = &providers.Resource{ID: existingID}
 		}
 
-		handleToID[res.Handle] = created.ID
+		pathToID[res.Permission] = created.ID
 
 		for j := range res.Actions {
 			action := res.Actions[j]
@@ -918,6 +925,44 @@ func (s *importService) importResourceServerChildren(
 	return nil
 }
 
+// parentsFirst orders resources so each comes after the resource its parent path names. A parent
+// the document does not hold, or a cycle, which ProcessResourceServer refuses before this, leaves
+// the resource where it is rather than dropping it. Resources are tracked by position rather than by
+// path, so two sharing a path, which ProcessResourceServer also refuses, are both kept and the
+// ordering still ends.
+func parentsFirst(resources []providers.Resource) []providers.Resource {
+	held := make(map[string]bool, len(resources))
+	for _, res := range resources {
+		held[res.Permission] = true
+	}
+	ordered := make([]providers.Resource, 0, len(resources))
+	placed := make([]bool, len(resources))
+	placedPaths := make(map[string]bool, len(resources))
+	for len(ordered) < len(resources) {
+		progressed := false
+		for i, res := range resources {
+			if placed[i] {
+				continue
+			}
+			if res.ParentHandle == "" || placedPaths[res.ParentHandle] || !held[res.ParentHandle] {
+				ordered = append(ordered, res)
+				placed[i] = true
+				placedPaths[res.Permission] = true
+				progressed = true
+			}
+		}
+		if !progressed {
+			for i, res := range resources {
+				if !placed[i] {
+					ordered = append(ordered, res)
+					placed[i] = true
+				}
+			}
+		}
+	}
+	return ordered
+}
+
 func (s *importService) importAgent(
 	ctx context.Context, doc parsedDocument, options *ImportOptions, dryRun bool, flowIDAliases map[string]string,
 ) ImportItemOutcome {
@@ -927,7 +972,7 @@ func (s *importService) importAgent(
 
 	var req agentmodel.AgentRequestWithID
 	if err := doc.Node.Decode(&req); err != nil {
-		return decodeErrorOutcome(resourceTypeAgent, req.ID, req.Name, err)
+		return decodeErrorOutcome(resourceTypeAgent, req.ID, "", err)
 	}
 
 	if mappedFlowID, ok := flowIDAliases[req.AuthFlowID]; ok {
@@ -944,7 +989,6 @@ func (s *importService) importAgent(
 			return ImportItemOutcome{
 				ResourceType: resourceTypeAgent,
 				ResourceID:   req.ID,
-				ResourceName: req.Name,
 				Status:       statusFailed,
 				Code:         ErrorInvalidYAMLContent.Code,
 				Message:      fmt.Sprintf("failed to marshal agent attributes: %v", err),
@@ -960,7 +1004,6 @@ func (s *importService) importAgent(
 		OUID:        req.OUID,
 		OUHandle:    req.OUHandle,
 		Type:        req.Type,
-		Name:        req.Name,
 		Description: req.Description,
 		LogoURL:     req.LogoURL,
 		Owner:       req.Owner,
@@ -991,7 +1034,6 @@ func (s *importService) importAgent(
 		OUID:                  req.OUID,
 		OUHandle:              req.OUHandle,
 		Type:                  req.Type,
-		Name:                  req.Name,
 		Description:           req.Description,
 		LogoURL:               req.LogoURL,
 		Owner:                 req.Owner,
@@ -1004,15 +1046,15 @@ func (s *importService) importAgent(
 		if options.IsUpsertEnabled() && req.ID != "" {
 			_, svcErr := s.agentService.GetAgent(ctx, req.ID, false)
 			if svcErr == nil {
-				return successOutcome(resourceTypeAgent, req.ID, req.Name, operationUpdate)
+				return successOutcome(resourceTypeAgent, req.ID, "", operationUpdate)
 			}
 
 			if !isNotFoundServiceError(svcErr) {
-				return serviceErrorOutcome(resourceTypeAgent, req.ID, req.Name, operationUpdate, svcErr)
+				return serviceErrorOutcome(resourceTypeAgent, req.ID, "", operationUpdate, svcErr)
 			}
 		}
 
-		return successOutcome(resourceTypeAgent, req.ID, req.Name, operationCreate)
+		return successOutcome(resourceTypeAgent, req.ID, "", operationCreate)
 	}
 
 	if options.IsUpsertEnabled() && req.ID != "" {
@@ -1020,21 +1062,21 @@ func (s *importService) importAgent(
 		if svcErr == nil {
 			updated, updateErr := s.agentService.UpdateAgent(ctx, req.ID, updateReq)
 			if updateErr != nil {
-				return serviceErrorOutcome(resourceTypeAgent, req.ID, req.Name, operationUpdate, updateErr)
+				return serviceErrorOutcome(resourceTypeAgent, req.ID, "", operationUpdate, updateErr)
 			}
-			return successOutcome(resourceTypeAgent, updated.ID, updated.Name, operationUpdate)
+			return successOutcome(resourceTypeAgent, updated.ID, "", operationUpdate)
 		}
 
 		if !isNotFoundServiceError(svcErr) {
-			return serviceErrorOutcome(resourceTypeAgent, req.ID, req.Name, operationUpdate, svcErr)
+			return serviceErrorOutcome(resourceTypeAgent, req.ID, "", operationUpdate, svcErr)
 		}
 	}
 
 	created, svcErr := s.agentService.CreateAgent(ctx, createReq)
 	if svcErr != nil {
-		return serviceErrorOutcome(resourceTypeAgent, req.ID, req.Name, operationCreate, svcErr)
+		return serviceErrorOutcome(resourceTypeAgent, req.ID, "", operationCreate, svcErr)
 	}
-	return successOutcome(resourceTypeAgent, created.ID, created.Name, operationCreate)
+	return successOutcome(resourceTypeAgent, created.ID, "", operationCreate)
 }
 
 func getAgentOAuthConfigForImport(req *agentmodel.AgentRequestWithID) *providers.OAuthConfigWithSecret {
@@ -1063,10 +1105,49 @@ func normalizeAgentOAuthConfigForImport(ctx context.Context, req *agentmodel.Age
 		log.GetLogger().Debug(ctx,
 			"Dropping client_secret for public agent import with token endpoint auth method 'none'",
 			log.String("agentID", req.ID),
-			log.String("name", req.Name),
 			log.String("clientID", oauthConfig.ClientID))
 		oauthConfig.ClientSecret = ""
 	}
+}
+
+// applySharingPolicies replays the sharing policies a document carries for one resource, the way
+// role assignments and resource server children are applied: by the importer, after the resource
+// itself is written, rather than by the resource's own create and update.
+func (s *importService) applySharingPolicies(
+	ctx context.Context, rt sharing.ResourceType, resourceType, resourceID, resourceName, owningOUID string,
+	policies []sharing.PolicyRequest, operation string,
+) *ImportItemOutcome {
+	if len(policies) == 0 {
+		return nil
+	}
+	if s.sharingService == nil {
+		outcome := unsupportedAdapterOutcome(resourceType, "sharing")
+		return &outcome
+	}
+
+	replay, replayErr := s.sharingService.ReplacePoliciesForResource(ctx, rt, resourceID, owningOUID, policies)
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ImportService"))
+	for _, skipped := range replay.Skipped {
+		logger.Warn(ctx, "Sharing policy in the document was skipped; a declared policy governs this unit",
+			log.String("resourceType", resourceType), log.String("resourceID", resourceID),
+			log.Int("policyIndex", skipped.Index+1),
+			log.String("initiatingOUID", skipped.InitiatingOUID),
+			log.String("declaredPolicyID", skipped.DeclaredPolicyID))
+	}
+	if replayErr == nil {
+		return nil
+	}
+
+	// A document names its policies only by position, so the refusal says which one.
+	detail := tidcommon.CustomServiceError(*replayErr.Err, tidcommon.I18nMessage{
+		Key: replayErr.Err.ErrorDescription.Key,
+		DefaultValue: fmt.Sprintf("sharing policy %d (organization unit %s): %s",
+			replayErr.Index+1, replayErr.InitiatingOUID, replayErr.Err.ErrorDescription.DefaultValue),
+	})
+	outcome := serviceErrorOutcome(resourceType, resourceID, resourceName, operation, detail)
+	// The title alone says what kind of refusal it was; the description is what names the entry.
+	outcome.Message = detail.ErrorDescription.DefaultValue
+	return &outcome
 }
 
 func unsupportedAdapterOutcome(resourceType, name string) ImportItemOutcome {
@@ -1253,6 +1334,13 @@ func (s *importService) importNotificationTemplate(
 		return decodeErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, err)
 	}
 
+	resolvedOUID, svcErr := s.resolveImportOUHandle(
+		ctx, resourceTypeNotificationTemplate, "", raw.Handle, raw.OUID, raw.OUHandle)
+	if svcErr != nil {
+		return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationCreate, svcErr)
+	}
+	raw.OUID = resolvedOUID
+
 	channel := notificationtemplate.ChannelType(raw.Channel)
 	content := notificationtemplate.TemplateContent{Subject: raw.Content.Subject, Body: raw.Content.Body}
 	var design *notificationtemplate.TemplateDesign
@@ -1261,6 +1349,7 @@ func (s *importService) importNotificationTemplate(
 	}
 	createReq := notificationtemplate.CreateTemplateRequest{
 		Handle:      raw.Handle,
+		OUID:        raw.OUID,
 		DisplayName: raw.DisplayName,
 		Description: raw.Description,
 		Design:      design,
@@ -1278,6 +1367,7 @@ func (s *importService) importNotificationTemplate(
 	// upsert can target the existing template. For a real non-upsert apply the create path surfaces any
 	// conflict, so the lookup is only needed for a dry run or an upsert.
 	existingID := ""
+	existingOUID := ""
 	if dryRun || options.IsUpsertEnabled() {
 		existing, lookupErr := s.notifTemplateService.GetTemplateByHandle(ctx, channel, raw.Handle)
 		if lookupErr != nil && !isNotFoundServiceError(lookupErr) {
@@ -1285,8 +1375,14 @@ func (s *importService) importNotificationTemplate(
 		}
 		if existing != nil {
 			existingID = existing.ID
+			existingOUID = existing.OUID
 		}
 	}
+
+	// The ouId is immutable; an update that moves an existing template to a different OU is rejected
+	// rather than silently ignored (UpdateTemplate preserves the stored OU). Checked for both the dry
+	// run and the real apply so the prediction matches.
+	ouMismatch := func() bool { return existingID != "" && raw.OUID != "" && raw.OUID != existingOUID }
 
 	if dryRun {
 		op := operationCreate
@@ -1297,6 +1393,10 @@ func (s *importService) importNotificationTemplate(
 		if existingID != "" && !options.IsUpsertEnabled() {
 			return serviceErrorOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle,
 				operationCreate, &notificationtemplate.ErrorTemplateHandleConflict)
+		}
+		if op == operationUpdate && ouMismatch() {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle,
+				operationUpdate, &notificationtemplate.ErrorOUImmutable)
 		}
 		return successOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle, op)
 	}
@@ -1319,6 +1419,13 @@ func (s *importService) importNotificationTemplate(
 			return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationCreate, svcErr)
 		}
 		existingID = existing.ID
+		existingOUID = existing.OUID
+	}
+
+	// Reject an attempt to move an existing template to a different OU (ouId is immutable).
+	if ouMismatch() {
+		return serviceErrorOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle,
+			operationUpdate, &notificationtemplate.ErrorOUImmutable)
 	}
 
 	updated, updErr := s.notifTemplateService.UpdateTemplate(ctx, channel, existingID,

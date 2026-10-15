@@ -122,6 +122,10 @@ func (suite *ValueUtilTestSuite) TestToBool_Success() {
 		{"string false", "false", false},
 		{"string 1", "1", true},
 		{"string 0", "0", false},
+		// A boolean column reads back as an integer from SQLite.
+		{"int64 1", int64(1), true},
+		{"int64 0", int64(0), false},
+		{"int64 other than zero", int64(-2), true},
 	}
 
 	for _, tc := range testCases {

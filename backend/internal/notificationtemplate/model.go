@@ -11,20 +11,22 @@ import "github.com/thunder-id/thunderid/internal/system/utils"
 // tokens, body only). Fields that do not apply to a channel are left empty. Persisted as the CONTENT
 // JSON column.
 type TemplateContent struct {
-	Subject string `json:"subject,omitempty"`
-	Body    string `json:"body"`
+	Subject string `json:"subject,omitempty" yaml:"subject,omitempty"`
+	Body    string `json:"body" yaml:"body"`
 }
 
 // TemplateDesign holds a template's design references (email only). Persisted in the DESIGN JSON
 // column of NOTIFICATION_TEMPLATE; nil for channels without a design.
 type TemplateDesign struct {
-	ColorScheme string `json:"colorScheme,omitempty"`
+	ColorScheme string `json:"colorScheme,omitempty" yaml:"colorScheme,omitempty"`
 }
 
 // Template is the full representation of a notification template.
 type Template struct {
 	ID          string          `json:"id"`
+	OUID        string          `json:"ouId"`
 	Handle      string          `json:"handle"`
+	IsReadOnly  bool            `json:"isReadOnly"`
 	DisplayName string          `json:"displayName"`
 	Description string          `json:"description,omitempty"`
 	Design      *TemplateDesign `json:"design,omitempty"`
@@ -41,9 +43,10 @@ type TemplateSummary struct {
 }
 
 // CreateTemplateRequest is the request body for creating a template. The channel is taken from the
-// path, not the body. The handle is immutable and unique per channel.
+// path, not the body. The handle and ouId are immutable, set only at creation.
 type CreateTemplateRequest struct {
 	Handle      string          `json:"handle"`
+	OUID        string          `json:"ouId"`
 	DisplayName string          `json:"displayName"`
 	Description string          `json:"description"`
 	Design      *TemplateDesign `json:"design,omitempty"`
@@ -111,8 +114,10 @@ type templateDAO struct {
 	ID          string
 	Channel     ChannelType
 	Handle      string
+	OUID        string
 	DisplayName string
 	Description string
 	Content     TemplateContent
 	Design      *TemplateDesign
+	IsReadOnly  bool
 }

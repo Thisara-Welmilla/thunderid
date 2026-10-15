@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/thunder-id/thunderid/internal/flow/common"
 	"github.com/thunder-id/thunderid/internal/flow/session"
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
+	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/error/apierror"
@@ -65,6 +67,14 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 	if h.ssoTransport != nil {
 		ctx = session.WithInbound(ctx, h.ssoTransport.Read(ssoExchange))
 	}
+
+	// Carry the current step's request headers and query params so flow executors can publish them
+	// via {{request(current.*)}} placeholders. Credential-bearing headers and query params are
+	// stripped at this boundary; the Host is folded in so {{request(current.header.Host)}} resolves.
+	ctx = common.WithCurrentRequest(ctx, &providers.CurrentRequest{
+		Headers:     sysutils.FilterSensitiveHeaders(sysutils.HeadersWithHost(r)),
+		QueryParams: sysutils.FilterSensitiveQueryParams(r.URL.Query()),
+	})
 
 	var flowStep *FlowStep
 	var flowErr *tidcommon.ServiceError

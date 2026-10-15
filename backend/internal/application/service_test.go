@@ -29,6 +29,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/serverconfig"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/cors"
@@ -41,6 +42,7 @@ import (
 	"github.com/thunder-id/thunderid/tests/mocks/inboundclientmock"
 	"github.com/thunder-id/thunderid/tests/mocks/oumock"
 	"github.com/thunder-id/thunderid/tests/mocks/serverconfigmock"
+	"github.com/thunder-id/thunderid/tests/mocks/sharingmock"
 )
 
 const testServiceAppID = "app123"
@@ -146,7 +148,7 @@ func (suite *ServiceTestSuite) setupTestService() (
 		Maybe().Return((*providers.Entity)(nil), epNotFound)
 	mockEntityService.On("GetEntitiesByIDs", mock.Anything, mock.Anything).
 		Maybe().Return([]providers.Entity{}, noEPErr)
-	mockEntityService.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+	mockEntityService.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Maybe().Return(&providers.Entity{}, noEPErr)
 	mockEntityService.On("DeleteEntity", mock.Anything, mock.Anything).Maybe().Return(noEPErr)
 	mockEntityService.On("UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(noEPErr)
@@ -157,12 +159,21 @@ func (suite *ServiceTestSuite) setupTestService() (
 	mockStore.On("ResolveInboundAuthProfileHandles", mock.Anything, mock.Anything).Maybe().Return(nil)
 	mockOUService := oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
 	mockOUService.On("IsOrganizationUnitExists", mock.Anything, mock.Anything).Maybe().Return(true, nil)
+	// Production always wires a sharing service, so the default service carries one too. It
+	// answers permissively: a test that cares about sharing installs its own through
+	// sharingServiceOnly.
+	mockSharing := sharingmock.NewSharingServiceInterfaceMock(suite.T())
+	mockSharing.EXPECT().DeletePoliciesForResource(mock.Anything, mock.Anything, mock.Anything).
+		Maybe().Return(nil)
+	mockSharing.EXPECT().ReplacePoliciesForResource(mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything).Maybe().Return(sharing.PolicyReplay{}, nil)
 	service := &applicationService{
 		logger:               log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService")),
 		inboundClientService: mockStore,
 		entityService:        mockEntityService,
 		ouService:            mockOUService,
 		dependencyRegistry:   noopDepRegistry{},
+		sharingService:       mockSharing,
 	}
 	return service, mockStore
 }
@@ -2004,7 +2015,7 @@ func (suite *ServiceTestSuite) TestCreateApplication_IssuesFlowSecretForEmbedded
 
 	var capturedCreds json.RawMessage
 	ep := resetEntityServiceMethod(service, "CreateEntity")
-	ep.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+	ep.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
 			capturedCreds = args.Get(2).(json.RawMessage)
 		}).
@@ -2055,7 +2066,7 @@ func (suite *ServiceTestSuite) TestCreateApplication_NoFlowSecretForM2MClient() 
 
 	var capturedCreds json.RawMessage
 	ep := resetEntityServiceMethod(service, "CreateEntity")
-	ep.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+	ep.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
 			capturedCreds = args.Get(2).(json.RawMessage)
 		}).
@@ -2113,7 +2124,7 @@ func (suite *ServiceTestSuite) TestCreateApplication_NoFlowSecretForRedirectClie
 
 	var capturedCreds json.RawMessage
 	ep := resetEntityServiceMethod(service, "CreateEntity")
-	ep.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+	ep.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
 			capturedCreds = args.Get(2).(json.RawMessage)
 		}).
@@ -2170,7 +2181,7 @@ func (suite *ServiceTestSuite) TestCreateApplication_NoFlowSecretForPublicClient
 
 	var capturedCreds json.RawMessage
 	ep := resetEntityServiceMethod(service, "CreateEntity")
-	ep.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+	ep.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
 			capturedCreds = args.Get(2).(json.RawMessage)
 		}).
@@ -4891,4 +4902,360 @@ func (suite *ServiceTestSuite) TestResolveArtifactLifetime_ZeroWhenClientUnreada
 	ttl := service.resolveArtifactLifetime(context.Background(), "client-gone")
 
 	assert.Zero(suite.T(), ttl)
+}
+
+// ----- Sharing policies -----
+
+// sharingServiceOnly builds a service with a mocked sharing framework and nothing preloaded, for
+// the calls that never resolve an application.
+func (suite *ServiceTestSuite) sharingServiceOnly() (
+	*applicationService, *sharingmock.SharingServiceInterfaceMock,
+) {
+	service, _ := suite.setupTestService()
+	sharingMock := sharingmock.NewSharingServiceInterfaceMock(suite.T())
+	service.sharingService = sharingMock
+	return service, sharingMock
+}
+
+// sharingTestService additionally makes GetApplication succeed for testServiceAppID, which every
+// call that reaches the framework through an application needs.
+func (suite *ServiceTestSuite) sharingTestService() (
+	*applicationService, *sharingmock.SharingServiceInterfaceMock,
+) {
+	service, sharingMock := suite.sharingServiceOnly()
+	mockLoadFullApplication(mockStore(service), service, &model.ApplicationProcessedDTO{
+		ID: testServiceAppID, Name: "Test App", OUID: "owner-ou",
+	})
+	return service, sharingMock
+}
+
+// mockStore reaches the inbound client mock the service was built with.
+func mockStore(service *applicationService) *inboundclientmock.InboundClientServiceInterfaceMock {
+	return service.inboundClientService.(*inboundclientmock.InboundClientServiceInterfaceMock)
+}
+
+// A create resolves the application first, so the owning organization unit the framework is given
+// is the application's own rather than anything the caller supplied.
+func (suite *ServiceTestSuite) TestCreateSharingPolicyPassesTheApplicationsOwner() {
+	service, sharingMock := suite.sharingTestService()
+	req := sharing.PolicyRequest{ChildUnits: &sharing.ChildUnitsRequest{Mode: sharing.ChildUnitsAll}}
+
+	sharingMock.EXPECT().CreatePolicy(mock.Anything, ApplicationSharingType, testServiceAppID,
+		"owner-ou", mock.Anything).Return(sharing.Policy{ID: "p1"}, nil)
+
+	policy, svcErr := service.CreateSharingPolicy(context.Background(), testServiceAppID, req)
+
+	suite.Require().Nil(svcErr)
+	suite.Equal("p1", policy.ID)
+}
+
+// The id is the framework's to mint on the API path, and the framework's public create is what
+// drops a caller's. This service passes the request through, so what it must not do is add a step
+// that would make a caller's id reach a different path.
+func (suite *ServiceTestSuite) TestCreateSharingPolicyPassesTheRequestToThePublicCreate() {
+	service, sharingMock := suite.sharingTestService()
+
+	var seen sharing.PolicyRequest
+	sharingMock.EXPECT().CreatePolicy(mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything).RunAndReturn(func(_ context.Context, _ sharing.ResourceType, _, _ string,
+		req sharing.PolicyRequest) (sharing.Policy, *tidcommon.ServiceError) {
+		seen = req
+		return sharing.Policy{ID: "minted"}, nil
+	})
+
+	_, svcErr := service.CreateSharingPolicy(context.Background(), testServiceAppID,
+		sharing.PolicyRequest{ID: "caller-chosen", ChildUnits: &sharing.ChildUnitsRequest{
+			Mode: sharing.ChildUnitsAll}})
+
+	suite.Require().Nil(svcErr)
+	suite.Equal("caller-chosen", seen.ID,
+		"the request reaches the framework as sent; dropping the id is the public create's job")
+}
+
+// A policy is only ever reached through the application it governs. Without this a policy id alone
+// would reach any policy in the deployment through any application's path.
+func (suite *ServiceTestSuite) TestSharingPolicyOfAnotherResourceIsNotFound() {
+	for _, tc := range []struct {
+		name   string
+		policy sharing.Policy
+	}{
+		{"another application's policy", sharing.Policy{
+			ID: "p1", ResourceType: ApplicationSharingType, ResourceID: "some-other-app"}},
+		{"another resource type's policy", sharing.Policy{
+			ID: "p1", ResourceType: "resource_server", ResourceID: testServiceAppID}},
+	} {
+		suite.Run(tc.name, func() {
+			service, sharingMock := suite.sharingTestService()
+			sharingMock.EXPECT().GetPolicy(mock.Anything, "p1").Return(tc.policy, nil)
+
+			_, svcErr := service.GetSharingPolicy(context.Background(), testServiceAppID, "p1")
+
+			suite.Require().NotNil(svcErr)
+			suite.Equal(ErrorSharingPolicyNotFound.Code, svcErr.Code)
+		})
+	}
+}
+
+// An edit and a delete go through the same ownership check, so neither can be aimed at a policy
+// the application does not hold.
+func (suite *ServiceTestSuite) TestSharingPolicyEditAndDeleteCheckOwnership() {
+	foreign := sharing.Policy{ID: "p1", ResourceType: ApplicationSharingType, ResourceID: "other"}
+
+	suite.Run("update", func() {
+		service, sharingMock := suite.sharingTestService()
+		sharingMock.EXPECT().GetPolicy(mock.Anything, "p1").Return(foreign, nil)
+
+		_, svcErr := service.UpdateSharingPolicy(context.Background(), testServiceAppID, "p1",
+			sharing.PolicyRequest{})
+
+		suite.Require().NotNil(svcErr)
+		suite.Equal(ErrorSharingPolicyNotFound.Code, svcErr.Code)
+	})
+
+	// A delete says what the state should be afterwards, and for this application it already is,
+	// so it succeeds without touching the other resource's policy and without saying it exists.
+	suite.Run("delete", func() {
+		service, sharingMock := suite.sharingTestService()
+		sharingMock.EXPECT().GetPolicy(mock.Anything, "p1").Return(foreign, nil)
+
+		suite.Nil(service.DeleteSharingPolicy(context.Background(), testServiceAppID, "p1"))
+	})
+}
+
+// A policy the application does hold passes through to the framework.
+func (suite *ServiceTestSuite) TestSharingPolicyOfThisApplicationIsReachable() {
+	service, sharingMock := suite.sharingTestService()
+	own := sharing.Policy{
+		ID: "p1", ResourceType: ApplicationSharingType, ResourceID: testServiceAppID, Version: 3,
+	}
+	sharingMock.EXPECT().GetPolicy(mock.Anything, "p1").Return(own, nil)
+
+	policy, svcErr := service.GetSharingPolicy(context.Background(), testServiceAppID, "p1")
+
+	suite.Require().Nil(svcErr)
+	suite.Equal(3, policy.Version)
+}
+
+// Resolving needs an organization unit to resolve for; without one there is no question to answer.
+// The refusal names the query parameter rather than describing a malformed body, because this
+// endpoint has no body for that description to be about.
+func (suite *ServiceTestSuite) TestResolveSharingOverlayRequiresAnOrganizationUnit() {
+	service, _ := suite.sharingTestService()
+
+	_, svcErr := service.ResolveSharingOverlay(context.Background(), testServiceAppID, "")
+
+	suite.Require().NotNil(svcErr)
+	suite.Equal(ErrorMissingOUIDParameter.Code, svcErr.Code)
+	suite.NotEqual(ErrorInvalidRequestFormat.Code, svcErr.Code)
+	suite.Contains(svcErr.ErrorDescription.DefaultValue, "ouId")
+}
+
+// An unknown application answers as one rather than as a sharing failure, so a caller is told what
+// is actually wrong.
+func (suite *ServiceTestSuite) TestSharingCallsRefuseAnEmptyApplicationID() {
+	service, _ := suite.sharingServiceOnly()
+
+	_, svcErr := service.ListSharingPolicies(context.Background(), "", 30, 0)
+
+	suite.Require().NotNil(svcErr)
+	suite.Equal(ErrorInvalidApplicationID.Code, svcErr.Code)
+}
+
+// ----- syncSharingPolicies, the import and export replay -----
+
+// The framework has a vocabulary of its own, and a caller of the application API has no reason to
+// learn it. Every refusal comes back in this service's namespace, with the framework's description
+// carried through so the half that says what is wrong survives.
+func (suite *ServiceTestSuite) TestSharingErrorsAreTranslated() {
+	for _, tc := range []struct {
+		name     string
+		from     *tidcommon.ServiceError
+		wantCode string
+	}{
+		{"no such policy", &sharing.ErrorPolicyNotFound, ErrorSharingPolicyNotFound.Code},
+		{"a second policy for one unit", &sharing.ErrorPolicyExists, ErrorSharingPolicyExists.Code},
+		{"a stale version", &sharing.ErrorVersionMismatch, ErrorSharingPolicyVersionMismatch.Code},
+		{"a declared policy", &sharing.ErrorPolicyDeclared, ErrorSharingPolicyDeclared.Code},
+		{"a section changing kind", &sharing.ErrorScopeFamilyChange, ErrorInvalidSharingPolicy.Code},
+		{"a malformed request", &sharing.ErrorInvalidRequestFormat, ErrorInvalidSharingPolicy.Code},
+		{"a unit the issuer may not name", &sharing.ErrorInvalidTargetOU, ErrorInvalidSharingPolicy.Code},
+		{"an exclusion out of reach", &sharing.ErrorExclusionOutOfReach, ErrorInvalidSharingPolicy.Code},
+	} {
+		suite.Run(tc.name, func() {
+			translated := translateSharingError(tc.from)
+
+			suite.Require().NotNil(translated)
+			suite.Equal(tc.wantCode, translated.Code)
+			suite.Equal(tidcommon.ClientErrorType, translated.Type)
+			suite.Equal(tc.from.ErrorDescription, translated.ErrorDescription,
+				"the framework's description says what is wrong and must survive")
+		})
+	}
+}
+
+// A framework failure is reduced to the generic internal error. The framework logged it where it
+// happened, with the detail only it has, so nothing of its own is carried outward.
+func (suite *ServiceTestSuite) TestSharingServerErrorsCollapseToTheGenericOne() {
+	framework := tidcommon.ServiceError{
+		Type: tidcommon.ServerErrorType,
+		Code: "SHR-5000",
+		ErrorDescription: tidcommon.I18nMessage{
+			DefaultValue: "a detail only the framework should hold",
+		},
+	}
+
+	translated := translateSharingError(&framework)
+
+	suite.Require().NotNil(translated)
+	suite.Equal(tidcommon.InternalServerError.Code, translated.Code)
+	suite.Equal(tidcommon.ServerErrorType, translated.Type)
+	suite.NotContains(translated.ErrorDescription.DefaultValue, "only the framework")
+}
+
+// Nothing to translate stays nothing, so a caller can pass a nil through without a guard.
+func (suite *ServiceTestSuite) TestTranslatingNoErrorIsNoError() {
+	suite.Nil(translateSharingError(nil))
+}
+
+// An organization unit the application never reached holds no terms, so there is nothing to
+// resolve rather than an answer saying it may do nothing.
+func (suite *ServiceTestSuite) TestResolveSharingOverlayRefusesAnUnreachedUnit() {
+	service, sharingMock := suite.sharingTestService()
+	sharingMock.EXPECT().ResolveOverlayRules(mock.Anything, ApplicationSharingType,
+		testServiceAppID, "stranger-ou").
+		Return(sharing.ResolvedOverlay{OUID: "stranger-ou", Visible: false}, nil)
+
+	_, svcErr := service.ResolveSharingOverlay(context.Background(), testServiceAppID, "stranger-ou")
+
+	suite.Require().NotNil(svcErr)
+	suite.Equal(ErrorApplicationNotSharedToOU.Code, svcErr.Code)
+}
+
+// A unit the application did reach is answered, so the refusal above is about visibility and not
+// about the endpoint.
+func (suite *ServiceTestSuite) TestResolveSharingOverlayAnswersAReachedUnit() {
+	service, sharingMock := suite.sharingTestService()
+	sharingMock.EXPECT().ResolveOverlayRules(mock.Anything, ApplicationSharingType,
+		testServiceAppID, "child-a").
+		Return(sharing.ResolvedOverlay{OUID: "child-a", Visible: true, Owned: false}, nil)
+
+	overlay, svcErr := service.ResolveSharingOverlay(context.Background(), testServiceAppID, "child-a")
+
+	suite.Require().Nil(svcErr)
+	suite.Equal("child-a", overlay.OUID)
+	suite.True(overlay.Visible)
+}
+
+// An id naming no organization unit leaves nothing to resolve either. Answering it as a malformed
+// policy would describe a mistake the caller did not make.
+func (suite *ServiceTestSuite) TestResolveSharingOverlayTreatsAnUnknownUnitAsUnreached() {
+	service, sharingMock := suite.sharingTestService()
+	sharingMock.EXPECT().ResolveOverlayRules(mock.Anything, ApplicationSharingType,
+		testServiceAppID, "no-such-ou").
+		Return(sharing.ResolvedOverlay{}, &ou.ErrorOrganizationUnitNotFound)
+
+	_, svcErr := service.ResolveSharingOverlay(context.Background(), testServiceAppID, "no-such-ou")
+
+	suite.Require().NotNil(svcErr)
+	suite.Equal(ErrorApplicationNotSharedToOU.Code, svcErr.Code)
+}
+
+// A create through the API is not a replay, so neither the id nor the version it starts at comes
+// from the caller. The specification says as much: version is read only on an edit.
+func (suite *ServiceTestSuite) TestCreateSharingPolicyPassesTheVersionThrough() {
+	service, sharingMock := suite.sharingTestService()
+
+	var seen sharing.PolicyRequest
+	sharingMock.EXPECT().CreatePolicy(mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything).RunAndReturn(func(_ context.Context, _ sharing.ResourceType, _, _ string,
+		req sharing.PolicyRequest) (sharing.Policy, *tidcommon.ServiceError) {
+		seen = req
+		return sharing.Policy{ID: "minted", Version: 1}, nil
+	})
+
+	_, svcErr := service.CreateSharingPolicy(context.Background(), testServiceAppID,
+		sharing.PolicyRequest{Version: 99, ChildUnits: &sharing.ChildUnitsRequest{
+			Mode: sharing.ChildUnitsAll}})
+
+	suite.Require().Nil(svcErr)
+	suite.Equal(99, seen.Version,
+		"the request reaches the framework as sent; dropping the version is the public create's job")
+}
+
+// Nothing else removes the policies recorded against an application, so the delete has to. An
+// application later created with the same id would otherwise come back already shared.
+func (suite *ServiceTestSuite) TestDeleteApplicationRemovesItsSharingPolicies() {
+	testConfig := &config.Config{DeclarativeResources: config.DeclarativeResources{Enabled: false}}
+	config.ResetServerRuntime()
+	suite.Require().NoError(config.InitializeServerRuntime("/tmp/test", testConfig))
+	defer config.ResetServerRuntime()
+
+	service, sharingMock := suite.sharingServiceOnly()
+	mockStore := mockStore(service)
+	mockStore.On("DeleteInboundClient", mock.Anything, testServiceAppID).Maybe().Return(nil)
+	sharingMock.EXPECT().DeletePoliciesForResource(mock.Anything, ApplicationSharingType,
+		testServiceAppID).Return(nil).Once()
+
+	svcErr := service.DeleteApplication(context.Background(), testServiceAppID)
+
+	suite.Nil(svcErr)
+}
+
+// The purge sits where the dependency cascade does, before the writes, so a failure leaves the
+// application intact and the delete retriable rather than half done.
+func (suite *ServiceTestSuite) TestDeleteApplicationAbortsWhenThePurgeFails() {
+	testConfig := &config.Config{DeclarativeResources: config.DeclarativeResources{Enabled: false}}
+	config.ResetServerRuntime()
+	suite.Require().NoError(config.InitializeServerRuntime("/tmp/test", testConfig))
+	defer config.ResetServerRuntime()
+
+	service, sharingMock := suite.sharingServiceOnly()
+	sharingMock.EXPECT().DeletePoliciesForResource(mock.Anything, ApplicationSharingType,
+		testServiceAppID).Return(&sharing.ErrorInvalidRequestFormat)
+
+	svcErr := service.DeleteApplication(context.Background(), testServiceAppID)
+
+	suite.Require().NotNil(svcErr)
+	suite.Equal(ErrorInvalidSharingPolicy.Code, svcErr.Code)
+	// No write mock is registered, so the delete reaching one would fail the test.
+	mockStore(service).AssertNotCalled(suite.T(), "DeleteInboundClient", mock.Anything, mock.Anything)
+}
+
+// Deleting a policy the application does not hold succeeds, the way deleting an application that
+// is not there does. The call says what the state should be afterwards, and it already is.
+func (suite *ServiceTestSuite) TestDeleteSharingPolicyIsIdempotent() {
+	service, sharingMock := suite.sharingTestService()
+	sharingMock.EXPECT().GetPolicy(mock.Anything, "never-existed").
+		Return(sharing.Policy{}, &sharing.ErrorPolicyNotFound)
+
+	suite.Nil(service.DeleteSharingPolicy(context.Background(), testServiceAppID, "never-existed"))
+}
+
+// Only a missing policy reads as already deleted. A missing application is a wrong address, so it
+// answers as one rather than as a delete that succeeded.
+func (suite *ServiceTestSuite) TestDeleteSharingPolicyOnAnUnknownApplicationIsNotFound() {
+	service, sharingMock := suite.sharingServiceOnly()
+	mockStore(service).On("GetInboundClientByEntityID", mock.Anything, "missing-app").Return(nil, nil)
+
+	svcErr := service.DeleteSharingPolicy(context.Background(), "missing-app", "p1")
+
+	suite.Require().NotNil(svcErr)
+	suite.Equal(ErrorApplicationNotFound.Code, svcErr.Code)
+	sharingMock.AssertNotCalled(suite.T(), "GetPolicy", mock.Anything, mock.Anything)
+	sharingMock.AssertNotCalled(suite.T(), "DeletePolicy", mock.Anything, mock.Anything)
+}
+
+// A declared policy is there and stays there, so reporting success would describe something that
+// did not happen.
+func (suite *ServiceTestSuite) TestDeleteSharingPolicyStillRefusesADeclaredOne() {
+	service, sharingMock := suite.sharingTestService()
+	sharingMock.EXPECT().GetPolicy(mock.Anything, "declared").Return(sharing.Policy{
+		ID: "declared", ResourceType: ApplicationSharingType, ResourceID: testServiceAppID,
+		Declared: true,
+	}, nil)
+
+	svcErr := service.DeleteSharingPolicy(context.Background(), testServiceAppID, "declared")
+
+	suite.Require().NotNil(svcErr)
+	suite.Equal(ErrorSharingPolicyDeclared.Code, svcErr.Code)
 }

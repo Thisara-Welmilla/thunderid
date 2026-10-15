@@ -5,6 +5,7 @@ import {PageLoader} from '@thunderid/components';
 import {ApplicationCreateProvider} from '@thunderid/configure-applications';
 import {LayoutBuilderProvider, ThemeBuilderProvider} from '@thunderid/configure-design';
 import {GroupCreateProvider} from '@thunderid/configure-groups';
+import type {NotificationChannel} from '@thunderid/configure-notification-templates';
 import {OrganizationUnitProvider} from '@thunderid/configure-organization-units';
 import {RoleCreateProvider} from '@thunderid/configure-roles';
 import {TranslationCreateProvider} from '@thunderid/configure-translations';
@@ -48,8 +49,16 @@ const TranslationsEditPage = lazy(() =>
 const TranslationsListPage = lazy(() =>
   import('@thunderid/configure-translations').then((m) => ({default: m.TranslationsListPage})),
 );
+const NotificationTemplatesListPage = lazy(() =>
+  import('@thunderid/configure-notification-templates').then((m) => ({default: m.NotificationTemplatesListPage})),
+);
+const NotificationTemplateEditPage = lazy(() =>
+  import('@thunderid/configure-notification-templates').then((m) => ({default: m.NotificationTemplateEditPage})),
+);
+const NotificationTemplateCreatePage = lazy(() =>
+  import('@thunderid/configure-notification-templates').then((m) => ({default: m.NotificationTemplateCreatePage})),
+);
 const UserAddPage = lazy(() => import('@thunderid/configure-users').then((m) => ({default: m.UserAddPage})));
-const UserCreatePage = lazy(() => import('@thunderid/configure-users').then((m) => ({default: m.UserCreatePage})));
 const UserEditPage = lazy(() => import('@thunderid/configure-users').then((m) => ({default: m.UserEditPage})));
 const UsersListPage = lazy(() => import('@thunderid/configure-users').then((m) => ({default: m.UsersListPage})));
 const ResourceServersListPage = lazy(() =>
@@ -280,16 +289,6 @@ export default function App(): JSX.Element {
                 }
               >
                 <Route index element={<UserAddPage />} />
-              </Route>
-              <Route
-                path={RouteConfig.users.addCreate()}
-                element={
-                  <ProtectedRoute>
-                    <FullScreenLayout />
-                  </ProtectedRoute>
-                }
-              >
-                <Route index element={<UserCreatePage />} />
               </Route>
               <Route
                 path={RouteConfig.userTypes.create()}
@@ -526,6 +525,28 @@ export default function App(): JSX.Element {
               >
                 <Route index element={<TranslationsListPage />} />
                 <Route path=":language" element={<TranslationsEditPage />} />
+              </Route>
+              <Route
+                path={RouteConfig.notificationTemplates.list()}
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to={RouteConfig.notificationTemplates.channel('email')} replace />} />
+                <Route path=":channel" element={<NotificationTemplatesListPage />} />
+                <Route path=":channel/:id" element={<NotificationTemplateEditPage />} />
+              </Route>
+              <Route
+                path={RouteConfig.notificationTemplates.create(':channel' as NotificationChannel)}
+                element={
+                  <ProtectedRoute>
+                    <FullScreenLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<NotificationTemplateCreatePage />} />
               </Route>
             </Routes>
           </Suspense>

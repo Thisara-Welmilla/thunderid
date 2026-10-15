@@ -77,12 +77,12 @@ func TestOUStore_ValidateOrganizationUnitForUserType(t *testing.T) {
 			Once()
 
 		return &userService{
-				ouService:         ouServiceMock,
-				entityTypeService: entityTypeMock,
-			}, testMocks{
-				ouService:         ouServiceMock,
-				entityTypeService: entityTypeMock,
-			}
+			ouService:         ouServiceMock,
+			entityTypeService: entityTypeMock,
+		}, testMocks{
+			ouService:         ouServiceMock,
+			entityTypeService: entityTypeMock,
+		}
 	}
 
 	testCases := []struct {
@@ -122,10 +122,10 @@ func TestOUStore_ValidateOrganizationUnitForUserType(t *testing.T) {
 					Once()
 
 				return &userService{
-						ouService: ouServiceMock,
-					}, testMocks{
-						ouService: ouServiceMock,
-					}
+					ouService: ouServiceMock,
+				}, testMocks{
+					ouService: ouServiceMock,
+				}
 			},
 			expectedErr: &ErrorOrganizationUnitNotFound,
 		},
@@ -142,10 +142,10 @@ func TestOUStore_ValidateOrganizationUnitForUserType(t *testing.T) {
 				}).Once()
 
 				return &userService{
-						ouService: ouServiceMock,
-					}, testMocks{
-						ouService: ouServiceMock,
-					}
+					ouService: ouServiceMock,
+				}, testMocks{
+					ouService: ouServiceMock,
+				}
 			},
 			expectedErr: &ErrorOrganizationUnitNotFound,
 		},
@@ -162,10 +162,10 @@ func TestOUStore_ValidateOrganizationUnitForUserType(t *testing.T) {
 				}).Once()
 
 				return &userService{
-						ouService: ouServiceMock,
-					}, testMocks{
-						ouService: ouServiceMock,
-					}
+					ouService: ouServiceMock,
+				}, testMocks{
+					ouService: ouServiceMock,
+				}
 			},
 			expectedErr: &ErrorInvalidOUID,
 		},
@@ -194,12 +194,12 @@ func TestOUStore_ValidateOrganizationUnitForUserType(t *testing.T) {
 					Once()
 
 				return &userService{
-						ouService:         ouServiceMock,
-						entityTypeService: entityTypeMock,
-					}, testMocks{
-						ouService:         ouServiceMock,
-						entityTypeService: entityTypeMock,
-					}
+					ouService:         ouServiceMock,
+					entityTypeService: entityTypeMock,
+				}, testMocks{
+					ouService:         ouServiceMock,
+					entityTypeService: entityTypeMock,
+				}
 			},
 			expectedErr: &ErrorOrganizationUnitMismatch,
 		},
@@ -226,12 +226,12 @@ func TestOUStore_ValidateOrganizationUnitForUserType(t *testing.T) {
 					Once()
 
 				return &userService{
-						ouService:         ouServiceMock,
-						entityTypeService: entityTypeMock,
-					}, testMocks{
-						ouService:         ouServiceMock,
-						entityTypeService: entityTypeMock,
-					}
+					ouService:         ouServiceMock,
+					entityTypeService: entityTypeMock,
+				}, testMocks{
+					ouService:         ouServiceMock,
+					entityTypeService: entityTypeMock,
+				}
 			},
 			expectedErr: nil,
 		},
@@ -273,12 +273,12 @@ func TestOUStore_ValidateOrganizationUnitForUserType(t *testing.T) {
 					Once()
 
 				return &userService{
-						ouService:         ouServiceMock,
-						entityTypeService: entityTypeMock,
-					}, testMocks{
-						ouService:         ouServiceMock,
-						entityTypeService: entityTypeMock,
-					}
+					ouService:         ouServiceMock,
+					entityTypeService: entityTypeMock,
+				}, testMocks{
+					ouService:         ouServiceMock,
+					entityTypeService: entityTypeMock,
+				}
 			},
 			expectedErr: nil,
 		},
@@ -402,7 +402,7 @@ func TestUserService_CreateUser_CallsCreateEntity(t *testing.T) {
 	storeMock.
 		On("CreateEntity", mock.Anything, mock.MatchedBy(func(e *providers.Entity) bool {
 			return e.OUID == testOrgID && e.Type == testUserType && e.ID != ""
-		}), mock.Anything).
+		}), mock.Anything, mock.Anything).
 		Return(&providers.Entity{
 			OUID: testOrgID, Type: testUserType,
 			Attributes: json.RawMessage(`{}`),
@@ -429,6 +429,58 @@ func TestUserService_CreateUser_CallsCreateEntity(t *testing.T) {
 	require.Equal(t, testOrgID, created.OUID)
 	require.NotEmpty(t, created.ID)
 	storeMock.AssertNumberOfCalls(t, "CreateEntity", 1)
+}
+
+// A user created with a federated link carries it to the entity layer as the linkedIds system
+// attribute, so the user and its link are written together.
+func TestUserService_CreateUser_WritesLinkedAccount(t *testing.T) {
+	ouServiceMock := oumock.NewOrganizationUnitServiceInterfaceMock(t)
+	ouServiceMock.On("IsOrganizationUnitExists", mock.Anything, testOrgID).
+		Return(true, (*tidcommon.ServiceError)(nil)).Once()
+	entityTypeMock := entitytypemock.NewEntityTypeServiceInterfaceMock(t)
+	entityTypeMock.On("GetEntityTypeByHandle", mock.Anything, mock.Anything, testUserType).
+		Return(&entitytype.EntityType{OUID: testOrgID}, (*tidcommon.ServiceError)(nil)).Once()
+	storeMock := entitymock.NewEntityServiceInterfaceMock(t)
+	storeMock.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything,
+		&providers.LinkedAccount{IdpID: "idp-a", Sub: "sub-1"}).
+		Return(&providers.Entity{Attributes: json.RawMessage(`{}`)}, nil).Once()
+
+	service := &userService{
+		entityService:     storeMock,
+		ouService:         ouServiceMock,
+		entityTypeService: entityTypeMock,
+		authzService:      newAllowAllAuthz(t),
+		uuidGenerator:     utils.GenerateUUIDv7,
+	}
+
+	created, svcErr := service.CreateUser(context.Background(), &providers.User{
+		Type:          testUserType,
+		OUID:          testOrgID,
+		Attributes:    json.RawMessage(`{}`),
+		LinkedAccount: &providers.LinkedAccount{IdpID: "idp-a", Sub: "sub-1"},
+	})
+	require.Nil(t, svcErr)
+	require.NotNil(t, created)
+}
+
+// A federated link missing its connection or subject names nothing, so the create is rejected
+// before anything is written.
+func TestUserService_CreateUser_RejectsIncompleteLinkedAccount(t *testing.T) {
+	for name, link := range map[string]providers.LinkedAccount{
+		"no connection": {Sub: "sub-1"},
+		"no subject":    {IdpID: "idp-a"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service := &userService{}
+
+			created, svcErr := service.CreateUser(context.Background(), &providers.User{
+				Type: testUserType, OUID: testOrgID, LinkedAccount: &link,
+			})
+			require.Nil(t, created)
+			require.NotNil(t, svcErr)
+			require.Equal(t, ErrorInvalidRequestFormat.Code, svcErr.Code)
+		})
+	}
 }
 
 func TestUserService_CreateUser_UUIDGenerationError(t *testing.T) {
@@ -473,7 +525,7 @@ func TestUserService_CreateUser_PropagatesStoreError(t *testing.T) {
 	storeMock := entitymock.NewEntityServiceInterfaceMock(t)
 	storeMock.On("IsEntityDeclarative", mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	storeMock.
-		On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+		On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return((*providers.Entity)(nil), storeErr).
 		Once()
 
@@ -1963,6 +2015,7 @@ func TestUserService_CreateUser_EntityErrors(t *testing.T) {
 	}{
 		{"SchemaNotFound", entitypkg.ErrSchemaValidationFailed, ErrorSchemaValidationFailed},
 		{"AttributeConflict", entitypkg.ErrAttributeConflict, ErrorAttributeConflict},
+		{"FederatedIdentityConflict", entitypkg.ErrLinkedAccountConflict, ErrorLinkedAccountConflict},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1975,7 +2028,7 @@ func TestUserService_CreateUser_EntityErrors(t *testing.T) {
 				Return(&entitytype.EntityType{OUID: testOrgID}, (*tidcommon.ServiceError)(nil)).Once()
 
 			storeMock := entitymock.NewEntityServiceInterfaceMock(t)
-			storeMock.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything).
+			storeMock.On("CreateEntity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return((*providers.Entity)(nil), tc.entityErr).Once()
 
 			service := &userService{
