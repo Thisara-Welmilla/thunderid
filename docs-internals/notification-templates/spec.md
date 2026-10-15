@@ -8,19 +8,19 @@
 
 ThunderID ships fixed email and SMS templates. Changing their content requires editing server files and restarting the service. Administrators cannot manage or preview templates through the Console or an API. This specification adds runtime template management and live previews, with language and design support: a template references translation keys and a design rather than embedding its own copy or branding. Authoring new translations or customizing the design itself is out of scope for this phase; a template reuses the translations and designs the Translation and Design features already provide.
 
-Each template is language-neutral: its message content references translation keys rather than storing separate content for each language. The Design feature supplies the applicable design when an email is rendered. The template stores a color scheme selection and references a design rather than embedding the design itself.
+Each template stores one content definition rather than separate content per language, and it can reference translation keys so the same template localizes through the Translation feature. The Design feature supplies the applicable design when an email is rendered. The template stores a color scheme selection and references a design rather than embedding the design itself.
 
-A flow node selects the template to send. Notifications dispatched outside a flow, for example the email OTP authentication endpoint, select a managed template by a fixed handle (`otp`) through the same renderer. During execution, ThunderID renders in a fixed order: first it resolves the `{{t(...)}}` translation keys for the requested language (falling back to the system language), then it resolves the `{{design(...)}}` tokens (email body only), and finally it substitutes the `{{ctx(...)}}` runtime values, HTML-escaping them in an HTML body. It then sends the notification. Resolving the recipient's own language is future work; this phase renders in the configured system default language.
+A flow node selects the template to send, and notifications dispatched outside a flow use the same managed templates: the SMS OTP authentication endpoint, for example, selects a template by the fixed handle `otp` through the same renderer. During execution the renderer resolves placeholders in a fixed order: first the `{{t(...)}}` translation keys for the requested language (falling back to the system language), then the `{{design(...)}}` tokens against the theme (email body only, so SMS skips this step), and finally the `{{ctx(...)}}` runtime values, HTML-escaping them in an HTML body. The rendered content is then handed to the sender. Resolving the recipient's own language is future work; this phase renders in the system default language, the `en-US` constant rather than a configured value.
 
 ## Architecture
 
 A template belongs to a notification channel, currently email or SMS. An administrator selects a template for a flow’s notification node, and the corresponding channel executor uses it. An email executor cannot use an SMS template, or vice versa.
 
-Template content belongs to an organization unit and is independent of language and design. Its message content references translation keys; the resolved translation text, which can contain `{{ctx(...)}}` placeholders, is produced by the Translation feature at render time. The template stores the selected color scheme; the Design feature supplies the applicable design when the notification is rendered or previewed.
+Template content belongs to an organization unit and is independent of language and design. Its message content can reference translation keys; the resolved translation text, which can contain `{{ctx(...)}}` placeholders, is produced by the Translation feature at render time. The template stores the selected color scheme; the Design feature supplies the applicable design when the notification is rendered or previewed.
 
 The Notification Templates module manages templates and coordinates rendering. It uses the Translation feature to resolve localized text and the Design feature to apply the relevant design. Runtime consumers invoke the template renderer, which returns the fully resolved notification content ready for sending. They do not call the Translation or Design features themselves to resolve template placeholders; the renderer has already applied them.
 
-Templates required by flows, which are themselves created at bootstrap, are imported through the existing bootstrap path. After import, they are ordinary editable templates. Features installed or enabled later create any additional templates they require.
+Templates required by flows, which are themselves created at bootstrap, are imported through the existing bootstrap path. After import they are managed like any other template: editable in `mutable` store mode, and read-only when file-declared (`declarative` or `composite` mode). Features installed or enabled later create any additional templates they require.
 
 ```mermaid
 flowchart TB
@@ -50,7 +50,7 @@ flowchart TB
     end
 
     subgraph consumers [Runtime consumers]
-        Flow["Flow email/SMS executors<br/>+ out-of-flow callers (email OTP)"]
+        Flow["Flow email/SMS executors<br/>+ out-of-flow callers (SMS OTP)"]
         Sender["Notification senders (unchanged)"]
     end
     Recipient["Recipient"]
@@ -79,9 +79,9 @@ flowchart TB
 | Bootstrap and import | Seed templates required by bootstrapped flows as declarative resources (`resource_type: notification_template`) |
 | Translation feature | Resolve `notification`-namespace translation keys for the target language (system default this phase) |
 | Design feature | Apply the applicable design based on given themes, color schemes |
-| Flow executors | Select a template and, through the template renderer, supply the design theme, language, and flow context |
+| Flow executors | Select a template and, through the template renderer, supply the design theme and the runtime (flow) context; the locale is left empty in this phase |
 | Notification senders | Deliver rendered email or SMS |
-| Console | Manage templates and show template and flow previews |
+| Console | Manage templates and show the template-editor preview |
 
 ## Detailed design
 
@@ -101,11 +101,15 @@ type NotificationTemplateServiceInterface interface {
     ValidateTemplate(ctx, channel ChannelType, req CreateTemplateRequest) *ServiceError
     UpdateTemplate(ctx, channel ChannelType, id string, req UpdateTemplateRequest) (*Template, *ServiceError)
     DeleteTemplate(ctx, channel ChannelType, id string) *ServiceError
+    // Injected after construction to avoid a cyclic import with the dependency registry.
+    SetDependencyRegistry(r resourcedependency.Registry)
 }
 
 // Runtime renderer: the only surface flow executors and out-of-flow callers use.
 type TemplateRendererInterface interface {
     Resolve(ctx, channel ChannelType, handle string, in RenderInput) (*ResolvedContent, *ServiceError)
+    // Injected after construction because the design resolve service is built after the renderer.
+    SetDesignResolver(resolver designResolver)
 }
 ```
 
@@ -114,8 +118,9 @@ DTO and model shapes:
 ```go
 type Template struct {
     ID, OUID, Handle, DisplayName, Description string
-    Design  *TemplateDesign  // email only; nil for SMS
-    Content TemplateContent
+    IsReadOnly bool             // true for file-declared templates (read-only via the API)
+    Design     *TemplateDesign  // email only; nil for SMS
+    Content    TemplateContent
 }
 type TemplateContent struct { Subject, Body string } // Subject empty for SMS
 type TemplateDesign  struct { ColorScheme string }   // "light" | "dark"
@@ -140,29 +145,27 @@ type ResolvedContent struct { Subject, Body string }
 
 ### Template configuration and management
 
-Each template belongs to an organization unit (`ouId`, required and immutable) and has one editable content definition. The handle is unique per channel across the deployment, so a flow's reference by handle resolves to a single template; per-organization-unit or per-application overrides of the same handle are not supported in this phase.
+Each template belongs to an organization unit (`ouId`, required and immutable). Attaching a template to an organization unit records ownership; access control by organization unit is not enforced in this phase. The handle is unique per channel across the deployment, so a flow's reference by handle resolves to a single template; per-organization-unit or per-application overrides of the same handle are not supported in this phase.
 
-Administrators can create, list, read, update, and delete templates, including those created at bootstrap. There is no system or custom classification: all templates follow the same management rules. A template cannot be deleted while a flow references it. If deletion is rejected, the template and flow remain unchanged.
+Editability depends on the template store mode, selected by `notification.template.store` (default `mutable`; also `declarative` and `composite`). In `mutable` mode the bootstrap templates are seeded into the database and are ordinary editable templates. In `declarative` and `composite` modes, templates declared in files are read-only (`isReadOnly: true`): a create, update, or delete that targets a file-declared template returns `403` (`NTM-1022`), and in `declarative`-only mode creating any template through the API is refused with `403` (`NTM-1024`). A read-only template can still be read, listed, rendered, and previewed.
 
-The creation wizard offers sample templates, including samples for templates initially created at bootstrap. A sample supplies starting content for a new template and has no special status after creation.
+Administrators can create, list, read, update, and delete editable templates through the API or Console. A template referenced by a flow is intended to be undeletable: the service performs this check through the resource dependency registry. In the current build, however, the flow dependency provider does not yet report notification-template references, so a referenced template is not actually protected from deletion; wiring that provider is tracked separately. When a delete is rejected, the template and flow remain unchanged.
+
+The creation wizard offers sample templates (hardcoded in the Console and kept in sync with the bootstrap defaults) alongside a **Start from scratch** option. A sample supplies starting content for a new template and has no special status after creation.
 
 ### Content and localization
 
 An email template has a subject and body. An SMS template has a body only. A content field is a string that can embed three kinds of placeholder, none, one, or many, alongside literal text:
 
 - `{{t(...)}}`: a translation key, resolved to localized text by the Translation feature.
-- `{{ctx(...)}}`: a runtime value the sender injects, substituted at send time (see below). Only keys the runtime actually provides are accepted; the current set is `appName`, `otpCode`, `expiryTime`, `magicLink`, `inviteLink`, and `bindingMessage`. The Console token catalog offers the same set, and the backend keeps the authoritative list in sync with the flow executors and the authn service that populate these values.
+- `{{ctx(...)}}`: a runtime value the sender injects, substituted at send time (see below). The values the runtime currently supplies are `appName`, `otpCode`, `expiryTime`, `magicLink`, `inviteLink`, and `bindingMessage` (the last supplied by the CIBA flow). The Console token catalog offers these for authoring, though it currently lists only the first five. Write-time validation checks only that the placeholder is well-formed, not that its key is in this set; a `{{ctx(...)}}` key the runtime does not supply is caught at send time, where the render fails closed (see Rendering and delivery).
 - `{{design(...)}}`: a design token (for example `{{design(palette.primary.main)}}`), resolved against the applicable design. Allowed only in the email body, never in a subject or in SMS.
 
-Placeholders are validated when a template is created or updated. A malformed or unsupported placeholder, a `{{design(...)}}` placeholder in a subject or in SMS, or a `{{ctx(...)}}` key outside the set the runtime injects is rejected with `400` before the template is stored, so a template that would fail to render, or leave a literal placeholder in a sent message, cannot be saved.
+Placeholders are validated when a template is created or updated. A malformed or unsupported placeholder (`NTM-1020`), or a `{{design(...)}}` placeholder in a subject or in SMS (`NTM-1021`), is rejected with `400` before the template is stored, so a template whose placeholder grammar would fail to render cannot be saved. The validator checks placeholder syntax and design placement; it does not verify that a `{{t(...)}}` key exists or that a `{{ctx(...)}}` key is one the runtime injects, so those are resolved (and can fail closed) at render time.
 
-The templates seeded at bootstrap are authored entirely with placeholders rather than literal values: every piece of copy is a `{{t(...)}}` key and every color, including the email background (`{{design(palette.background.default)}}`), is a `{{design(...)}}` token. The shipped defaults therefore localize and follow the selected design theme (light or dark) out of the box, with no hardcoded copy or colors.
+The renderer resolves `{{t(...)}}` keys through the Translation feature (`internal/system/i18n/mgt`) under a dedicated `notification` translation namespace (`ResolveTranslationsForKey(ctx, language, "notification", key)`), so a template authored with translation keys is localized at render time. In this phase, however, the default templates seeded at bootstrap use literal copy in the system default language together with `{{ctx(...)}}` runtime placeholders; they do not yet use `{{t(...)}}` keys or `{{design(...)}}` tokens, and the `notification` namespace is not pre-populated. Localizing and theming the shipped defaults, along with Console tooling to author `notification` keys, is future work.
 
-Template keys live under a dedicated `notification` translation namespace. The Translation feature (`internal/system/i18n/mgt`) resolves a key with this namespace at render time (`ResolveTranslationsForKey(ctx, language, "notification", key)`). The keys referenced by templates seeded at bootstrap, together with their default-language values, are created in the `notification` namespace through the same bootstrap import that seeds the templates.
-
-Administrator-created templates can reference existing `notification` keys or require new ones. New keys are created through the Translation feature, with UI support in two places: the Console translation section manages `notification` keys directly, and the notification template editor can create a key inline when an administrator references one that does not yet exist. Either path persists the key, and its default-language value, in the `notification` namespace before the template is saved.
-
-The resolved translation text can contain `{{ctx(...)}}` placeholders for values supplied at runtime by the caller. A flow is one such caller, but not the only one: an out-of-flow sender such as the email OTP endpoint supplies the same values. These placeholders are substituted when the notification is sent, and remain visible in previews because a preview has no runtime context.
+The resolved translation text can contain `{{ctx(...)}}` placeholders for values supplied at runtime. A flow is one such caller, but not the only one: an out-of-flow sender such as the SMS OTP endpoint supplies the same values. These placeholders are substituted when the notification is sent, and remain visible in previews because a preview has no runtime context.
 
 Notification layouts are outside the scope of this phase; the resolved body provides the full content.
 
@@ -210,7 +213,7 @@ Templates are seeded and kept up to date as **declarative resources** (`resource
 
 ### API
 
-The Notification Templates API manages templates by channel. The `channel` path parameter accepts `email` or `sms`, and `id` is the UUID assigned by the server. Management operations require the OAuth2 `system` scope.
+The Notification Templates API manages templates by channel. The `channel` path parameter accepts `email` or `sms`, and `id` is the UUID assigned by the server. Read operations (list, get) require the `system:notificationtemplate:view` scope; write operations (create, update, delete) require the `system:notificationtemplate` scope.
 
 | Method | Path | Description |
 |---|---|---|
@@ -220,22 +223,24 @@ The Notification Templates API manages templates by channel. The `channel` path 
 | `PUT` | `/notification-templates/{channel}/templates/{id}` | Update a template. The `handle` is immutable and cannot be changed. |
 | `DELETE` | `/notification-templates/{channel}/templates/{id}` | Delete a template. Idempotent, and rejected if a flow references it. |
 
-A template has a unique, immutable `handle`, a `displayName`, an optional `description`, and channel-specific content. Email content has a `subject` and `body`; SMS content has a `body` only (plain text, no subject or design configuration). Each content field is a string that may embed `{{t(...)}}` translation placeholders and `{{ctx(...)}}` context placeholders, so a field can reference none, one, or multiple translation keys alongside literal text. An email template may also carry a `design` with a `light` or `dark` `colorScheme`, composed on top of the content when the email is rendered and ignored for SMS. The `handle` is set at creation and is not accepted on update.
+A template carries a required, immutable `ouId` (the owning organization unit), a unique, immutable `handle`, a `displayName`, an optional `description`, a read-only `isReadOnly` flag (true for file-declared templates), and channel-specific content. Email content has a `subject` and `body`; SMS content has a `body` only (plain text, no subject or design configuration). Each content field is a string that may embed `{{t(...)}}` translation placeholders and `{{ctx(...)}}` context placeholders, so a field can reference none, one, or multiple translation keys alongside literal text. An email template may also carry a `design` with a `light` or `dark` `colorScheme`, composed on top of the content when the email is rendered and ignored for SMS. The `handle` and `ouId` are set at creation and are not accepted on update; a `handle` must be a lowercase kebab-case identifier, and an email template requires a `subject`.
 
-An email template response with translation-key references in its content:
+An email template response (the seeded `otp` default: literal copy with runtime `{{ctx(...)}}` values; a localized template would use `{{t(...)}}` keys in place of the literal copy):
 
 ```json
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "handle": "otp-verification",
-  "displayName": "OTP Verification",
+  "ouId": "a1b2c3d4-0000-4000-8000-000000000001",
+  "handle": "otp",
+  "displayName": "Email OTP Verification",
   "description": "One-time passcode sent to verify a user's email address.",
+  "isReadOnly": false,
   "design": {
     "colorScheme": "light"
   },
   "content": {
-    "subject": "{{t(notification.otp.email.subject)}}",
-    "body": "<p>{{t(notification.otp.email.message)}}</p><p>{{ctx(otp)}}</p>"
+    "subject": "Your verification code",
+    "body": "<h2>Your verification code</h2><p>Use this code to complete verification:</p><p>{{ctx(otpCode)}}</p><p>This code expires in {{ctx(expiryTime)}}.</p>"
   }
 }
 ```
@@ -245,37 +250,38 @@ An SMS template response:
 ```json
 {
   "id": "0db4e64e-57aa-49cb-9b8e-1f3044ed5e17",
-  "handle": "otp-verification",
-  "displayName": "OTP Verification",
+  "ouId": "a1b2c3d4-0000-4000-8000-000000000001",
+  "handle": "otp",
+  "displayName": "SMS OTP Verification",
   "description": "One-time passcode sent to verify a user's phone number.",
+  "isReadOnly": false,
   "content": {
-    "body": "{{t(notification.otp.sms.message)}} {{ctx(otp)}}"
+    "body": "Your verification code is: {{ctx(otpCode)}}. It expires in {{ctx(expiryTime)}}."
   }
 }
 ```
 
-Invalid requests return `400`, unauthorized requests `401`, forbidden requests `403`, and missing templates `404`. Placeholder validation runs on create and update: a malformed or unsupported placeholder (`NTM-1020`), a `{{design(...)}}` placeholder in a subject or SMS (`NTM-1021`), or a `{{ctx(...)}}` key the runtime does not provide (`NTM-1022`) each return `400` and the template is not stored. Creating a template whose handle already exists in the channel, or deleting one referenced by a flow, returns `409`. Delete is idempotent: deleting a template that does not exist still returns `204`. Errors use the shared `Error` response shape with the `NTM-XXXX` code prefix for template-specific failures.
+Invalid requests return `400`, unauthorized requests `401`, forbidden requests `403`, and missing templates `404`. Placeholder validation runs on create and update: a malformed or unsupported placeholder (`NTM-1020`) or a `{{design(...)}}` placeholder in a subject or SMS (`NTM-1021`) returns `400` and the template is not stored. A write that targets a file-declared, read-only template returns `403` (`NTM-1022`), and a create attempted while the store runs in declarative-only mode returns `403` (`NTM-1024`). Creating a template whose handle already exists in the channel returns `409` (`NTM-1009`), as does deleting a template a flow references (`NTM-1010`). Delete is idempotent: deleting a template that does not exist still returns `204`. Errors use the shared `Error` response shape with the `NTM-XXXX` code prefix for template-specific failures.
 
-Previews are produced in the Console using the same content, translation, and design resolution as delivery (see Preview).
+Previews are produced in the Console (see Preview).
 
 ### Preview
 
-Previews show how a notification will appear for a selected language and applicable design. They use the same content, translation, and design resolution as delivery, but leave `{{ctx(...)}}` placeholders visible. Generating a preview never sends a notification.
+Previews show how a notification will appear for a selected language and applicable design, leaving `{{ctx(...)}}` placeholders visible. Generating a preview never sends a notification.
 
-Previews are available in two places:
+Preview is available in the **template editor** only in this phase; it updates as the administrator edits the template or changes the preview language and design theme. There is no template preview in the flow editor yet.
 
-- **Template editor:** Updates as the administrator edits the template or changes the preview language and design theme.
-- **Flow preview:** Shows the template selected by the notification node using the selected language and design theme.
+The preview resolves tokens client-side (in `NotificationTemplatePreview`) to mirror the backend renderer, so it is an approximation rather than a call into the renderer. Two differences are known: a template with no `colorScheme` previews as `light` while delivery uses the theme's default scheme, and the preview flags tokens that would fail the real send (an unsupported or malformed token, a missing translation, a `{{ctx(...)}}` key outside the catalog) rather than silently reproducing the send-time failure. Aligning the preview with the renderer is a follow-up.
 
-> _TODO: add wireframes / UI mockups under `assets/` (see `docs-internals/federated-entity-authorization/spec.md` for the convention)._
+> _TODO: UI is merged; add the Console screenshots / wireframes under `assets/` (see `docs-internals/federated-entity-authorization/spec.md` for the convention)._
 
 ### UI
 
-The Console adds a Notification Templates section alongside Design & Branding. The list shows templates by channel and provides actions to create, open, and delete them. The creation wizard presents **Custom template** and sample templates, from the bootstrap resources.
+The Console adds a Notification Templates section alongside Design & Branding. The list shows templates by channel and provides actions to create, open, and delete them. On a deployment with more than one organization unit, the creation wizard starts with an organization-unit step (skipped when there is a single OU); it then offers a **Start from scratch** option and sample templates (hardcoded in the Console and kept in sync with the bootstrap defaults).
 
-The editor provides content controls appropriate to the channel, the available `notification` translation keys, design tokens, and context placeholders, and a live preview with language and design theme selection. The preview validates the content live and flags any placeholder that would not resolve: an unsupported or malformed token, a design token used where design does not apply or one that does not match the selected theme, a missing translation, or a context key outside the injectable set. While any such warning is shown, **Save** (editor) and **Create** (wizard) are disabled, so a template that would fail to send cannot be saved; this mirrors the server-side write validation. When an administrator needs a key that does not yet exist, the editor can create it inline in the `notification` namespace, mirroring what the Console translation section offers. If deletion is blocked because a flow references the template, the Console shows the conflict and keeps the template available.
+The editor provides content controls appropriate to the channel, the context-token catalog and design tokens, and a live preview with language and design theme selection. The preview validates the content live and flags any placeholder that would not resolve: an unsupported or malformed token, a design token used where design does not apply or one that does not match the selected theme, a missing translation, or a context key outside the catalog. While any such warning is shown, **Save** (editor) and **Create** (wizard) are disabled, so a template that would fail to send cannot be saved; this complements the server-side write validation, which enforces only placeholder syntax and design placement.
 
-The flow editor lists templates for the selected notification node’s channel. Flow preview shows the selected template with the chosen language and applicable design.
+The flow editor lists templates for the selected notification node’s channel so an administrator can pick one.
 
 ## Requirements
 
@@ -286,9 +292,10 @@ The flow editor lists templates for the selected notification node’s channel. 
 **Acceptance criteria:**
 
 - **AC1.1:** Given a privileged, authorized user, when they create or update a template through the API or Console, then later reads and sends use its saved content without a restart.
-- **AC1.2:** Given a template created during bootstrap, when an administrator edits it, then it follows the same management rules as an administrator-created template.
+- **AC1.2:** Given a bootstrap template seeded in `mutable` store mode, when an administrator edits it, then it is updated like an administrator-created template, with no special classification.
 - **AC1.3:** Given a template that is in use, for example referenced by a flow, when deletion is requested, then the API returns `409` and the template remains available to its consumers.
-- **AC1.4:** Given a create or update whose content has a malformed or unsupported placeholder, a design token in a subject or SMS, or a context key the runtime does not provide, when it is submitted, then the API returns `400` and nothing is saved.
+- **AC1.4:** Given a create or update whose content has a malformed or unsupported placeholder, or a design token in a subject or SMS, when it is submitted, then the API returns `400` and nothing is saved.
+- **AC1.5:** Given a file-declared, read-only template, when a write targets it (or a create is attempted in declarative-only mode), then the API returns `403` and nothing is changed.
 
 ### R2. Localize content through translations
 
@@ -312,14 +319,13 @@ The flow editor lists templates for the selected notification node’s channel. 
 
 ### R4. Preview notifications
 
-**Requirement:** Administrators can inspect notifications in the template editor and flow preview.
+**Requirement:** Administrators can inspect notifications in the template editor. A flow-editor preview of the selected template is future work.
 
 **Acceptance criteria:**
 
-- **AC4.1:** Given a template and selected language and design context, when its preview loads, then it shows the resolved translations and applicable design while leaving `{{ctx(...)}}` placeholders visible.
-- **AC4.2:** Given a flow notification node with a selected template, when the flow is previewed, then the preview shows that template and no notification is sent.
-- **AC4.3:** Given an email or SMS notification node, when its template picker opens, then it lists templates for that node’s channel.
-- **AC4.4:** Given the editor preview reports a warning (an unresolved or unsupported token, a missing translation, or a context key outside the injectable set), when the administrator attempts to save or create, then the action is blocked until the warning is resolved.
+- **AC4.1:** Given a template and selected language and design context, when its preview loads in the template editor, then it shows the resolved translations and applicable design while leaving `{{ctx(...)}}` placeholders visible, and no notification is sent.
+- **AC4.2:** Given an email or SMS notification node, when its template picker opens, then it lists templates for that node’s channel.
+- **AC4.3:** Given the editor preview reports a warning (an unresolved or unsupported token, a missing translation, or a context key outside the catalog), when the administrator attempts to save or create, then the action is blocked until the warning is resolved.
 
 ### R5. Provision templates used by flows
 
@@ -344,4 +350,4 @@ The flow editor lists templates for the selected notification node’s channel. 
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-24 | Initial specification based on the notification templates design discussion. |
-| 0.2 | 2026-10-15 | Aligned with the implemented feature: templates carry an owning organization unit instead of being global, the runtime surface is the template renderer (not a provider), design is resolved against a theme rather than an application, and the render order is translations, then design, then context. |
+| 0.2 | 2026-10-15 | Aligned with the implemented feature: templates carry an owning organization unit instead of being global; the runtime surface is the template renderer (not a provider); design is resolved against a theme rather than an application; the render order is translations, then design, then context. Reconciled with merged code: store modes (mutable/declarative/composite) and read-only file-declared templates (403, `NTM-1022`/`NTM-1024`); split scopes (`system:notificationtemplate:view` read, `system:notificationtemplate` write); preview is template-editor-only and resolved client-side; seeded default templates use literal copy with `{{ctx(...)}}` values (no `{{t(...)}}` keys or seeded `notification` namespace yet); write-time validation covers only placeholder syntax and design placement; flow-referenced delete is not yet enforced. |
