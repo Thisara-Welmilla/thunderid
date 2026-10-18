@@ -121,9 +121,9 @@ func (f *entityFileBasedStore) LockEntity(ctx context.Context, id string) (provi
 	return providers.Entity{}, errors.New("LockEntity is not supported in file-based store")
 }
 
-// ResolveLinkedAccount finds the declarative entity linked to a subject at a connection.
-func (f *entityFileBasedStore) ResolveLinkedAccount(ctx context.Context,
-	idpID, sub string) (*string, error) {
+// ResolveLinkedAccounts finds the declarative entities linked to a subject at a connection.
+func (f *entityFileBasedStore) ResolveLinkedAccounts(ctx context.Context,
+	idpID, sub string) ([]string, error) {
 	resources, err := f.listEntityResources()
 	if err != nil {
 		return nil, err
@@ -146,15 +146,7 @@ func (f *entityFileBasedStore) ResolveLinkedAccount(ctx context.Context,
 			matches = append(matches, resource.Entity.ID)
 		}
 	}
-
-	if len(matches) == 0 {
-		return nil, ErrEntityNotFound
-	}
-	if len(matches) > 1 {
-		return nil, ErrAmbiguousEntity
-	}
-
-	return &matches[0], nil
+	return matches, nil
 }
 
 // IdentifyEntity identifies an entity with the given filters by linear search.

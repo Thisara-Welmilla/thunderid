@@ -110,7 +110,7 @@ func registerRoutes(mux *http.ServeMux, h *handler) {
 		createSenderHandler(h, smsGatewayToSenderDTO, smsGatewayFromSenderDTO),
 		getSenderHandler(h, message, ncommon.NotificationProviderTypeCustom, smsGatewayFromSenderDTO),
 		updateSenderHandler(h, message, ncommon.NotificationProviderTypeCustom,
-			smsGatewayToSenderDTO, smsGatewayFromSenderDTO),
+			smsGatewayUpdateToSenderDTO, smsGatewayFromSenderDTO),
 		collectionOpts, itemOpts)
 
 	// Email-backed vendors.
@@ -119,7 +119,7 @@ func registerRoutes(mux *http.ServeMux, h *handler) {
 		createSenderHandler(h, emailSMTPToSenderDTO, emailSMTPFromSenderDTO),
 		getSenderHandler(h, email, ncommon.NotificationProviderTypeSMTP, emailSMTPFromSenderDTO),
 		updateSenderHandler(h, email, ncommon.NotificationProviderTypeSMTP,
-			emailSMTPToSenderDTO, emailSMTPFromSenderDTO),
+			emailSMTPUpdateToSenderDTO, emailSMTPFromSenderDTO),
 		collectionOpts, itemOpts)
 
 	registerAuthZENPDPVendorRoutes(mux, h, "/connections/authzen-pdp", collectionOpts, itemOpts)

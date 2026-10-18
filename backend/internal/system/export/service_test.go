@@ -30,6 +30,7 @@ import (
 	"github.com/thunder-id/thunderid/tests/mocks/flow/flowmgtmock"
 	"github.com/thunder-id/thunderid/tests/mocks/idp/idpmock"
 	"github.com/thunder-id/thunderid/tests/mocks/notification/notificationmock"
+	"github.com/thunder-id/thunderid/tests/mocks/sharingmock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -81,8 +82,6 @@ func (suite *ExportServiceTestSuite) SetupTest() {
 	_ = config.InitializeServerRuntime(tempDir, testConfig)
 
 	suite.appServiceMock = applicationmock.NewApplicationServiceInterfaceMock(suite.T())
-	suite.appServiceMock.EXPECT().ExportSharingPolicies(mock.Anything, mock.Anything).
-		Return(nil, nil).Maybe()
 	suite.idpServiceMock = idpmock.NewIDPServiceInterfaceMock(suite.T())
 	suite.mockNotificationService = notificationmock.NewNotificationSenderMgtSvcInterfaceMock(suite.T())
 	suite.mockEntityTypeService = entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
@@ -90,7 +89,7 @@ func (suite *ExportServiceTestSuite) SetupTest() {
 
 	// Create exporters
 	exporters := []declarativeresource.ResourceExporter{
-		application.NewApplicationExporterForTest(suite.appServiceMock),
+		application.NewApplicationExporterForTest(suite.appServiceMock, sharingWithNoPolicies(suite.T())),
 		connection.NewConnectionExporterForTest(suite.idpServiceMock, suite.mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(suite.mockEntityTypeService, entitytype.TypeCategoryUser),
 		flowmgt.NewFlowGraphExporterForTest(suite.mockFlowService),
@@ -1293,7 +1292,7 @@ func (suite *ExportServiceTestSuite) TestExportResources_TemplateGenerationError
 
 	// Create exporters with the test services
 	exporters := []declarativeresource.ResourceExporter{
-		application.NewApplicationExporterForTest(suite.appServiceMock),
+		application.NewApplicationExporterForTest(suite.appServiceMock, sharingWithNoPolicies(suite.T())),
 		connection.NewConnectionExporterForTest(suite.idpServiceMock, suite.mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(suite.mockEntityTypeService, entitytype.TypeCategoryUser),
 	}
@@ -2855,4 +2854,15 @@ func TestExport_DistinctVariablesDoNotClash(t *testing.T) {
 	if clash != "" {
 		t.Fatalf("expected no clash between distinct variables, got %q", clash)
 	}
+}
+
+// sharingWithNoPolicies is a sharing service holding no policy for any application, which is what
+// every export test here starts from.
+func sharingWithNoPolicies(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *sharingmock.SharingServiceInterfaceMock {
+	m := sharingmock.NewSharingServiceInterfaceMock(t)
+	m.EXPECT().ExportPolicies(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	return m
 }

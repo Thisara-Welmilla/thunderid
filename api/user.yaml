@@ -2259,6 +2259,12 @@ components:
             display:
               type: string
               description: "The schema attribute to use as the human-readable display name for users of this type"
+            primaryEmail:
+              type: string
+              description: "Top-level email attribute used as the primary contact. Defaults to the only top-level email attribute; stays unset when there are several and none is selected. Must reference an email type."
+            primaryMobile:
+              type: string
+              description: "Top-level mobile attribute used as the primary contact. Defaults to the only top-level mobile attribute; stays unset when there are several and none is selected. Must reference a mobile type."
           additionalProperties: false
         schema:
           type: object
@@ -2266,12 +2272,12 @@ components:
           additionalProperties:
             oneOf:
               - type: object
-                description: "Leaf property - string or number"
+                description: "Leaf property - string, email, mobile, or number"
                 required: [type]
                 properties:
                   type:
                     type: string
-                    enum: ["string", "number"]
+                    enum: ["string", "email", "mobile", "number"]
                     description: "Data type of the property"
                   required:
                     type: boolean
@@ -2284,12 +2290,12 @@ components:
                   credential:
                     type: boolean
                     default: false
-                    description: "Whether this property should be treated as a credential attribute"
+                    description: "Whether this property should be treated as a credential attribute. Not supported for email or mobile types."
                   enum:
                     type: array
                     items:
                       type: string
-                    description: "List of allowed values for this property"
+                    description: "List of allowed values for this property. Not supported for email or mobile types."
                   regex:
                     type: string
                     description: "Regular expression pattern for validating the property value"
@@ -2340,16 +2346,20 @@ components:
                   items:
                     oneOf:
                       - type: object
-                        description: "Array of strings or numbers"
+                        description: "Array of strings, emails, mobiles, or numbers"
                         required: [type]
                         properties:
                           type:
                             type: string
-                            enum: ["string", "number"]
+                            enum: ["string", "email", "mobile", "number"]
                           enum:
                             type: array
                             items:
                               type: string
+                            description: "List of allowed values. Not supported for email or mobile types."
+                          regex:
+                            type: string
+                            description: "Custom validation pattern. Contact types use their default when omitted or empty."
                         additionalProperties: false
                       - type: object
                         description: "Array of booleans"
@@ -2459,6 +2469,12 @@ components:
                   display:
                     type: string
                     description: "The schema attribute to use as the human-readable display name for users of this type"
+                  primaryEmail:
+                    type: string
+                    description: "Top-level email attribute used as the primary contact. Defaults to the only top-level email attribute; stays unset when there are several and none is selected. Must reference an email type."
+                  primaryMobile:
+                    type: string
+                    description: "Top-level mobile attribute used as the primary contact. Defaults to the only top-level mobile attribute; stays unset when there are several and none is selected. Must reference a mobile type."
                 additionalProperties: false
               isReadOnly:
                 type: boolean

@@ -113,6 +113,8 @@ export const CONNECTION_VENDOR_META: ConnectionVendorMeta[] = [
     ),
     categories: ['sms', 'custom'],
     presentation: 'custom',
+    supportsAuthentication: true,
+    generalSettingsCardCopy: 'configuration',
   },
   {
     key: 'authzen-pdp',

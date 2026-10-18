@@ -245,10 +245,6 @@ func (p *defaultAuthnProvider) StoreAccountLink(ctx context.Context, entityRefer
 	}
 
 	if err := p.entitySvc.LinkAccount(ctx, entityResult.ID, idpID, sub); err != nil {
-		if errors.Is(err, entity.ErrLinkedAccountConflict) {
-			return newClientError(authnprovidercm.ErrorCodeAmbiguousUser, "Account already linked",
-				"The account is linked to another user")
-		}
 		if errors.Is(err, entity.ErrIndexedValueLimitExceeded) {
 			return newClientError(authnprovidercm.ErrorCodeInvalidRequest, "Too many linked accounts",
 				"The user has reached the limit of linked accounts")
@@ -333,28 +329,34 @@ func (p *defaultAuthnProvider) enrollWithPasskey(
 	return result, nil
 }
 
-// resolveLinkedEntity returns the local user the recorded (connection, subject) link names, or ""
-// when there is none. Two entities holding one link fail rather than read as no user.
-func (p *defaultAuthnProvider) resolveLinkedEntity(ctx context.Context,
-	token map[string]interface{}) (string, *tidcommon.ServiceError) {
+// resolveLinkedEntities returns the local users the recorded (connection, subject) link names. Several
+// users may hold one link.
+func (p *defaultAuthnProvider) resolveLinkedEntities(ctx context.Context,
+	token map[string]interface{}) ([]string, *tidcommon.ServiceError) {
 	idpID, _ := token[authnprovidercm.UserAttributeFederatedIdpID].(string)
 	sub, _ := token[authnprovidercm.UserAttributeSub].(string)
 
-	linkedID, resolveErr := p.entitySvc.ResolveLinkedAccount(ctx, idpID, sub)
-	switch {
-	case resolveErr == nil && linkedID != nil:
-		return *linkedID, nil
-	case errors.Is(resolveErr, entity.ErrAmbiguousEntity):
-		p.logger.Debug(ctx, "Multiple entities are linked to the same subject",
-			log.String("idpId", idpID))
-		return "", newClientError(authnprovidercm.ErrorCodeAmbiguousUser,
-			"Ambiguous user", "Multiple users are linked to the provided identity")
-	case resolveErr != nil && !errors.Is(resolveErr, entity.ErrEntityNotFound):
-		return "", p.logAndReturnServerError(ctx, "Failed to resolve linked account",
-			log.String("error", resolveErr.Error()))
+	linkedIDs, err := p.entitySvc.ResolveLinkedAccounts(ctx, idpID, sub)
+	if err != nil {
+		return nil, p.logAndReturnServerError(ctx, "Failed to resolve linked accounts",
+			log.String("error", err.Error()))
 	}
+	return linkedIDs, nil
+}
 
-	return "", nil
+// claimLegacySubject migrates the users federated before links were recorded, who hold the
+// subject only in the schema attribute sub, to links at the connection presenting it.
+func (p *defaultAuthnProvider) claimLegacySubject(ctx context.Context,
+	token map[string]interface{}) ([]string, *tidcommon.ServiceError) {
+	idpID, _ := token[authnprovidercm.UserAttributeFederatedIdpID].(string)
+	sub, _ := token[authnprovidercm.UserAttributeSub].(string)
+
+	claimedIDs, err := p.entitySvc.ClaimLegacySubject(ctx, idpID, sub)
+	if err != nil {
+		return nil, p.logAndReturnServerError(ctx, "Failed to migrate a legacy subject",
+			log.String("error", err.Error()))
+	}
+	return claimedIDs, nil
 }
 
 func (p *defaultAuthnProvider) buildAuthnResult(
@@ -369,18 +371,21 @@ func (p *defaultAuthnProvider) buildAuthnResult(
 		entityID, _ = idVal.(string)
 	}
 	if entityID == "" && authnprovidercm.IsFederatedToken(authnResult.Token) {
-		resolvedID, svcErr := p.resolveLinkedEntity(ctx, authnResult.Token)
+		linkedIDs, svcErr := p.resolveLinkedEntities(ctx, authnResult.Token)
+		if svcErr == nil && len(linkedIDs) == 0 {
+			linkedIDs, svcErr = p.claimLegacySubject(ctx, authnResult.Token)
+		}
 		if svcErr != nil {
 			return nil, svcErr
 		}
-		if resolvedID == "" {
-			// No local user for this identity yet. Hand the token back so the caller can provision
-			// and record the link.
+		if len(linkedIDs) != 1 {
+			// No single local user for this identity. Hand the token back so the caller can provision
+			// and record the link, or let the user pick between the users holding it.
 			result.EntityReferenceToken = authnResult.Token
 			result.AttributeToken = authnResult.Token
 			return result, nil
 		}
-		entityID = resolvedID
+		entityID = linkedIDs[0]
 	}
 	if entityID == "" {
 		identifiedEntityID, identifyErr := p.entitySvc.IdentifyEntity(ctx, authnResult.Token)
@@ -447,10 +452,22 @@ func (p *defaultAuthnProvider) resolveEntityFromToken(
 		entityID, _ = idVal.(string)
 	}
 	if entityID == "" && authnprovidercm.IsFederatedToken(token) {
-		// A federated token that reached here already went through resolution and found nothing.
-		// Re-resolving cannot help, and IdentifyEntity would scan for keys no index can answer.
-		return nil, newClientError(authnprovidercm.ErrorCodeUserNotFound,
-			"User not found", "No user found matching the provided "+tokenLabel)
+		// A federated token resolves only through its recorded links. IdentifyEntity would scan for
+		// keys no index can answer.
+		linkedIDs, svcErr := p.resolveLinkedEntities(ctx, token)
+		if svcErr != nil {
+			return nil, svcErr
+		}
+		switch len(linkedIDs) {
+		case 0:
+			return nil, newClientError(authnprovidercm.ErrorCodeUserNotFound,
+				"User not found", "No user found matching the provided "+tokenLabel)
+		case 1:
+			entityID = linkedIDs[0]
+		default:
+			return nil, newClientError(authnprovidercm.ErrorCodeAmbiguousUser,
+				"Ambiguous user", "Multiple users are linked to the provided "+tokenLabel)
+		}
 	}
 	if entityID == "" {
 		identifiedEntityID, identifyErr := p.entitySvc.IdentifyEntity(ctx, token)

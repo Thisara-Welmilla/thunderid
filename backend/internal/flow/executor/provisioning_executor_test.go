@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
+	authnprovidercm "github.com/thunder-id/thunderid/internal/authnprovider/common"
 	"github.com/thunder-id/thunderid/internal/entityprovider"
 	"github.com/thunder-id/thunderid/internal/entitytype"
 	"github.com/thunder-id/thunderid/internal/entitytype/model"
@@ -101,6 +102,7 @@ func (suite *ProvisioningExecutorTestSuite) expectSchemaForProvisioning() {
 			{Attribute: "username", Required: false},
 			{Attribute: attributeEmail, Required: false},
 			{Attribute: "sub", Required: false},
+			{Attribute: "employee_id", Required: false},
 		}, nil).Maybe()
 }
 
@@ -523,6 +525,47 @@ func (suite *ProvisioningExecutorTestSuite) TestGetAttributesForProvisioning_Ext
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "claimed", identifying["username"])
 	assert.Empty(suite.T(), credentials)
+}
+
+// A federated sign-in claims a user holding a matching sub, so a client cannot set sub through flow
+// inputs or runtime data. A verified credential's subject, which OpenID4VP sets as a claim, still fills it.
+func (suite *ProvisioningExecutorTestSuite) TestGetAttributesForProvisioning_SubOnlyFromExternalClaim() {
+	schema := []model.AttributeInfo{
+		{Attribute: "username", Type: model.TypeString, Required: true},
+		{Attribute: "sub", Type: model.TypeString},
+	}
+	filter := model.AttributeFilter{AllowCredential: true, AllowNonCredential: true}
+
+	suite.Run("client supplied", func() {
+		suite.mockEntityTypeService.On("GetAttributes", mock.Anything, mock.Anything, testUserType, filter).
+			Return(schema, nil).Once()
+		ctx := &providers.NodeContext{
+			UserInputs:  map[string]string{"username": "u1", "sub": "victim-sub"},
+			RuntimeData: map[string]string{categoryTypeKey: testUserType, "sub": "victim-sub"},
+		}
+
+		identifying, _, err := suite.executor.getAttributesForProvisioning(ctx, entitytype.TypeCategoryUser)
+		suite.NoError(err)
+		suite.Equal("u1", identifying["username"])
+		suite.NotContains(identifying, "sub")
+	})
+
+	suite.Run("external claim", func() {
+		suite.mockEntityTypeService.On("GetAttributes", mock.Anything, mock.Anything, testUserType, filter).
+			Return(schema, nil).Once()
+		ctx := &providers.NodeContext{
+			UserInputs: map[string]string{"username": "u1", "sub": "client-sub"},
+			RuntimeData: map[string]string{
+				categoryTypeKey: testUserType,
+				common.RuntimeKeyExternalIdentity: externalIdentityEntry("", "",
+					map[string]interface{}{"sub": "did:example:holder"}),
+			},
+		}
+
+		identifying, _, err := suite.executor.getAttributesForProvisioning(ctx, entitytype.TypeCategoryUser)
+		suite.NoError(err)
+		suite.Equal("did:example:holder", identifying["sub"])
+	})
 }
 
 // A claim never stands in for a credential, so a password the flow has not collected is still prompted
@@ -2611,7 +2654,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_Success_WithMultipleGrou
 
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_Success() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 	attrsJSON, _ := json.Marshal(attrs)
 
 	existingUserID := testExistingUserID
@@ -2631,7 +2674,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_Success() {
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
 		UserInputs: map[string]string{
-			"sub": "user-sub-123",
+			"employee_id": "user-sub-123",
 		},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
@@ -2658,7 +2701,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_Success() {
 
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NotEnabled_Fails() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	existingUserID := testExistingUserID
 
@@ -2666,7 +2709,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NotEnabled_Fails
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
 		UserInputs: map[string]string{
-			"sub": "user-sub-123",
+			"employee_id": "user-sub-123",
 		},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
@@ -2686,7 +2729,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NotEnabled_Fails
 
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SameOU_Fails() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	existingUserID := testExistingUserID
 	existingUser := &providers.Entity{
@@ -2698,7 +2741,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SameOU_Fails() {
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
 		UserInputs: map[string]string{
-			"sub": "user-sub-123",
+			"employee_id": "user-sub-123",
 		},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
@@ -2721,7 +2764,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SameOU_Fails() {
 
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NoTargetOU_Fails() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	existingUserID := testExistingUserID
 
@@ -2729,7 +2772,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NoTargetOU_Fails
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
 		UserInputs: map[string]string{
-			"sub": "user-sub-123",
+			"employee_id": "user-sub-123",
 		},
 		RuntimeData: map[string]string{
 			categoryTypeKey: testUserType,
@@ -2808,7 +2851,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_RetryableProvisioningErr
 
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NotEnabled_AuthnFlow_ReturnsFailure() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	existingUserID := testExistingUserID
 
@@ -2816,7 +2859,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NotEnabled_Authn
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeAuthentication,
 		UserInputs: map[string]string{
-			"sub": "user-sub-123",
+			"employee_id": "user-sub-123",
 		},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
@@ -2839,18 +2882,18 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NotEnabled_Authn
 
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NotEnabled_RegistrationFlow_PopulatesInputs() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	existingUserID := testExistingUserID
 
 	nodeInputs := []providers.Input{
-		{Identifier: "sub", Type: "string", Required: true},
+		{Identifier: "employee_id", Type: "string", Required: true},
 	}
 	ctx := &providers.NodeContext{
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
 		UserInputs: map[string]string{
-			"sub": "user-sub-123",
+			"employee_id": "user-sub-123",
 		},
 		NodeInputs: nodeInputs,
 		RuntimeData: map[string]string{
@@ -2881,7 +2924,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_NotEnabled_Regis
 
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SameOU_AuthnFlow_ReturnsFailure() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	existingUserID := testExistingUserID
 	existingUser := &providers.Entity{
@@ -2893,7 +2936,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SameOU_AuthnFlow
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeAuthentication,
 		UserInputs: map[string]string{
-			"sub": "user-sub-123",
+			"employee_id": "user-sub-123",
 		},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
@@ -2919,7 +2962,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SameOU_AuthnFlow
 
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SameOU_RegistrationFlow_PopulatesInputs() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	existingUserID := testExistingUserID
 	existingUser := &providers.Entity{
@@ -2928,13 +2971,13 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SameOU_Registrat
 	}
 
 	nodeInputs := []providers.Input{
-		{Identifier: "sub", Type: "string", Required: true},
+		{Identifier: "employee_id", Type: "string", Required: true},
 	}
 	ctx := &providers.NodeContext{
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
 		UserInputs: map[string]string{
-			"sub": "user-sub-123",
+			"employee_id": "user-sub-123",
 		},
 		NodeInputs: nodeInputs,
 		RuntimeData: map[string]string{
@@ -2968,7 +3011,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SameOU_Registrat
 
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_GetUserError() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	existingUserID := testExistingUserID
 
@@ -2976,7 +3019,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_GetUserError() {
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
 		UserInputs: map[string]string{
-			"sub": "user-sub-123",
+			"employee_id": "user-sub-123",
 		},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
@@ -4416,7 +4459,7 @@ func (suite *ProvisioningExecutorTestSuite) TestHasRequiredInputs_NoProperties_D
 // Ambiguous user (exists in multiple OUs) + cross-OU allowed + no match in target OU → create.
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_AmbiguousUser_NoMatchInTargetOU_Creates() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 	attrsJSON, _ := json.Marshal(attrs)
 
 	createdUser := &providers.User{
@@ -4429,7 +4472,7 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_AmbiguousUser_No
 	ctx := &providers.NodeContext{
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
-		UserInputs:  map[string]string{"sub": "user-sub-123"},
+		UserInputs:  map[string]string{"employee_id": "user-sub-123"},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
 			categoryTypeKey: testUserType,
@@ -4461,12 +4504,12 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_AmbiguousUser_No
 // Ambiguous user + cross-OU allowed + match found in target OU → fail "already exists in target".
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_AmbiguousUser_MatchInTargetOU_Fails() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	ctx := &providers.NodeContext{
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
-		UserInputs:  map[string]string{"sub": "user-sub-123"},
+		UserInputs:  map[string]string{"employee_id": "user-sub-123"},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
 			categoryTypeKey: testUserType,
@@ -4496,12 +4539,12 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_AmbiguousUser_Ma
 // Ambiguous user + cross-OU NOT allowed → fail immediately without searching.
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_AmbiguousUser_CrossOUNotAllowed_Fails() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	ctx := &providers.NodeContext{
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
-		UserInputs:  map[string]string{"sub": "user-sub-123"},
+		UserInputs:  map[string]string{"employee_id": "user-sub-123"},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
 			categoryTypeKey: testUserType,
@@ -4523,12 +4566,12 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_AmbiguousUser_Cr
 // Ambiguous user + cross-OU allowed + SearchEntities returns error
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_AmbiguousUser_SearchError_ReturnsServerError() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	ctx := &providers.NodeContext{
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
-		UserInputs:  map[string]string{"sub": "user-sub-123"},
+		UserInputs:  map[string]string{"employee_id": "user-sub-123"},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
 			categoryTypeKey: testUserType,
@@ -4552,12 +4595,12 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_AmbiguousUser_Se
 // Non-ambiguous system error + cross-OU allowed → fail immediately, no search attempted.
 func (suite *ProvisioningExecutorTestSuite) TestExecute_CrossOU_SystemError_NoSearchAttempted() {
 	suite.expectSchemaForProvisioning()
-	attrs := map[string]interface{}{"sub": "user-sub-123"}
+	attrs := map[string]interface{}{"employee_id": "user-sub-123"}
 
 	ctx := &providers.NodeContext{
 		ExecutionID: "flow-123",
 		FlowType:    providers.FlowTypeRegistration,
-		UserInputs:  map[string]string{"sub": "user-sub-123"},
+		UserInputs:  map[string]string{"employee_id": "user-sub-123"},
 		RuntimeData: map[string]string{
 			ouIDKey:         testOUID,
 			categoryTypeKey: testUserType,
@@ -4850,9 +4893,24 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_ProvisionsAndL
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
+// Several users hold the link and no Resolve User node picked one. Provisioning would add another
+// holder on every sign-in, so the node fails instead.
+func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_AmbiguousAuthenticationDoesNotProvision() {
+	ctx := suite.federatedCtx(false)
+	ctx.RuntimeData[common.RuntimeKeyEntityState] = entityStateAmbiguous
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), providers.ExecFailure, resp.Status)
+	assert.Equal(suite.T(), ErrAmbiguousEntityIdentity.Code, resp.Error.Code)
+	suite.mockUserMgtProvider.AssertNotCalled(suite.T(), "CreateUser", mock.Anything, mock.Anything)
+}
+
 // linkedRegistrationCtx builds a registration context for a returning federated identity whose link
-// is already recorded from the first registration, with a required attribute the claims lack.
-func (suite *ProvisioningExecutorTestSuite) linkedRegistrationCtx() *providers.NodeContext {
+// is already recorded from the first registration, with a required attribute the claims lack. The
+// link is held by the given users, or by one user in the target OU when none are given.
+func (suite *ProvisioningExecutorTestSuite) linkedRegistrationCtx(holders ...*providers.Entity) *providers.NodeContext {
 	ctx := suite.federatedCtx(false)
 	ctx.FlowType = providers.FlowTypeRegistration
 	ctx.NodeInputs = []providers.Input{{Identifier: "nickname", Type: "string", Required: true}}
@@ -4862,6 +4920,11 @@ func (suite *ProvisioningExecutorTestSuite) linkedRegistrationCtx() *providers.N
 		Return(newAuthenticatedAuthUser(),
 			&providers.EntityReference{EntityID: testExistingUser123ID, OUID: testOUID},
 			(*tidcommon.ServiceError)(nil)).Maybe()
+	if len(holders) == 0 {
+		holders = []*providers.Entity{{ID: testExistingUser123ID, OUID: testOUID}}
+	}
+	suite.mockEntityProvider.On("GetLinkedEntities", testFederatedIdpID, testFederatedSub).
+		Return(holders, (*entityprovider.EntityProviderError)(nil)).Maybe()
 	return ctx
 }
 
@@ -4894,21 +4957,64 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_RegistrationCo
 	suite.mockUserMgtProvider.AssertNotCalled(suite.T(), "CreateUser")
 }
 
-// A link is unique across OUs, so cross-OU provisioning into an OU other than the linked user's could
-// only fail at the create. The node fails before prompting for the missing attribute.
-func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_CrossOURegistrationWithLinkedUserFails() {
-	ctx := suite.linkedRegistrationCtx()
-	ctx.NodeProperties = map[string]interface{}{common.NodePropertyAllowCrossOUProvisioning: true}
-	suite.mockEntityProvider.On("GetEntity", testExistingUser123ID).
-		Return(&providers.Entity{ID: testExistingUser123ID, OUID: "ou-source"}, nil)
+// Without cross-OU provisioning, a user holding the link in another OU still counts as the existing
+// user, as an attribute match in another OU does.
+func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_RegistrationCountsHolderInOtherOU() {
+	ctx := suite.linkedRegistrationCtx(&providers.Entity{ID: testExistingUser123ID, OUID: "ou-source"})
 
 	resp, err := suite.executor.Execute(ctx)
 
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), providers.ExecFailure, resp.Status)
-	assert.Equal(suite.T(), ErrFederatedIdentityAlreadyLinked.Code, resp.Error.Code)
-	assert.Empty(suite.T(), resp.Inputs)
+	assert.Equal(suite.T(), ErrEntityAlreadyExists.Code, resp.Error.Code)
 	suite.mockUserMgtProvider.AssertNotCalled(suite.T(), "CreateUser")
+}
+
+// With cross-OU provisioning, a user holding the link in another OU does not count, so a new user is
+// created in the target OU with the link. The user the AuthUser resolves to is in another OU, so the
+// existing-user rules let the registration go ahead.
+func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_CrossOURegistrationCreatesSecondHolder() {
+	ctx := suite.linkedRegistrationCtx(&providers.Entity{ID: testExistingUser123ID, OUID: "ou-source"})
+	ctx.NodeProperties = map[string]interface{}{common.NodePropertyAllowCrossOUProvisioning: true}
+	ctx.NodeInputs = []providers.Input{}
+	suite.expectSchemaForProvisioning()
+	suite.mockEntityProvider.On("GetEntity", testExistingUser123ID).
+		Return(&providers.Entity{ID: testExistingUser123ID, OUID: "ou-source"}, nil).Once()
+	suite.mockUserMgtProvider.On("CreateUser", mock.Anything,
+		mock.MatchedBy(func(u *providers.User) bool {
+			return u.OUID == testOUID &&
+				*u.LinkedAccount == providers.LinkedAccount{IdpID: testFederatedIdpID, Sub: testFederatedSub}
+		})).Return(&providers.User{ID: testNewUserID, OUID: testOUID, Type: testUserType},
+		(*tidcommon.ServiceError)(nil)).Once()
+	suite.mockAuthnProvider.On("AuthenticateUser", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(newAuthenticatedAuthUser(), providers.AuthenticatedClaims{}, (*tidcommon.ServiceError)(nil)).Once()
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), providers.ExecComplete, resp.Status)
+	suite.mockUserMgtProvider.AssertExpectations(suite.T())
+}
+
+// A user an earlier node resolved, for example by a verified OTP, is the existing user even when
+// nobody holds the federated identity's link yet, so registration does not create a second one.
+func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_RegistrationHonorsResolvedUser() {
+	ctx := suite.linkedRegistrationCtx()
+	suite.mockEntityProvider.ExpectedCalls = nil
+	suite.mockEntityProvider.On("GetLinkedEntities", testFederatedIdpID, testFederatedSub).
+		Return([]*providers.Entity{}, (*entityprovider.EntityProviderError)(nil)).Once()
+	ctx.NodeInputs = []providers.Input{}
+	ctx.RuntimeData[userAttributeUserID] = testExistingUser123ID
+	suite.expectSchemaForProvisioning()
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotEqual(suite.T(), providers.ExecComplete, resp.Status)
+	require.NotNil(suite.T(), resp.Error)
+	assert.Equal(suite.T(), ErrEntityAlreadyExists.Code, resp.Error.Code)
+	suite.mockUserMgtProvider.AssertNotCalled(suite.T(), "CreateUser", mock.Anything, mock.Anything)
 }
 
 // With cross-OU provisioning on, a linked user already in the target OU still follows the
@@ -4925,13 +5031,13 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_CrossOURegistr
 	for _, tc := range cases {
 		suite.Run(tc.name, func() {
 			suite.SetupTest()
-			ctx := suite.linkedRegistrationCtx()
+			ctx := suite.linkedRegistrationCtx(
+				&providers.Entity{ID: testExistingUser123ID, OUID: testOUID},
+				&providers.Entity{ID: "holder-elsewhere", OUID: "ou-source"})
 			ctx.NodeProperties = map[string]interface{}{common.NodePropertyAllowCrossOUProvisioning: true}
 			if tc.allowExist {
 				ctx.RuntimeData[common.RuntimeKeyAllowRegistrationWithExistingUser] = dataValueTrue
 			}
-			suite.mockEntityProvider.On("GetEntity", testExistingUser123ID).
-				Return(&providers.Entity{ID: testExistingUser123ID, OUID: testOUID}, nil)
 
 			resp, err := suite.executor.Execute(ctx)
 
@@ -4944,6 +5050,91 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_CrossOURegistr
 			suite.mockUserMgtProvider.AssertNotCalled(suite.T(), "CreateUser")
 		})
 	}
+}
+
+// Several users holding the link where the registration lands leaves no single user to complete as.
+func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_RegistrationWithSeveralHoldersFails() {
+	ctx := suite.linkedRegistrationCtx(
+		&providers.Entity{ID: testExistingUser123ID, OUID: testOUID},
+		&providers.Entity{ID: "second-holder", OUID: testOUID})
+	ctx.RuntimeData[common.RuntimeKeyAllowRegistrationWithExistingUser] = dataValueTrue
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), providers.ExecFailure, resp.Status)
+	assert.Equal(suite.T(), ErrEntityAlreadyExists.Code, resp.Error.Code)
+	suite.mockUserMgtProvider.AssertNotCalled(suite.T(), "CreateUser")
+}
+
+// When several users hold the link, the AuthUser names none of them, so completing as the one in the
+// target OU authenticates it.
+func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_AmbiguousRegistrationBindsTargetOUHolder() {
+	ctx := suite.linkedRegistrationCtx(
+		&providers.Entity{ID: testExistingUser123ID, OUID: testOUID},
+		&providers.Entity{ID: "holder-elsewhere", OUID: "ou-source"})
+	ctx.NodeProperties = map[string]interface{}{common.NodePropertyAllowCrossOUProvisioning: true}
+	ctx.RuntimeData[common.RuntimeKeyAllowRegistrationWithExistingUser] = dataValueTrue
+	ctx.RuntimeData[common.RuntimeKeyEntityState] = entityStateAmbiguous
+	suite.mockAuthnProvider.On("AuthenticateUser", mock.Anything, mock.Anything,
+		map[string]interface{}{authnprovidercm.CredentialTypeProvisionedEntityID: testExistingUser123ID},
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(newAuthenticatedAuthUser(), providers.AuthenticatedClaims{}, (*tidcommon.ServiceError)(nil)).Once()
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), providers.ExecComplete, resp.Status)
+	suite.mockAuthnProvider.AssertExpectations(suite.T())
+}
+
+// Accepting an invitation settles the link's holders as registration does, so an invitee who already
+// holds the link in the target OU completes as that user instead of getting a second one there.
+func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_OnboardingBindsTargetOUHolder() {
+	ctx := suite.linkedRegistrationCtx(
+		&providers.Entity{ID: testExistingUser123ID, OUID: testOUID},
+		&providers.Entity{ID: "holder-elsewhere", OUID: "ou-source"})
+	ctx.FlowType = providers.FlowTypeUserOnboarding
+	ctx.NodeProperties = map[string]interface{}{common.NodePropertyAllowCrossOUProvisioning: true}
+	ctx.RuntimeData[common.RuntimeKeyAllowRegistrationWithExistingUser] = dataValueTrue
+	ctx.RuntimeData[common.RuntimeKeyEntityState] = entityStateAmbiguous
+	suite.mockAuthnProvider.On("AuthenticateUser", mock.Anything, mock.Anything,
+		map[string]interface{}{authnprovidercm.CredentialTypeProvisionedEntityID: testExistingUser123ID},
+		mock.Anything, mock.Anything, mock.Anything).
+		Return(newAuthenticatedAuthUser(), providers.AuthenticatedClaims{}, (*tidcommon.ServiceError)(nil)).Once()
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), providers.ExecComplete, resp.Status)
+	suite.mockUserMgtProvider.AssertNotCalled(suite.T(), "CreateUser")
+	suite.mockAuthnProvider.AssertExpectations(suite.T())
+}
+
+// An entity provider that cannot list the link's holders leaves the authentication provider's
+// resolution as the only answer.
+func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_RegistrationFallsBackWithoutHolderListing() {
+	ctx := suite.linkedRegistrationCtx()
+	suite.mockEntityProvider.ExpectedCalls = nil
+	suite.mockEntityProvider.On("GetLinkedEntities", testFederatedIdpID, testFederatedSub).
+		Return(nil, entityprovider.NewEntityProviderError(entityprovider.ErrorCodeNotImplemented, "", ""))
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), providers.ExecFailure, resp.Status)
+	assert.Equal(suite.T(), ErrEntityAlreadyExists.Code, resp.Error.Code)
+}
+
+func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_RegistrationHolderListingFails() {
+	ctx := suite.linkedRegistrationCtx()
+	suite.mockEntityProvider.ExpectedCalls = nil
+	suite.mockEntityProvider.On("GetLinkedEntities", testFederatedIdpID, testFederatedSub).
+		Return(nil, entityprovider.NewEntityProviderError(entityprovider.ErrorCodeSystemError, "", ""))
+
+	_, err := suite.executor.Execute(ctx)
+
+	assert.Error(suite.T(), err)
 }
 
 // A verification that failed after a candidate signed in leaves that account signed in and the
@@ -4959,21 +5150,6 @@ func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_RegistrationWi
 	assert.Equal(suite.T(), providers.ExecFailure, resp.Status)
 	assert.Equal(suite.T(), ErrUnverifiedLinkingCandidate.Code, resp.Error.Code)
 	suite.mockUserMgtProvider.AssertNotCalled(suite.T(), "CreateUser")
-}
-
-// A link another user already holds fails the create, so no user is left behind without its link.
-func (suite *ProvisioningExecutorTestSuite) TestExecute_Federated_LinkConflictFailsNode() {
-	suite.expectSchemaForProvisioning()
-	suite.mockUserMgtProvider.On("CreateUser", mock.Anything, mock.Anything).
-		Return((*providers.User)(nil), &user.ErrorLinkedAccountConflict)
-
-	resp, err := suite.executor.Execute(suite.federatedCtx(false))
-
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), providers.ExecFailure, resp.Status)
-	assert.Equal(suite.T(), ErrFederatedIdentityAlreadyLinked.Code, resp.Error.Code)
-	suite.mockAuthnProvider.AssertNotCalled(suite.T(), "AuthenticateUser",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // OpenID4VP marks users eligible for provisioning but sets no connection id, so it must keep

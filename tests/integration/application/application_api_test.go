@@ -5251,6 +5251,24 @@ func (ts *ApplicationAPITestSuite) TestApplicationSharingPolicyLifecycle() {
 	ts.Equal(http.StatusNoContent, status, "deleting it again is not an error")
 }
 
+// A declared application's owner policy belongs in its resource file, so the API refuses one, while
+// a unit the file shares with can still reshare through it: there is nowhere else to record that.
+func (ts *ApplicationAPITestSuite) TestApplicationSharingOnADeclaredApplication() {
+	status, refused := ts.sharingRequest("POST", "/applications/decl-app-1/sharing-policies",
+		map[string]interface{}{"childUnits": allChildUnits()})
+	ts.Require().Equal(http.StatusBadRequest, status, "body: %v", refused)
+	ts.Equal("APP-1030", refused["code"], "the owner's sharing is declared with the application")
+
+	base := "/applications/decl-m2m-selected/sharing-policies"
+	status, reshare := ts.sharingRequest("POST", base, map[string]interface{}{
+		"initiatingOuId": "decl-m2m-child-a",
+		"childUnits":     selectedChildUnits(childUnit("decl-m2m-grandchild-a", "unit"))})
+	ts.Require().Equal(http.StatusCreated, status, "body: %v", reshare)
+	reshareID, _ := reshare["id"].(string)
+	defer func() { _, _ = ts.sharingRequest("DELETE", base+"/"+reshareID, nil) }()
+	ts.Equal("reshare", reshare["stage"])
+}
+
 // An organization unit that shared the application on cannot be deleted while that policy stands:
 // the policy rests on the unit's own view of the application. Once the policy is withdrawn, the unit
 // can go.

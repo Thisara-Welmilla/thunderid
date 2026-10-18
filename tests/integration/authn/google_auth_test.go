@@ -102,7 +102,6 @@ func (suite *GoogleAuthTestSuite) SetupSuite() {
 	userAttributes := map[string]interface{}{
 		"username":   "googleuser",
 		"password":   "Test@1234",
-		"sub":        "google-test-user-123",
 		"email":      "testuser@gmail.com",
 		"givenName":  "Test",
 		"familyName": "User",

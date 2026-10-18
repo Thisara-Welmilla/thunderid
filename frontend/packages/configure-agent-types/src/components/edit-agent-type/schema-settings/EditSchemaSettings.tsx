@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {I18nTextInput} from '@thunderid/components';
+import {isContactAttributeType, resolveAttributeRegex} from '@thunderid/utils';
 import {
   Box,
   Stack,
@@ -63,9 +64,12 @@ export default function EditSchemaSettings({
               [field]: value,
               ...(field === 'type' && {
                 enum: (value as string) === 'enum' ? prop.enum : [],
-                regex: '',
+                regex: resolveAttributeRegex(value),
                 unique:
-                  (value as string) === 'string' || (value as string) === 'number' || (value as string) === 'enum'
+                  (value as string) === 'string' ||
+                  isContactAttributeType(value) ||
+                  (value as string) === 'number' ||
+                  (value as string) === 'enum'
                     ? prop.unique
                     : false,
                 credential: (value as string) === 'string' || (value as string) === 'number' ? prop.credential : false,
@@ -171,6 +175,8 @@ export default function EditSchemaSettings({
                   size="small"
                 >
                   <MenuItem value="string">{t('agentTypes:types.string', 'String')}</MenuItem>
+                  <MenuItem value="email">{t('agentTypes:types.email', 'Email')}</MenuItem>
+                  <MenuItem value="mobile">{t('agentTypes:types.mobile', 'Mobile')}</MenuItem>
                   <MenuItem value="number">{t('agentTypes:types.number', 'Number')}</MenuItem>
                   <MenuItem value="boolean">{t('agentTypes:types.boolean', 'Boolean')}</MenuItem>
                   <MenuItem value="enum">{t('agentTypes:types.enum', 'Enum')}</MenuItem>
@@ -234,7 +240,10 @@ export default function EditSchemaSettings({
                   }
                 />
               </Tooltip>
-              {(property.type === 'string' || property.type === 'number' || property.type === 'enum') && (
+              {(property.type === 'string' ||
+                isContactAttributeType(property.type) ||
+                property.type === 'number' ||
+                property.type === 'enum') && (
                 <Tooltip
                   title={t('agentTypes:tooltips.unique', 'Each user must have a distinct value for this field')}
                   placement="top"
@@ -303,11 +312,30 @@ export default function EditSchemaSettings({
             )}
 
             {/* String: regex pattern */}
-            {property.type === 'string' && (
+            {(property.type === 'string' || isContactAttributeType(property.type)) && (
               <FormControl fullWidth>
-                <FormLabel>{t('agentTypes:regexPattern', 'Regular Expression Pattern (Optional)')}</FormLabel>
+                <FormLabel>
+                  {isContactAttributeType(property.type)
+                    ? t('agentTypes:contactRegexPattern', 'Regular Expression Pattern')
+                    : t('agentTypes:regexPattern', 'Regular Expression Pattern (Optional)')}
+                </FormLabel>
                 <TextField
                   value={property.regex}
+                  required={isContactAttributeType(property.type)}
+                  error={isContactAttributeType(property.type) && !property.regex.trim()}
+                  helperText={
+                    isContactAttributeType(property.type) && !property.regex.trim()
+                      ? property.type === 'email'
+                        ? t(
+                            'agentTypes:validationErrors.emailRegexRequired',
+                            'Enter a regular expression for email attributes.',
+                          )
+                        : t(
+                            'agentTypes:validationErrors.mobileRegexRequired',
+                            'Enter a regular expression for mobile attributes.',
+                          )
+                      : undefined
+                  }
                   onChange={(e) => handlePropertyChange(property.id, 'regex', e.target.value)}
                   placeholder={t('agentTypes:regexPlaceholder', 'e.g., ^[a-zA-Z0-9]+$')}
                   size="small"

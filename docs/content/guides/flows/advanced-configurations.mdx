@@ -1132,6 +1132,17 @@ Creates a new user record in the user store. This executor persists the user's i
 
 **Cross-OU provisioning:** When `allowCrossOUProvisioning` is set and the user exists in a different OU, the executor creates the user in the target OU instead of failing.
 
+**Federated registration:** A federated identity finds existing users only through its recorded links. In a registration flow, and in a user onboarding flow where an invitee accepts with a federated account, the users linked to the identity decide the outcome before any attribute is collected:
+
+| Linked users that count | Result |
+|---|---|
+| None | The executor creates the user and records the link. |
+| One, and the federated executor allows registration with an existing user | The flow completes as that user. |
+| One, otherwise | The node fails with "User already exists." |
+| Several | The node fails with "User already exists." |
+
+Without `allowCrossOUProvisioning`, every linked user counts. With it, only linked users in the target OU count, so registering into an OU where nobody holds the link creates a second user with the same link.
+
 **Seeding from authorization mapping:** When the identity being provisioned federated in through a connection with [Authorization Mapping](../../identity-providers/add-oidc-provider#authorization-mapping) configured, `seedGroupsFromMapping` and `seedRolesFromMapping` assign whatever groups and roles that mapping resolves for the asserted attributes, as ordinary direct assignments at account-creation time, alongside anything named in `assignGroup`/`assignRole`. This is a one-time snapshot: it does not keep the account in sync with the provider afterward the way the mapping does on every subsequent sign-in, and it has nothing to resolve when the executor runs outside a federated context.
 
 **Executor properties:**
@@ -1334,6 +1345,15 @@ Resolves an ambiguous user match by presenting disambiguation options to the use
 - User selection does not match any candidate
 - Candidates are indistinguishable (no further disambiguation options available)
 
+**After a federated sign-in:** When a federated executor ran earlier in the flow, the identity's recorded links decide the user, so the node ignores its inputs and the identity's claims:
+
+1. The node completes without resolving anyone when there is nothing to pick: the identity is linked to at most one user, or the flow is a registration flow. In a registration flow, [Provisioning](#user-provisioning-and-attributes) settles the linked users against the OU it registers into.
+2. When several users hold the identity's link, the federated executor sets `entityState` to `ambiguous`. The node loads those users and offers the attributes that tell them apart, such as `ouHandle` or `userType`, through `onIncomplete`. A field that offers options is never filled in from a claim, so the user always makes the choice.
+3. Only the offered attributes filter the linked users, so the user picks between them and nothing else. A pick that matches none of them is offered again, and linked users that no attribute tells apart fail the flow.
+4. Once one user remains, the node signs that user in, sets `userID`, and sets `entityState` to `exists`.
+
+Place the node between the federated executor and **Account Linking**. The **Account Linking with Verification and Account Selection** widget adds it, with a view that has a `SELECT` field for `ouHandle`. The **Account Linking with Verification** widget leaves it out, so use it only where an identity is linked to at most one user.
+
 </details>
 
 <details>
@@ -1344,7 +1364,7 @@ Links a federated identity that has no recorded link to an existing account, aft
 **When to use:** Immediately after every federated executor whose connection has account-linking attributes configured.
 
 **How it works:**
-1. If somebody is already authenticated, the node completes. This is a returning user whose link is already recorded, so there is nothing to decide and nothing to record.
+1. If somebody is already authenticated, the node completes. This is a returning user whose link is already recorded, so there is nothing to decide and nothing to record. The node also completes when several users hold the identity's link (`entityState` is `ambiguous`), since there is nothing to link. A **Resolve User** node placed before it picks between them.
 2. Otherwise the node matches the connection's account-linking attributes against existing accounts. If none matches, this identity has no local account. The node completes and provisioning creates the account and records the link.
 3. If one or more accounts matched, the node holds them as candidates, publishes the matched attribute values for the prompt, and forwards to whatever is wired on `onIncomplete`. The prompt offers to link the matched account (`CONFIRM`) or to continue with a separate one (`REJECT`), as described in the action table below.
 4. When verification comes back, the node checks that the account that verified is one of the candidates, then records the link to that account before completing. If the account that verified is not a candidate, the node discards that sign-in and shows the prompt once more, so the user can verify another account or refuse. On refusal the candidates are dropped and the flow continues as a new user for provisioning to create.

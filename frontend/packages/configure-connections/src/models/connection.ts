@@ -354,12 +354,8 @@ export interface SMSGatewayConnectionRequest {
   url: string;
   httpMethod: string;
   contentType: string;
-  /**
-   * Comma-separated "Key: value" pairs sent with every request, for headers that are not
-   * credentials. Credentials belong in `authentication`, where they are stored encrypted.
-   */
   httpHeaders?: string;
-  /** Omit to send no credentials. A method other than `none` requires an https URL. */
+  /** Omit to send no credentials. A method other than `none` requires an HTTPS URL. */
   authentication?: OutboundAuthConfig;
 }
 
@@ -370,25 +366,12 @@ export interface AuthZENPDPConnectionRequest {
   batchEndpoint?: string;
   timeoutMs?: number;
   retryCount?: number;
-  authentication?: OutboundAuthentication;
+  authentication?: OutboundAuthConfig;
   subjectAttributeMappings?: AuthZENPDPSubjectAttributeMapping[];
 }
 
-export interface APIKeyHeader {
-  name: string;
-  value: string;
-}
-
-export interface OutboundAuthentication {
-  scheme: 'NONE' | 'BEARER' | 'BASIC' | 'API_KEY';
-  bearer?: {token: string};
-  basic?: {username: string; password: string};
-  apiKey?: {headers: APIKeyHeader[]};
-}
-
-export interface OutboundAuthenticationResponse extends Omit<OutboundAuthentication, 'apiKey'> {
-  apiKey?: {headers: APIKeyHeader[] | null};
-}
+export type OutboundAuthentication = OutboundAuthConfig;
+export type OutboundAuthenticationResponse = OutboundAuthConfig;
 
 export interface AuthZENPDPSubjectAttributeMapping {
   entityType: string;
@@ -418,9 +401,10 @@ export type ConnectionRequest =
  * Vendor response — secrets are never returned. A superset carrying every vendor's
  * fields (IdP + SMS); the shared form mapping reads only the fields relevant to each type.
  */
-export interface ConnectionResponse extends OIDCConnectionRequest {
+export interface ConnectionResponse extends Partial<OIDCConnectionRequest> {
   id: string;
   type: ConnectionType;
+  name: string;
   /** SMS (Twilio) fields. */
   accountSid?: string;
   authToken?: string;
@@ -432,8 +416,8 @@ export interface ConnectionResponse extends OIDCConnectionRequest {
   /** SMS gateway fields. */
   url?: string;
   httpMethod?: string;
-  contentType?: string;
   httpHeaders?: string;
+  contentType?: string;
   /** AuthZEN PDP fields. */
   endpoint?: string;
   batchEndpoint?: string;
@@ -446,11 +430,8 @@ export interface ConnectionResponse extends OIDCConnectionRequest {
   fromAddress?: string;
   fromName?: string;
   tls?: string;
-  /**
-   * Outbound authentication. An AuthZEN PDP returns its scheme-based shape, while SMTP and the
-   * SMS gateway return the generic type and properties shape. Each vendor reads only its own fields.
-   */
-  authentication?: Partial<OutboundAuthenticationResponse> & Partial<OutboundAuthConfig>;
+  /** Outbound authentication returned with credential values masked. */
+  authentication?: OutboundAuthenticationResponse;
 }
 
 /**

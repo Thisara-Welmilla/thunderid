@@ -4,7 +4,13 @@
 import {PageLoadingAnimation, QueryErrorNotice, UnsavedChangesBar} from '@thunderid/components';
 import {getBreakingSchemaChanges} from '@thunderid/configure-user-types';
 import {useLogger} from '@thunderid/logger/react';
-import {getErrorMessage, isEqualIgnoringEmpty} from '@thunderid/utils';
+import {
+  getContactTypesMissingRegex,
+  getErrorMessage,
+  isContactAttributeType,
+  isEqualIgnoringEmpty,
+  resolveAttributeRegex,
+} from '@thunderid/utils';
 import {
   Stack,
   Typography,
@@ -49,7 +55,7 @@ function convertSchemaToProperties(schema: AgentTypeDefinition): SchemaPropertyI
     unique: 'unique' in value ? (value.unique ?? false) : false,
     credential: 'credential' in value ? (value.credential ?? false) : false,
     enum: 'enum' in value ? (value.enum ?? []) : [],
-    regex: 'regex' in value ? (value.regex ?? '') : '',
+    regex: resolveAttributeRegex(value.type, 'regex' in value ? value.regex : undefined),
     ...('items' in value ? {items: value.items} : {}),
     ...('properties' in value ? {properties: value.properties} : {}),
   }));
@@ -80,11 +86,11 @@ function convertPropertiesToSchema(properties: SchemaPropertyInput[]): AgentType
         (propDef as {credential?: boolean}).credential = true;
       }
 
-      if (prop.type === 'string' || prop.type === 'enum') {
+      if (prop.type === 'string' || isContactAttributeType(prop.type) || prop.type === 'enum') {
         if (prop.enum.length > 0) {
           (propDef as {enum?: string[]}).enum = prop.enum;
         }
-        if (prop.regex.trim()) {
+        if (prop.regex.trim() || isContactAttributeType(prop.type)) {
           (propDef as {regex?: string}).regex = prop.regex;
         }
       }
@@ -215,6 +221,23 @@ export default function ViewAgentTypePage(): JSX.Element {
           duplicates: [...new Set(duplicates)].join(', '),
           defaultValue: 'Duplicate property names found: {{duplicates}}',
         }),
+      );
+      return;
+    }
+
+    const missingRegexTypes = getContactTypesMissingRegex(effectiveProperties);
+    if (missingRegexTypes.length > 0) {
+      setValidationError(
+        missingRegexTypes
+          .map((type) =>
+            type === 'email'
+              ? t('agentTypes:validationErrors.emailRegexRequired', 'Enter a regular expression for email attributes.')
+              : t(
+                  'agentTypes:validationErrors.mobileRegexRequired',
+                  'Enter a regular expression for mobile attributes.',
+                ),
+          )
+          .join(' '),
       );
       return;
     }

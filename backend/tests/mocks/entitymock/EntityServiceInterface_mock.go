@@ -197,6 +197,80 @@ func (_c *EntityServiceInterfaceMock_AuthenticateEntityByID_Call) RunAndReturn(r
 	return _c
 }
 
+// ClaimLegacySubject provides a mock function for the type EntityServiceInterfaceMock
+func (_mock *EntityServiceInterfaceMock) ClaimLegacySubject(ctx context.Context, idpID string, sub string) ([]string, error) {
+	ret := _mock.Called(ctx, idpID, sub)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimLegacySubject")
+	}
+
+	var r0 []string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) ([]string, error)); ok {
+		return returnFunc(ctx, idpID, sub)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) []string); ok {
+		r0 = returnFunc(ctx, idpID, sub)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = returnFunc(ctx, idpID, sub)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// EntityServiceInterfaceMock_ClaimLegacySubject_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClaimLegacySubject'
+type EntityServiceInterfaceMock_ClaimLegacySubject_Call struct {
+	*mock.Call
+}
+
+// ClaimLegacySubject is a helper method to define mock.On call
+//   - ctx context.Context
+//   - idpID string
+//   - sub string
+func (_e *EntityServiceInterfaceMock_Expecter) ClaimLegacySubject(ctx any, idpID any, sub any) *EntityServiceInterfaceMock_ClaimLegacySubject_Call {
+	return &EntityServiceInterfaceMock_ClaimLegacySubject_Call{Call: _e.mock.On("ClaimLegacySubject", ctx, idpID, sub)}
+}
+
+func (_c *EntityServiceInterfaceMock_ClaimLegacySubject_Call) Run(run func(ctx context.Context, idpID string, sub string)) *EntityServiceInterfaceMock_ClaimLegacySubject_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *EntityServiceInterfaceMock_ClaimLegacySubject_Call) Return(strings []string, err error) *EntityServiceInterfaceMock_ClaimLegacySubject_Call {
+	_c.Call.Return(strings, err)
+	return _c
+}
+
+func (_c *EntityServiceInterfaceMock_ClaimLegacySubject_Call) RunAndReturn(run func(ctx context.Context, idpID string, sub string) ([]string, error)) *EntityServiceInterfaceMock_ClaimLegacySubject_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateEntity provides a mock function for the type EntityServiceInterfaceMock
 func (_mock *EntityServiceInterfaceMock) CreateEntity(ctx context.Context, entity1 *providers.Entity, systemCredentials json.RawMessage, link *providers.LinkedAccount) (*providers.Entity, error) {
 	ret := _mock.Called(ctx, entity1, systemCredentials, link)
@@ -1018,6 +1092,80 @@ func (_c *EntityServiceInterfaceMock_GetGroupCountForEntity_Call) RunAndReturn(r
 	return _c
 }
 
+// GetLinkedEntities provides a mock function for the type EntityServiceInterfaceMock
+func (_mock *EntityServiceInterfaceMock) GetLinkedEntities(ctx context.Context, idpID string, sub string) ([]providers.Entity, error) {
+	ret := _mock.Called(ctx, idpID, sub)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLinkedEntities")
+	}
+
+	var r0 []providers.Entity
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) ([]providers.Entity, error)); ok {
+		return returnFunc(ctx, idpID, sub)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) []providers.Entity); ok {
+		r0 = returnFunc(ctx, idpID, sub)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]providers.Entity)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = returnFunc(ctx, idpID, sub)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// EntityServiceInterfaceMock_GetLinkedEntities_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLinkedEntities'
+type EntityServiceInterfaceMock_GetLinkedEntities_Call struct {
+	*mock.Call
+}
+
+// GetLinkedEntities is a helper method to define mock.On call
+//   - ctx context.Context
+//   - idpID string
+//   - sub string
+func (_e *EntityServiceInterfaceMock_Expecter) GetLinkedEntities(ctx any, idpID any, sub any) *EntityServiceInterfaceMock_GetLinkedEntities_Call {
+	return &EntityServiceInterfaceMock_GetLinkedEntities_Call{Call: _e.mock.On("GetLinkedEntities", ctx, idpID, sub)}
+}
+
+func (_c *EntityServiceInterfaceMock_GetLinkedEntities_Call) Run(run func(ctx context.Context, idpID string, sub string)) *EntityServiceInterfaceMock_GetLinkedEntities_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *EntityServiceInterfaceMock_GetLinkedEntities_Call) Return(entitys []providers.Entity, err error) *EntityServiceInterfaceMock_GetLinkedEntities_Call {
+	_c.Call.Return(entitys, err)
+	return _c
+}
+
+func (_c *EntityServiceInterfaceMock_GetLinkedEntities_Call) RunAndReturn(run func(ctx context.Context, idpID string, sub string) ([]providers.Entity, error)) *EntityServiceInterfaceMock_GetLinkedEntities_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetTransitiveEntityGroups provides a mock function for the type EntityServiceInterfaceMock
 func (_mock *EntityServiceInterfaceMock) GetTransitiveEntityGroups(ctx context.Context, entityID string) ([]providers.EntityGroup, error) {
 	ret := _mock.Called(ctx, entityID)
@@ -1459,24 +1607,24 @@ func (_c *EntityServiceInterfaceMock_LoadIndexedAttributes_Call) RunAndReturn(ru
 	return _c
 }
 
-// ResolveLinkedAccount provides a mock function for the type EntityServiceInterfaceMock
-func (_mock *EntityServiceInterfaceMock) ResolveLinkedAccount(ctx context.Context, idpID string, sub string) (*string, error) {
+// ResolveLinkedAccounts provides a mock function for the type EntityServiceInterfaceMock
+func (_mock *EntityServiceInterfaceMock) ResolveLinkedAccounts(ctx context.Context, idpID string, sub string) ([]string, error) {
 	ret := _mock.Called(ctx, idpID, sub)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ResolveLinkedAccount")
+		panic("no return value specified for ResolveLinkedAccounts")
 	}
 
-	var r0 *string
+	var r0 []string
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*string, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) ([]string, error)); ok {
 		return returnFunc(ctx, idpID, sub)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *string); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) []string); ok {
 		r0 = returnFunc(ctx, idpID, sub)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*string)
+			r0 = ret.Get(0).([]string)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
@@ -1487,20 +1635,20 @@ func (_mock *EntityServiceInterfaceMock) ResolveLinkedAccount(ctx context.Contex
 	return r0, r1
 }
 
-// EntityServiceInterfaceMock_ResolveLinkedAccount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveLinkedAccount'
-type EntityServiceInterfaceMock_ResolveLinkedAccount_Call struct {
+// EntityServiceInterfaceMock_ResolveLinkedAccounts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveLinkedAccounts'
+type EntityServiceInterfaceMock_ResolveLinkedAccounts_Call struct {
 	*mock.Call
 }
 
-// ResolveLinkedAccount is a helper method to define mock.On call
+// ResolveLinkedAccounts is a helper method to define mock.On call
 //   - ctx context.Context
 //   - idpID string
 //   - sub string
-func (_e *EntityServiceInterfaceMock_Expecter) ResolveLinkedAccount(ctx any, idpID any, sub any) *EntityServiceInterfaceMock_ResolveLinkedAccount_Call {
-	return &EntityServiceInterfaceMock_ResolveLinkedAccount_Call{Call: _e.mock.On("ResolveLinkedAccount", ctx, idpID, sub)}
+func (_e *EntityServiceInterfaceMock_Expecter) ResolveLinkedAccounts(ctx any, idpID any, sub any) *EntityServiceInterfaceMock_ResolveLinkedAccounts_Call {
+	return &EntityServiceInterfaceMock_ResolveLinkedAccounts_Call{Call: _e.mock.On("ResolveLinkedAccounts", ctx, idpID, sub)}
 }
 
-func (_c *EntityServiceInterfaceMock_ResolveLinkedAccount_Call) Run(run func(ctx context.Context, idpID string, sub string)) *EntityServiceInterfaceMock_ResolveLinkedAccount_Call {
+func (_c *EntityServiceInterfaceMock_ResolveLinkedAccounts_Call) Run(run func(ctx context.Context, idpID string, sub string)) *EntityServiceInterfaceMock_ResolveLinkedAccounts_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -1523,12 +1671,12 @@ func (_c *EntityServiceInterfaceMock_ResolveLinkedAccount_Call) Run(run func(ctx
 	return _c
 }
 
-func (_c *EntityServiceInterfaceMock_ResolveLinkedAccount_Call) Return(s *string, err error) *EntityServiceInterfaceMock_ResolveLinkedAccount_Call {
-	_c.Call.Return(s, err)
+func (_c *EntityServiceInterfaceMock_ResolveLinkedAccounts_Call) Return(strings []string, err error) *EntityServiceInterfaceMock_ResolveLinkedAccounts_Call {
+	_c.Call.Return(strings, err)
 	return _c
 }
 
-func (_c *EntityServiceInterfaceMock_ResolveLinkedAccount_Call) RunAndReturn(run func(ctx context.Context, idpID string, sub string) (*string, error)) *EntityServiceInterfaceMock_ResolveLinkedAccount_Call {
+func (_c *EntityServiceInterfaceMock_ResolveLinkedAccounts_Call) RunAndReturn(run func(ctx context.Context, idpID string, sub string) ([]string, error)) *EntityServiceInterfaceMock_ResolveLinkedAccounts_Call {
 	_c.Call.Return(run)
 	return _c
 }

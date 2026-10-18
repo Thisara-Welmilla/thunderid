@@ -4204,14 +4204,14 @@ func (s *ServiceTestSuite) TestReplayKeepsAnIDTheDocumentCarries() {
 	s.Equal("0195a2c0-6f3e-7a21-9f2a-2c4f8f1d9a10", p.ID)
 }
 
-// The version a policy was exported at travels with it, so an export of the replayed policy
-// matches the document it came from rather than resetting to a first version.
-func (s *ServiceTestSuite) TestReplayKeepsTheVersionTheDocumentCarries() {
+// A version counts the edits made to a policy in this deployment. A document's version describes
+// edits made elsewhere, so a policy the replay creates starts at the first version.
+func (s *ServiceTestSuite) TestReplayStartsANewPolicyAtTheFirstVersion() {
 	p, svcErr := s.importCreate(context.Background(), testResource, ownerOU,
 		PolicyRequest{Version: 7, OtherTreeRoots: roots(root(rootOU))})
 
 	s.Require().Nil(svcErr)
-	s.Equal(7, p.Version)
+	s.Equal(1, p.Version, "a new policy starts at the first version, whatever the document says")
 }
 
 // A fresh create starts at the first version, whether the request says nothing or says zero.
@@ -4237,16 +4237,35 @@ func (s *ServiceTestSuite) TestCreateMintsAnIDWhenTheRequestCarriesNone() {
 
 // An id another policy already holds is answered as a conflict rather than left to fail as a
 // duplicate key deep in the store.
-func (s *ServiceTestSuite) TestReplayRefusesAnIDAnotherPolicyHolds() {
+func (s *ServiceTestSuite) TestReplayRefusesAnIDAnotherPolicyOfTheResourceHolds() {
 	first, svcErr := s.importCreate(context.Background(), testResource, ownerOU,
 		PolicyRequest{ID: "taken", OtherTreeRoots: roots(root(rootOU))})
 	s.Require().Nil(svcErr)
 
-	_, svcErr = s.importCreate(context.Background(), "another-resource", ownerOU,
-		PolicyRequest{ID: first.ID, OtherTreeRoots: roots(root(rootOU))})
+	_, svcErr = s.importCreate(context.Background(), testResource, ownerOU,
+		PolicyRequest{ID: first.ID, InitiatingOUID: rootOU, ChildUnits: children(unit(childOU))})
 
 	s.Require().NotNil(svcErr)
 	s.Equal(ErrorPolicyExists.Code, svcErr.Code)
+}
+
+// A document copied to make another resource still carries the source's policy ids. Nothing in it
+// depends on them, so the copy's policy is stored under a fresh id and the source keeps its own.
+func (s *ServiceTestSuite) TestReplayMintsAnIDAnotherResourceHolds() {
+	ctx := context.Background()
+	source, svcErr := s.importCreate(ctx, testResource, ownerOU,
+		PolicyRequest{ID: "taken", OtherTreeRoots: roots(root(rootOU))})
+	s.Require().Nil(svcErr)
+
+	copied, svcErr := s.importCreate(ctx, "another-resource", ownerOU,
+		PolicyRequest{ID: source.ID, OtherTreeRoots: roots(root(rootOU))})
+
+	s.Require().Nil(svcErr)
+	s.NotEmpty(copied.ID)
+	s.NotEqual(source.ID, copied.ID, "the copy is given an id of its own")
+	still, svcErr := s.svc.GetPolicy(ctx, source.ID)
+	s.Require().Nil(svcErr)
+	s.Equal(testResource, still.ResourceID, "and the source keeps its id")
 }
 
 // An export replayed through the create path reproduces the policy it was taken from, id included,
@@ -4266,7 +4285,7 @@ func (s *ServiceTestSuite) TestAnExportedPolicyReplaysUnderItsOwnID() {
 
 	s.Require().Nil(svcErr)
 	s.Equal(original.ID, replayed.ID, "a replay reproduces the policy, id included")
-	s.Equal(original.Version, replayed.Version, "and at the version it was exported at")
+	s.Equal(1, replayed.Version, "and, being new here, at the first version")
 }
 
 // Every path into the framework records a deployment-wide grant the same way. Only where the policy
@@ -4900,4 +4919,22 @@ func (s *ServiceTestSuite) TestARefusedReplayLeavesNoStaleVisibility() {
 	visible, svcErr := svc.IsVisible(ctx, testType, testResource, childOU)
 	s.Require().Nil(svcErr)
 	s.True(visible, "the rolled-back replay took nothing away")
+}
+
+// A document cannot switch a section between naming units and reaching a whole group: the replay
+// edits the policy under the API's rules. The refusal says how to get there, since an import cannot
+// delete the policy itself.
+func (s *ServiceTestSuite) TestReplayRefusingASectionChangeSaysHowToMakeIt() {
+	ctx := context.Background()
+	s.withRollback()
+	_, svcErr := s.importCreate(ctx, testResource, rootOU, PolicyRequest{ChildUnits: children(unit(childOU))})
+	s.Require().Nil(svcErr)
+
+	_, replayErr := s.svc.ReplacePoliciesForResource(ctx, testType, testResource, rootOU,
+		[]PolicyRequest{{InitiatingOUID: rootOU, ChildUnits: allChildren()}})
+
+	s.Require().NotNil(replayErr)
+	s.Equal(ErrorScopeFamilyChange.Code, replayErr.Err.Code)
+	s.Contains(replayErr.Err.ErrorDescription.DefaultValue,
+		"delete the policy through the sharing policies API, then import again")
 }

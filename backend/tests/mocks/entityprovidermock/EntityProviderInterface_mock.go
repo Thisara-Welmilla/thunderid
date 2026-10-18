@@ -379,6 +379,76 @@ func (_c *EntityProviderInterfaceMock_GetEntityListCount_Call) RunAndReturn(run 
 	return _c
 }
 
+// GetLinkedEntities provides a mock function for the type EntityProviderInterfaceMock
+func (_mock *EntityProviderInterfaceMock) GetLinkedEntities(idpID string, sub string) ([]*providers.Entity, *entityprovider.EntityProviderError) {
+	ret := _mock.Called(idpID, sub)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLinkedEntities")
+	}
+
+	var r0 []*providers.Entity
+	var r1 *entityprovider.EntityProviderError
+	if returnFunc, ok := ret.Get(0).(func(string, string) ([]*providers.Entity, *entityprovider.EntityProviderError)); ok {
+		return returnFunc(idpID, sub)
+	}
+	if returnFunc, ok := ret.Get(0).(func(string, string) []*providers.Entity); ok {
+		r0 = returnFunc(idpID, sub)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*providers.Entity)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(string, string) *entityprovider.EntityProviderError); ok {
+		r1 = returnFunc(idpID, sub)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*entityprovider.EntityProviderError)
+		}
+	}
+	return r0, r1
+}
+
+// EntityProviderInterfaceMock_GetLinkedEntities_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLinkedEntities'
+type EntityProviderInterfaceMock_GetLinkedEntities_Call struct {
+	*mock.Call
+}
+
+// GetLinkedEntities is a helper method to define mock.On call
+//   - idpID string
+//   - sub string
+func (_e *EntityProviderInterfaceMock_Expecter) GetLinkedEntities(idpID any, sub any) *EntityProviderInterfaceMock_GetLinkedEntities_Call {
+	return &EntityProviderInterfaceMock_GetLinkedEntities_Call{Call: _e.mock.On("GetLinkedEntities", idpID, sub)}
+}
+
+func (_c *EntityProviderInterfaceMock_GetLinkedEntities_Call) Run(run func(idpID string, sub string)) *EntityProviderInterfaceMock_GetLinkedEntities_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *EntityProviderInterfaceMock_GetLinkedEntities_Call) Return(entitys []*providers.Entity, entityProviderError *entityprovider.EntityProviderError) *EntityProviderInterfaceMock_GetLinkedEntities_Call {
+	_c.Call.Return(entitys, entityProviderError)
+	return _c
+}
+
+func (_c *EntityProviderInterfaceMock_GetLinkedEntities_Call) RunAndReturn(run func(idpID string, sub string) ([]*providers.Entity, *entityprovider.EntityProviderError)) *EntityProviderInterfaceMock_GetLinkedEntities_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetTransitiveEntityGroups provides a mock function for the type EntityProviderInterfaceMock
 func (_mock *EntityProviderInterfaceMock) GetTransitiveEntityGroups(entityID string) ([]providers.EntityGroup, *entityprovider.EntityProviderError) {
 	ret := _mock.Called(entityID)

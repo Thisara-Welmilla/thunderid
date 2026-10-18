@@ -18,6 +18,7 @@ import (
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
+	"github.com/thunder-id/thunderid/tests/mocks/sharingmock"
 )
 
 // ValidateApplicationWrapperTestSuite tests the validateApplicationWrapper function.
@@ -640,9 +641,10 @@ func TestExportWritesTheApplicationWithoutSharingWhenItHoldsNone(t *testing.T) {
 	app := &providers.Application{ID: "app1", Name: "Test App"}
 	mockAppService := NewApplicationServiceInterfaceMock(t)
 	mockAppService.EXPECT().GetApplication(mock.Anything, "app1").Return(app, nil)
-	mockAppService.EXPECT().ExportSharingPolicies(mock.Anything, "app1").Return(nil, nil)
+	sharingMock := sharingmock.NewSharingServiceInterfaceMock(t)
+	sharingMock.EXPECT().ExportPolicies(mock.Anything, ApplicationSharingType, "app1").Return(nil, nil)
 
-	resource, _, err := NewApplicationExporterForTest(mockAppService).
+	resource, _, err := NewApplicationExporterForTest(mockAppService, sharingMock).
 		GetResourceByID(context.Background(), "app1")
 
 	require.Nil(t, err)
@@ -663,9 +665,10 @@ func TestExportCarriesTheSharingPolicies(t *testing.T) {
 	}}
 	mockAppService := NewApplicationServiceInterfaceMock(t)
 	mockAppService.EXPECT().GetApplication(mock.Anything, "app1").Return(app, nil)
-	mockAppService.EXPECT().ExportSharingPolicies(mock.Anything, "app1").Return(replayable, nil)
+	sharingMock := sharingmock.NewSharingServiceInterfaceMock(t)
+	sharingMock.EXPECT().ExportPolicies(mock.Anything, ApplicationSharingType, "app1").Return(replayable, nil)
 
-	resource, _, err := NewApplicationExporterForTest(mockAppService).
+	resource, _, err := NewApplicationExporterForTest(mockAppService, sharingMock).
 		GetResourceByID(context.Background(), "app1")
 
 	require.Nil(t, err)
@@ -677,7 +680,7 @@ func TestExportCarriesTheSharingPolicies(t *testing.T) {
 // The export pipeline hands the exporter back what GetResourceByID returned, so validation and the
 // per-resource rules read the application out of the document rather than refusing its type.
 func TestExporterReadsTheApplicationOutOfTheDocument(t *testing.T) {
-	exporter := NewApplicationExporterForTest(NewApplicationServiceInterfaceMock(t))
+	exporter := NewApplicationExporterForTest(NewApplicationServiceInterfaceMock(t), nil)
 	document := &applicationDeclarativeResource{Application: providers.Application{
 		ID: "app1", Name: "Public App",
 		InboundAuthConfig: []providers.InboundAuthConfigWithSecret{{

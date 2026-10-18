@@ -453,10 +453,13 @@ sections:
         type: string
         tag: optional
         description: Platform type. Use `'ThunderIDV2'` to enable V2 embedded flow features.
-      - name: syncSession
-        type: boolean
+      - name: session
+        type: SessionConfig
         tag: optional
-        description: Whether to sync sessions across tabs.
+        description: Behaviour around the {{ProductName}} session. Set `session.silentSignIn.beforeRedirect` to `true`
+          to try a silent sign-in before `signIn()` redirects. The silent attempt is skipped when the sign-in options
+          set their own `prompt`. `session.silentSignIn.timeout` (milliseconds, default `10000`) bounds how long a silent
+          sign-in waits.
       example: |-
         <template>
           <ThunderIDProvider

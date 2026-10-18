@@ -8,15 +8,15 @@
 
 ThunderID ships fixed email and SMS templates. Changing their content requires editing server files and restarting the service. Administrators cannot manage or preview templates through the Console or an API. This specification adds runtime template management and live previews, with language and design support: a template references translation keys and a design rather than embedding its own copy or branding. 
 
-Each template stores one content definition rather than separate content per language, and it can reference translation keys so the same template localizes through the Translation feature. The Design feature supplies the design themes when an notification is rendered. The template stores a color scheme selection and message content refers design tokens rather than embedding the design itself.
+Each template stores one content definition rather than separate content per language, and it can reference translation keys so the same template localizes through the Translation feature. The Design feature supplies the design themes when a notification is rendered. The template stores a color scheme selection, and message content refers to design tokens rather than embedding the design itself.
 
-A flow node selects the template to send, and notifications dispatched outside a flow use the same managed templates: the SMS OTP authentication endpoint. During execution the renderer resolves placeholders in a fixed order: first the `{{t(...)}}` translation keys for the requested language (falling back to the system language), then the `{{design(...)}}` tokens against the theme (email body only, so SMS skips this step), and finally the `{{ctx(...)}}` runtime values. The rendered content is then handed to the sender.
+A flow node selects the template to send, and notifications dispatched outside a flow use the same managed templates: the SMS OTP authentication endpoint. During execution the renderer resolves placeholders in a fixed order: first the `{{t(...)}}` translation keys for the requested language (falling back to the default language, currently the built-in `en-US`), then the `{{design(...)}}` tokens against the theme (email body only, so SMS skips this step), and finally the `{{ctx(...)}}` runtime values. The rendered content is then handed to the sender.
 
 ## Architecture
 
 A template belongs to a notification channel, currently email or SMS. An administrator selects a template for a flow’s notification node, and the corresponding channel executor uses it. An email executor cannot use an SMS template, or vice versa.
 
-Template content belongs to an organization unit and is independent of language and design. Its message content can reference translation keys; the resolved translation text, which can contain `{{ctx(...)}}` placeholders, is produced by the Translation feature at render time. The template stores the selected color scheme; the Design feature resolev the design tokens when the notification is rendered or previewed.
+Template content belongs to an organization unit and is independent of language and design. Its message content can reference translation keys; the resolved translation text, which can contain `{{ctx(...)}}` placeholders, is produced by the Translation feature at render time. The template stores the selected color scheme; the Design feature resolves the design tokens when the notification is rendered or previewed.
 
 The Notification Templates module manages templates and coordinates rendering. It uses the Translation feature to resolve localized text and the Design feature to apply the relevant design. Runtime consumers invoke the template renderer, which returns the fully resolved notification content ready for sending. They do not call the Translation or Design features themselves to resolve template placeholders; the renderer has already applied them.
 
@@ -78,8 +78,8 @@ flowchart TB
 | Template store | Persist templates and their content |
 | Declarative resources | Seed the default templates as declarative resources (`resource_type: notification_template`) at bootstrap, matched by handle for idempotent upsert |
 | Translation feature | Resolve `notification`-namespace translation keys for the target language. |
-| Design feature | Apply the design theme based and color scheme. |
-| Flow executors | Select a template and, through the template renderer, supply the design theme, the runtime (flow) context, the locale. |
+| Design feature | Apply the design theme and color scheme. |
+| Flow executors | Select a template and, through the template renderer, supply the design theme and the runtime (flow) context. |
 | Notification senders | Deliver rendered email or SMS |
 | Console | Manage templates and show the template-editor preview |
 
@@ -171,7 +171,7 @@ Notification layouts are outside the scope of this phase; the resolved body prov
 
 ### Rendering and delivery
 
-When a flow reaches a notification node, its executor calls the template renderer (`Resolve`) with the channel, the template handle, the runtime context values (`Data`), and the theme ID; the locale. The renderer resolves translation keys, resolves the design tokens against the theme (email body only), and substitutes context placeholders, then returns the fully resolved content ready for sending. The executor therefore never calls the Translation or Design features itself; it receives finished content and hands it to the existing notification sender for delivery.
+When a flow reaches a notification node, its executor calls the template renderer (`Resolve`) with the channel, the template handle, the runtime context values (`Data`), and the theme ID. A caller-supplied locale is future work in this phase, so the renderer falls back to the default language. The renderer resolves translation keys, resolves the design tokens against the theme (email body only), and substitutes context placeholders, then returns the fully resolved content ready for sending. The executor therefore never calls the Translation or Design features itself; it receives finished content and hands it to the existing notification sender for delivery.
 
 Delivery reuses the existing notification sender service (`internal/notification`) unchanged. Both executors hand the rendered content, plus the provider (sender) named on the node, to the sender service: the email executor (`internal/flow/executor/email_executor.go`) calls `SendEmail`, and the SMS executor (`internal/flow/executor/sms_executor.go`) calls `SendMessage`. The sender service resolves the managed sender by ID and dispatches through the matching client in `internal/notification/client`: the SMTP client for email, or Twilio, Vonage, or a custom provider for SMS. Only the content these executors send changes; the transport packages are not modified.
 
@@ -185,7 +185,7 @@ The `handle` is unique per channel across the deployment: creating a second temp
 
 Flows reference a template by its `handle` rather than its UUID. Because the handle is stable and deployment-independent, bootstrapped flows stay valid without fixed UUIDs, and a flow exported from one deployment remains valid when imported into another.
 
-Templates persist in the **config database** (the store uses the config DB client; the table ships in `dbscripts/configdb`), replacing the current read-only template file store. A template is a single flat row, with content and design held as JSON columns, so there are no per-locale rows:
+Templates persist in the **config database** (the store uses the config DB client; the table ships in `dbscripts/configdb`). In `declarative` and `composite` store modes, file-declared templates continue to be served from a read-only file store alongside the database. A template is a single flat row, with content and design held as JSON columns, so there are no per-locale rows:
 
 ```sql
 CREATE TABLE NOTIFICATION_TEMPLATE (
@@ -207,7 +207,7 @@ CREATE TABLE NOTIFICATION_TEMPLATE (
 
 Scoping columns are `DEPLOYMENT_ID` and the owning `OU_ID`; the `UNIQUE (DEPLOYMENT_ID, CHANNEL, HANDLE)` constraint keeps a handle unique per channel across the deployment, and the runtime lookup is by channel and handle, not by organization unit.
 
-Templates are seeded and kept up to date as **declarative resources** (`resource_type: notification_template`) through the declarative-resource system (`internal/system/declarative_resource`), matched by handle for idempotent upsert. The runtime lookup (`GetTemplateByHandle`) is served through a read-through cache keyed by `channel:handle`; writes keep it coherent (create and update re-populate the entry, delete invalidates it), while list and get-by-id bypass the cache. Migration preserve existing shipped templates and valid flow references.
+Templates are seeded and kept up to date as **declarative resources** (`resource_type: notification_template`) through the declarative-resource system (`internal/system/declarative_resource`), matched by handle for idempotent upsert. The runtime lookup (`GetTemplateByHandle`) is served through a read-through cache keyed by `channel:handle`; writes keep it coherent (create and update re-populate the entry, delete invalidates it), while list and get-by-id bypass the cache. Migration preserves existing shipped templates and valid flow references.
 
 ### API
 
@@ -215,13 +215,13 @@ The Notification Templates API manages templates by channel. The `channel` path 
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/notification-templates/{channel}/templates` | List template summaries for the channel, with `limit` and `offset` pagination. |
+| `GET` | `/notification-templates/{channel}/templates` | List template summaries for the channel, with `limit` (1–100, default 30) and `offset` pagination. |
 | `POST` | `/notification-templates/{channel}/templates` | Create a template with its content. |
 | `GET` | `/notification-templates/{channel}/templates/{id}` | Get a template. |
 | `PUT` | `/notification-templates/{channel}/templates/{id}` | Update a template. The `handle` is immutable and cannot be changed. |
 | `DELETE` | `/notification-templates/{channel}/templates/{id}` | Delete a template. Idempotent. |
 
-A template carries a required, immutable `ouId` (the owning organization unit), a unique, immutable `handle`, a `displayName`, an optional `description`, a read-only `isReadOnly` flag (true for file-declared templates), and channel-specific content. Email content has a `subject` and `body`; SMS content has a `body` only (plain text, no subject or design configuration). Each content field is a string that may embed `{{t(...)}}` translation placeholders and `{{ctx(...)}}` context placeholders, so a field can reference none, one, or multiple translation keys alongside literal text. An email template may also carry a `design` with a `light` or `dark` `colorScheme`, composed on top of the content when the email is rendered and ignored for SMS. The `handle` and `ouId` are set at creation and are not accepted on update; a `handle` must be a lowercase kebab-case identifier, and an email template requires a `subject`.
+A template carries a required, immutable `ouId` (the owning organization unit), a unique, immutable `handle`, a `displayName`, an optional `description`, a read-only `isReadOnly` flag (true for file-declared templates), and channel-specific content. Email content has a `subject` and `body`; SMS content has a `body` only (plain text, no subject or design configuration). Each content field is a string that may embed `{{t(...)}}` translation placeholders and `{{ctx(...)}}` context placeholders, so a field can reference none, one, or multiple translation keys alongside literal text. An email template may also carry a `design` with a `light` or `dark` `colorScheme`, whose `{{design(...)}}` tokens are resolved into the email body when the email is rendered. SMS has no design or subject: a `design` is rejected (`NTM-1013`) and a `subject` is rejected (`NTM-1012`). The `handle` and `ouId` are set at creation and are not accepted on update; a `handle` is a lowercase kebab- or snake-case identifier (letters, digits, hyphen, underscore), and an email template requires a `subject`.
 
 An email template response (the seeded `otp` default, authored with `{{t(...)}}` keys, `{{design(...)}}` tokens, and a runtime `{{ctx(...)}}` value):
 
@@ -259,7 +259,7 @@ An SMS template response (no subject or design; body authored with a `{{t(...)}}
 }
 ```
 
-Invalid requests return `400`, unauthorized requests `401`, forbidden requests `403`, and missing templates `404`. Placeholder validation runs on create and update: a malformed or unsupported placeholder (`NTM-1020`) or a `{{design(...)}}` placeholder in a subject or SMS (`NTM-1021`) returns `400` and the template is not stored. A write that targets a file-declared, read-only template returns `403` (`NTM-1022`), and a create attempted while the store runs in declarative-only mode returns `403` (`NTM-1024`). Creating a template whose handle already exists in the channel returns `409` (`NTM-1009`). Delete is idempotent: deleting a template that does not exist still returns `204`. Errors use the shared `Error` response shape with the `NTM-XXXX` code prefix for template-specific failures.
+Invalid requests return `400`, unauthorized requests `401`, forbidden requests `403`, and missing templates `404`. Placeholder validation runs on create and update: a malformed or unsupported placeholder (`NTM-1020`) or a `{{design(...)}}` placeholder in a subject or SMS (`NTM-1021`) returns `400` and the template is not stored. A write that targets a file-declared, read-only template returns `403` (`NTM-1022`), and a create attempted while the store runs in declarative-only mode returns `403` (`NTM-1024`). A create or update with a missing or non-existent `ouId` returns `400` (`NTM-1025`), and an update that tries to change an existing template's `ouId` returns `400` (`NTM-1026`). Creating a template whose handle already exists in the channel returns `409` (`NTM-1009`). Delete is idempotent: deleting a template that does not exist still returns `204`; but a delete is refused with `409` (`NTM-1010`) while the template is still in use — referenced by an active flow, or required by a built-in endpoint such as SMS OTP — so the reference must be removed or reassigned first. Errors use the shared `Error` response shape with the `NTM-XXXX` code prefix for template-specific failures.
 
 Previews are produced in the Console (see Preview).
 
@@ -273,7 +273,7 @@ The preview resolves the content, translations, and design the same way as deliv
 
 ### UI
 
-The Console surfaces notification templates under **Customize → Notifications**, split by channel into an **Email Templates** page and an **SMS Templates** page, with a sibling **Translations** page (**Design** is its own Customize page). A channel page lists its templates by display name with edit and delete actions and pagination, and a **New template** action starts the creation wizard; on a deployment with more than one organization unit the wizard begins with an organization-unit step (skipped for a single OU), then offers a **Start from scratch** option and sample templates (hardcoded in the Console and kept in sync with the bootstrap defaults). The shipped defaults appear in the list (Email OTP Verification, Magic Link Sign-In Email, CIBA Authentication Notification Email, Password Recovery Email, User Invitation Email, Self Registration Invite Email). An **Import / Export** action covers declarative (GitOps) round-tripping.
+The Console surfaces notification templates under **Customize → Notifications**, split by channel into an **Email Templates** page and an **SMS Templates** page, with a sibling **Translations** page (**Design** is its own Customize page). A channel page lists its templates by display name with edit and delete actions and pagination (the actions appear for every template; a write against a read-only, file-declared template is rejected by the API with `403`), and a **New template** action starts the creation wizard; on a deployment with more than one organization unit the wizard begins with an organization-unit step (skipped for a single OU), then offers a **Start from scratch** option and sample templates (hardcoded in the Console and kept in sync with the bootstrap defaults). The shipped defaults appear in the list (Email OTP Verification, Magic Link Sign-In Email, CIBA Authentication Notification Email, Password Recovery Email, User Invitation Email, Self Registration Invite Email). Declarative (GitOps) round-tripping is handled at the server through the declarative-resource system; notification templates are not part of the Console's global Import / Export action in this phase.
 
 ![Email Templates list page: templates by display name with edit and delete actions, a New template button, and pagination](assets/email-templates-list.png)
 
@@ -300,17 +300,17 @@ The flow editor lists templates for the selected notification node’s channel s
 
 ### R2. Localize content through translations
 
-**Requirement:** A single template definition can produce content in a target language using translation keys. This phase renders in the system default language.
+**Requirement:** A single template definition can produce content in a target language using translation keys. This phase renders in the default language (currently the built-in `en-US`).
 
 **Acceptance criteria:**
 
 - **AC2.1:** Given a template whose subject and body reference translation keys, when it is rendered for a language with corresponding translations, then the output contains the resolved text without changing the stored template.
-- **AC2.2:** Given a key with no translation for the target language but a value in the system language, when rendering runs, then the notification is sent using the system-language fallback.
+- **AC2.2:** Given a key with no translation for the target language but a value in the default language, when rendering runs, then the notification is sent using the default-language (`en-US`) fallback.
 - **AC2.3:** Given a referenced key with no translation in any language, or a required `{{ctx(...)}}` or `{{design(...)}}` value that cannot be resolved, when rendering runs, then the notification is not sent and the error is surfaced.
 
 ### R3. Apply design at send time
 
-**Requirement:** Emails apply the applicable design at render time, composing the selected theme with the template's stored `colorScheme` and resolving any `{{design(...)}}` tokens in the body, without embedding the design itself in the content. Design is resolved against the theme supplied at render time.
+**Requirement:** Emails apply the applicable design at render time by resolving the `{{design(...)}}` tokens in the body against the selected theme and the template's stored `colorScheme`, without embedding the design itself in the content. Design is resolved against the theme supplied at render time.
 
 **Acceptance criteria:**
 

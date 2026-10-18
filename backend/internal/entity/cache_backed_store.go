@@ -151,10 +151,10 @@ func (s *cacheBackedEntityStore) LockEntity(ctx context.Context, id string) (pro
 	return s.store.LockEntity(ctx, id)
 }
 
-// ResolveLinkedAccount passes through to the wrapped store without caching.
-func (s *cacheBackedEntityStore) ResolveLinkedAccount(ctx context.Context,
-	idpID, sub string) (*string, error) {
-	return s.store.ResolveLinkedAccount(ctx, idpID, sub)
+// ResolveLinkedAccounts passes through to the wrapped store without caching.
+func (s *cacheBackedEntityStore) ResolveLinkedAccounts(ctx context.Context,
+	idpID, sub string) ([]string, error) {
+	return s.store.ResolveLinkedAccounts(ctx, idpID, sub)
 }
 
 func (s *cacheBackedEntityStore) IdentifyEntity(ctx context.Context,

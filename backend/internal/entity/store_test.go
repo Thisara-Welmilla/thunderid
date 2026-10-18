@@ -12,7 +12,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/lib/pq"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	_ "modernc.org/sqlite"
@@ -325,34 +324,8 @@ func (s *DBStoreTestSuite) expectIdentifierResync(attributes, systemAttributes s
 	s.onExecAny(1, nil)
 }
 
-// The linked-ID unique index refusing an insert means another entity holds the subject, so it is
-// reported as a conflict on both databases. Any other insert failure stays a server error.
-func (s *DBStoreTestSuite) TestSyncAttributeIdentifiers_LinkedIDConflict() {
-	sysAttrs := json.RawMessage(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`)
-	for name, tc := range map[string]struct {
-		execErr  error
-		conflict bool
-	}{
-		"postgres":           {execErr: &pq.Error{Code: "23505", Constraint: linkedIDIndexName}, conflict: true},
-		"other unique index": {execErr: &pq.Error{Code: "23505", Constraint: "entity_identifier_pkey"}},
-		"other failure":      {execErr: s.testErr},
-	} {
-		s.Run(name, func() {
-			s.SetupTest()
-			s.expectClient()
-			s.onExecAny(0, tc.execErr)
-
-			err := s.store.syncAttributeIdentifiers(s.ctx, "e1", nil, sysAttrs, map[string]bool{})
-
-			s.Require().Error(err)
-			s.Equal(tc.conflict, errors.Is(err, ErrLinkedAccountConflict))
-		})
-	}
-}
-
-// Against the shipped SQLite schema, a second entity linking a held subject is refused as a conflict,
-// while the same subject at another deployment links freely.
-func (s *DBStoreTestSuite) TestSyncAttributeIdentifiers_LinkedIDUniqueOnSQLite() {
+// Against the shipped SQLite schema, several entities may link the same subject.
+func (s *DBStoreTestSuite) TestSyncAttributeIdentifiers_LinkedIDSharedOnSQLite() {
 	schema, err := os.ReadFile("../../dbscripts/entitydb/sqlite.sql")
 	s.Require().NoError(err)
 	db, err := sql.Open("sqlite", ":memory:")
@@ -373,12 +346,9 @@ func (s *DBStoreTestSuite) TestSyncAttributeIdentifiers_LinkedIDUniqueOnSQLite()
 			return res.RowsAffected()
 		})
 	link := json.RawMessage(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`)
-	otherCtx := deployment.WithID(s.ctx, "other-deployment")
 
 	s.Require().NoError(s.store.syncAttributeIdentifiers(s.ctx, "e1", nil, link, map[string]bool{}))
-	s.ErrorIs(s.store.syncAttributeIdentifiers(s.ctx, "e2", nil, link, map[string]bool{}),
-		ErrLinkedAccountConflict)
-	s.NoError(s.store.syncAttributeIdentifiers(otherCtx, "e3", nil, link, map[string]bool{}))
+	s.NoError(s.store.syncAttributeIdentifiers(s.ctx, "e2", nil, link, map[string]bool{}))
 }
 
 func (s *DBStoreTestSuite) TestUpdateAttributes_ResyncAppliesSystemPrecedence() {
@@ -863,7 +833,7 @@ func (s *DBStoreTestSuite) TestExecuteCountQuery_Success() {
 // a recorded link, but it is user-owned. Resolving it would sign the linked account in as that
 // user without the linking verification step, so only server-owned rows may resolve. The rows are
 // written through the real identifier write path and read back with the real query on SQLite.
-func (s *DBStoreTestSuite) TestResolveLinkedAccount_IgnoresAttributeSourcedRows() {
+func (s *DBStoreTestSuite) TestResolveLinkedAccounts_IgnoresAttributeSourcedRows() {
 	db, err := sql.Open("sqlite", ":memory:")
 	s.Require().NoError(err)
 	s.T().Cleanup(func() { s.Require().NoError(db.Close()) })
@@ -905,24 +875,35 @@ func (s *DBStoreTestSuite) TestResolveLinkedAccount_IgnoresAttributeSourcedRows(
 
 	insert("attacker", json.RawMessage(fmt.Sprintf(`{%q:"sub-1"}`, linkName)), nil)
 
-	_, err = s.store.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
-	s.ErrorIs(err, ErrEntityNotFound, "an attribute-sourced row must not resolve as a link")
+	got, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Empty(got, "an attribute-sourced row must not resolve as a link")
 
 	insert("victim", nil, json.RawMessage(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`))
 
-	got, err := s.store.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
-	s.Require().NoError(err, "an attribute-sourced row must not make the recorded link ambiguous")
-	s.Equal("victim", *got)
+	got, err = s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Equal([]string{"victim"}, got, "an attribute-sourced row must not resolve alongside the recorded link")
 }
 
-func (s *DBStoreTestSuite) TestResolveLinkedAccount_Ambiguous() {
+func (s *DBStoreTestSuite) TestResolveLinkedAccounts_ReturnsEveryHolder() {
 	s.provider.On("GetEntityDBClient").Return(s.client, nil)
 	s.client.EXPECT().QueryContext(mock.Anything, QueryResolveIdentifier,
 		linkedIdentifierName("idp-a"), "sub-1", identifierSourceSystem, mock.Anything).
 		Return([]map[string]interface{}{{"id": "e1"}, {"id": "e2"}}, nil)
 
-	_, err := s.store.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
-	s.ErrorIs(err, ErrAmbiguousEntity)
+	got, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Equal([]string{"e1", "e2"}, got)
+}
+
+func (s *DBStoreTestSuite) TestResolveLinkedAccounts_QueryError() {
+	s.provider.On("GetEntityDBClient").Return(s.client, nil)
+	s.client.EXPECT().QueryContext(mock.Anything, QueryResolveIdentifier,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, s.testErr)
+
+	_, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
+	s.ErrorIs(err, s.testErr)
 }
 
 type StoreHelpersTestSuite struct {

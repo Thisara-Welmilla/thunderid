@@ -1657,20 +1657,6 @@ func (suite *DefaultAuthnProviderTestSuite) TestStoreAccountLink_RejectsEmptyIde
 		suite.provider.StoreAccountLink(context.Background(), token, "idp-a", "").Code)
 }
 
-// A pair another user holds is the caller's to handle, so it is a client error.
-func (suite *DefaultAuthnProviderTestSuite) TestStoreAccountLink_PairHeldByAnotherUserIsClientError() {
-	entityResult := &providers.Entity{ID: "user123", Category: providers.EntityCategoryUser, Type: "customer"}
-	suite.mockService.On("GetEntity", mock.Anything, "user123").Return(entityResult, nil)
-	suite.mockService.On("LinkAccount", mock.Anything, "user123", "idp-a", "sub-1").
-		Return(entity.ErrLinkedAccountConflict)
-
-	token := map[string]interface{}{"userID": "user123"}
-	svcErr := suite.provider.StoreAccountLink(context.Background(), token, "idp-a", "sub-1")
-	suite.Require().NotNil(svcErr)
-	suite.Equal(tidcommon.ClientErrorType, svcErr.Type)
-	suite.Equal(authnprovidercm.ErrorCodeAmbiguousUser, svcErr.Code)
-}
-
 // Reaching the link limit is about the user's own data, so it is a client error.
 func (suite *DefaultAuthnProviderTestSuite) TestStoreAccountLink_LinkLimitIsClientError() {
 	entityResult := &providers.Entity{ID: "user123", Category: providers.EntityCategoryUser, Type: "customer"}
@@ -1730,8 +1716,7 @@ func (suite *DefaultAuthnProviderTestSuite) federatedAuthResult(
 }
 
 func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_ResolvesThroughRecordedLink() {
-	linkedID := "user123"
-	suite.mockService.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").Return(&linkedID, nil)
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{"user123"}, nil)
 	suite.mockService.On("GetEntity", mock.Anything, "user123").
 		Return(&providers.Entity{ID: "user123", Category: providers.EntityCategoryUser, Type: "customer"}, nil)
 
@@ -1746,8 +1731,8 @@ func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_ResolvesThroughRe
 // token comes back untouched for the flow to match on attributes, verify or provision against, even
 // when the token carries account-linking attributes that would match an existing user.
 func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_NoLinkPassesTokenThrough() {
-	suite.mockService.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").
-		Return(nil, entity.ErrEntityNotFound)
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{}, nil)
+	suite.mockService.On("ClaimLegacySubject", mock.Anything, "idp-a", "sub-1").Return([]string{}, nil)
 
 	token := federatedToken(map[string]interface{}{"email": "user@example.com"})
 	result, svcErr := suite.federatedAuthResult(token)
@@ -1760,31 +1745,120 @@ func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_NoLinkPassesToken
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Two entities on one identity means the data is already wrong. Falling through to "no user found"
-// would provision a duplicate, so this fails instead.
-func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_AmbiguousLinkFailsClosed() {
-	suite.mockService.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").
-		Return(nil, entity.ErrAmbiguousEntity)
+// Several users holding the link is for the flow to settle by letting the user pick, so the token is
+// handed back as it is for an identity with no link.
+func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_SeveralLinksPassTokenThrough() {
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").
+		Return([]string{"user-1", "user-2"}, nil)
+
+	token := federatedToken(nil)
+	result, svcErr := suite.federatedAuthResult(token)
+	suite.Require().Nil(svcErr)
+	suite.Nil(result.EntityReference)
+	suite.Equal(token, result.EntityReferenceToken)
+	suite.mockService.AssertNotCalled(suite.T(), "GetEntity", mock.Anything, mock.Anything)
+}
+
+func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_LinkLookupFailureIsServerError() {
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").
+		Return(nil, errors.New("db down"))
 
 	_, svcErr := suite.federatedAuthResult(federatedToken(nil))
 	suite.Require().NotNil(svcErr)
-	suite.Equal(authnprovidercm.ErrorCodeAmbiguousUser, svcErr.Code)
+	suite.Equal(tidcommon.ServerErrorType, svcErr.Type)
+}
+
+// A user federated before links were recorded holds the subject only in the schema attribute sub.
+// With no link, the legacy holder is claimed and the sign-in resolves to it.
+func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_NoLinkClaimsLegacySubject() {
+	legacyID := "legacy-user"
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{}, nil)
+	suite.mockService.On("ClaimLegacySubject", mock.Anything, "idp-a", "sub-1").Return([]string{legacyID}, nil)
+	suite.mockService.On("GetEntity", mock.Anything, legacyID).
+		Return(&providers.Entity{ID: legacyID, Category: providers.EntityCategoryUser, Type: "customer"}, nil)
+
+	result, svcErr := suite.federatedAuthResult(federatedToken(nil))
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(result.EntityReference)
+	suite.Equal(legacyID, result.EntityReference.EntityID)
+}
+
+// A recorded link wins, so the legacy attribute is never consulted for a linked identity.
+func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_LinkSkipsLegacySubject() {
+	linkedID := "user123"
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{linkedID}, nil)
+	suite.mockService.On("GetEntity", mock.Anything, linkedID).
+		Return(&providers.Entity{ID: linkedID, Category: providers.EntityCategoryUser, Type: "customer"}, nil)
+
+	_, svcErr := suite.federatedAuthResult(federatedToken(nil))
+	suite.Require().Nil(svcErr)
+	suite.mockService.AssertNotCalled(suite.T(), "ClaimLegacySubject", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Several users holding the legacy subject are all claimed, and the flow lets the user pick, as for
+// several recorded links.
+func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_SeveralLegacyHoldersPassTokenThrough() {
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{}, nil)
+	suite.mockService.On("ClaimLegacySubject", mock.Anything, "idp-a", "sub-1").
+		Return([]string{"legacy-1", "legacy-2"}, nil)
+
+	token := federatedToken(nil)
+	result, svcErr := suite.federatedAuthResult(token)
+	suite.Require().Nil(svcErr)
+	suite.Nil(result.EntityReference)
+	suite.Equal(token, result.EntityReferenceToken)
+	suite.mockService.AssertNotCalled(suite.T(), "GetEntity", mock.Anything, mock.Anything)
+}
+
+func (suite *DefaultAuthnProviderTestSuite) TestFederatedToken_LegacySubjectStoreErrorIsServerError() {
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{}, nil)
+	suite.mockService.On("ClaimLegacySubject", mock.Anything, "idp-a", "sub-1").
+		Return(nil, errors.New("db down"))
+
+	_, svcErr := suite.federatedAuthResult(federatedToken(nil))
+	suite.Require().NotNil(svcErr)
+	suite.Equal(tidcommon.ServerErrorType, svcErr.Type)
 }
 
 // GetEntityReference and GetAttributes both resolve whatever token the AuthUser carries. A federated
-// token that resolved to nothing cannot resolve now either, and IdentifyEntity would scan for keys
-// no index can answer.
-func (suite *DefaultAuthnProviderTestSuite) TestGetEntityReference_FederatedTokenReportsNotFound() {
-	svcErr := func() *tidcommon.ServiceError {
-		_, err := suite.provider.GetEntityReference(context.Background(), federatedToken(nil))
-		return err
-	}()
-	suite.Require().NotNil(svcErr)
-	suite.Equal(authnprovidercm.ErrorCodeUserNotFound, svcErr.Code)
-	suite.mockService.AssertNotCalled(suite.T(), "IdentifyEntity", mock.Anything, mock.Anything)
+// token resolves only through its recorded links, never through IdentifyEntity, which would scan
+// for keys no index can answer.
+func (suite *DefaultAuthnProviderTestSuite) TestGetEntityReference_FederatedTokenResolvesThroughLinks() {
+	for name, tc := range map[string]struct {
+		linkedIDs []string
+		wantCode  string
+		wantID    string
+	}{
+		"no link":       {linkedIDs: []string{}, wantCode: authnprovidercm.ErrorCodeUserNotFound},
+		"one link":      {linkedIDs: []string{"user-1"}, wantID: "user-1"},
+		"several links": {linkedIDs: []string{"user-1", "user-2"}, wantCode: authnprovidercm.ErrorCodeAmbiguousUser},
+	} {
+		suite.Run(name, func() {
+			suite.SetupTest()
+			suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").
+				Return(tc.linkedIDs, nil).Once()
+			if tc.wantID != "" {
+				suite.mockService.On("GetEntity", mock.Anything, tc.wantID).
+					Return(&providers.Entity{ID: tc.wantID, Category: providers.EntityCategoryUser}, nil).Once()
+			}
+
+			ref, svcErr := suite.provider.GetEntityReference(context.Background(), federatedToken(nil))
+
+			if tc.wantCode != "" {
+				suite.Require().NotNil(svcErr)
+				suite.Equal(tc.wantCode, svcErr.Code)
+			} else {
+				suite.Require().Nil(svcErr)
+				suite.Equal(tc.wantID, ref.EntityID)
+			}
+			suite.mockService.AssertNotCalled(suite.T(), "IdentifyEntity", mock.Anything, mock.Anything)
+		})
+	}
 }
 
 func (suite *DefaultAuthnProviderTestSuite) TestGetAttributes_FederatedTokenReportsNotFound() {
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{}, nil)
+
 	_, svcErr := suite.provider.GetAttributes(context.Background(), federatedToken(nil), nil, nil)
 	suite.Require().NotNil(svcErr)
 	suite.Equal(authnprovidercm.ErrorCodeUserNotFound, svcErr.Code)
@@ -1801,8 +1875,10 @@ func (suite *DefaultAuthnProviderTestSuite) TestBuildAuthnResult_UnlinkedFederat
 		"email":          "u@example.com",
 	}
 	claims := map[string]interface{}{"email": "u@example.com"}
-	suite.mockService.On("ResolveLinkedAccount", mock.Anything, "idp-github", "sub-github").
-		Return((*string)(nil), entity.ErrEntityNotFound)
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-github", "sub-github").
+		Return([]string{}, nil)
+	suite.mockService.On("ClaimLegacySubject", mock.Anything, "idp-github", "sub-github").
+		Return([]string{}, nil)
 
 	result, svcErr := suite.provider.(*defaultAuthnProvider).buildAuthnResult(context.Background(),
 		&authncommon.AuthnResult{Token: token, AuthenticatedClaims: claims})
@@ -1819,9 +1895,8 @@ func (suite *DefaultAuthnProviderTestSuite) TestBuildAuthnResult_UnlinkedFederat
 // A recorded link is the previous verification, so it authenticates regardless.
 func (suite *DefaultAuthnProviderTestSuite) TestBuildAuthnResult_LinkHitStillAuthenticates() {
 	token := map[string]interface{}{"federatedIdpId": "idp-github", "sub": "sub-github"}
-	linked := "user-1"
-	suite.mockService.On("ResolveLinkedAccount", mock.Anything, "idp-github", "sub-github").
-		Return(&linked, nil)
+	suite.mockService.On("ResolveLinkedAccounts", mock.Anything, "idp-github", "sub-github").
+		Return([]string{"user-1"}, nil)
 	suite.mockService.On("GetEntity", mock.Anything, "user-1").
 		Return(&providers.Entity{ID: "user-1", Type: "person", OUID: "ou-1"}, nil)
 

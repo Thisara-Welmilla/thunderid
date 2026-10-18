@@ -18,6 +18,9 @@ type EntityProviderInterface interface {
 	// SearchEntities searches for all entities matching the given filters.
 	SearchEntities(filters map[string]interface{}) ([]*providers.Entity, *EntityProviderError)
 
+	// GetLinkedEntities returns the entities linked to a subject at a connection, with OUHandle set.
+	GetLinkedEntities(idpID, sub string) ([]*providers.Entity, *EntityProviderError)
+
 	// GetEntity retrieves an entity by ID. Credentials are never returned.
 	GetEntity(entityID string) (*providers.Entity, *EntityProviderError)
 

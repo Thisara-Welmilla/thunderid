@@ -1,9 +1,13 @@
 // Copyright 2025 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import {parseKeyValuePairs} from './keyValuePairs';
+import {parseKeyValuePairs, serializeKeyValuePairs} from './keyValuePairs';
 import type {ConnectionFieldDef} from '../config/connectionFormFields';
-import {AuthenticationMethods, type AuthenticationMethod} from '../models/authentication-methods';
+import {
+  AUTHENTICATION_METHOD_FIELD_NAMES,
+  AuthenticationMethods,
+  type AuthenticationMethod,
+} from '../models/authentication-methods';
 import type {
   ConnectionRequest,
   ConnectionResponse,
@@ -11,7 +15,7 @@ import type {
   OutboundAuthentication,
 } from '../models/connection';
 
-/** The placeholder value the API returns for stored secrets. Must never be sent back. */
+/** The placeholder value the API returns for stored secrets. */
 export const MASKED_SECRET = '******';
 
 function matchesRequiredWhenValue(
@@ -147,8 +151,23 @@ export function responseToFormValues(
       values[field.name] = (response.scopes ?? []).join(' ');
       continue;
     }
+    if (field.name === 'apiKeyHeaders' || field.name === 'httpHeaders') {
+      const properties = response.authentication?.type === 'api_key' ? response.authentication.properties : undefined;
+      values[field.name] = serializeKeyValuePairs(
+        Object.entries(properties ?? {}).map(([name, value]) => ({name, value})),
+      );
+      continue;
+    }
+    if (field.name === 'smsHttpHeaders') {
+      values[field.name] = response.httpHeaders ?? '';
+      continue;
+    }
+    if (field.name === 'authenticationScheme') {
+      values[field.name] = response.authentication?.type?.toUpperCase() ?? AuthenticationMethods.NONE;
+      continue;
+    }
     if (field.name === 'redirectUri') {
-      values[field.name] = response.redirectUri || redirectUri;
+      values[field.name] = response.redirectUri?.trim() ? response.redirectUri : redirectUri;
       continue;
     }
     const raw: unknown = valueAtPath(response, field.responsePath ?? field.name);
@@ -166,34 +185,45 @@ export function responseToFormValues(
   }
   // Authentication is described by the server rather than by the static field list, so its
   // values are merged in separately.
-  return {...values, ...authenticationToFormValues(response)};
+  return fields.some((field) => field.name === 'apiKeyHeaders')
+    ? values
+    : {...values, ...authenticationToFormValues(response)};
 }
 
 /** Convert flat authentication form values into the structured outbound-authentication API contract. */
 export function outboundAuthenticationFromFormValues(values: ConnectionFormValues): OutboundAuthentication {
   const scheme = (values['authenticationScheme'] as AuthenticationMethod | undefined) ?? AuthenticationMethods.NONE;
   if (scheme === AuthenticationMethods.BEARER) {
-    return {scheme, bearer: {token: (values['bearerToken'] ?? '').trim()}};
+    return {type: 'bearer', properties: {token: (values['bearerToken'] ?? '').trim()}};
   }
   if (scheme === AuthenticationMethods.BASIC) {
     return {
-      scheme,
-      basic: {
+      type: 'basic',
+      properties: {
         username: (values['basicUsername'] ?? '').trim(),
         password: (values['basicPassword'] ?? '').trim(),
       },
     };
   }
   if (scheme === AuthenticationMethods.API_KEY) {
-    return {scheme, apiKey: {headers: parseKeyValuePairs(values['httpHeaders'] ?? '')}};
+    const headers = parseKeyValuePairs(values['httpHeaders'] ?? '');
+    if (headers.length === 0) {
+      return {type: 'none'};
+    }
+    return {
+      type: 'api_key',
+      properties: Object.fromEntries(headers.map(({name, value}) => [name, value])),
+    };
   }
-  return {scheme: AuthenticationMethods.NONE};
+  return {type: 'none'};
 }
 
 export interface ToRequestOptions {
   mode: 'create' | 'edit';
   /** On edit, whether the user chose to replace the stored secret. */
   secretReplaced?: boolean;
+  /** The caller handles authentication separately from metadata-driven fields. */
+  excludeGenericAuthentication?: boolean;
 }
 
 /**
@@ -216,6 +246,9 @@ export function formValuesToRequest(
   const payload: Record<string, unknown> = {};
 
   for (const field of fields) {
+    if (AUTHENTICATION_METHOD_FIELD_NAMES.has(field.name)) {
+      continue;
+    }
     const raw: string = (values[field.name] ?? '').trim();
 
     if (field.kind === 'secret') {
@@ -230,6 +263,25 @@ export function formValuesToRequest(
       const scopes: string[] = raw.split(/[\s,]+/).filter(Boolean);
       if (scopes.length > 0) {
         payload['scopes'] = scopes;
+      }
+      continue;
+    }
+
+    if (field.name === 'apiKeyHeaders') {
+      const headers = parseKeyValuePairs(raw);
+      if (headers.length > 0) {
+        payload['authentication'] = {
+          type: 'api_key',
+          properties: Object.fromEntries(headers.map(({name, value}) => [name, value])),
+        };
+      } else if (options.mode === 'edit') {
+        payload['authentication'] = {type: 'none'};
+      }
+      continue;
+    }
+    if (field.name === 'smsHttpHeaders') {
+      if (raw !== '' || options.mode === 'edit') {
+        payload['httpHeaders'] = raw;
       }
       continue;
     }
@@ -255,7 +307,11 @@ export function formValuesToRequest(
   }
 
   const authentication: OutboundAuthConfig | undefined = authenticationFromFormValues(values);
-  if (authentication) {
+  if (
+    authentication &&
+    !options.excludeGenericAuthentication &&
+    !fields.some((field) => field.name === 'apiKeyHeaders')
+  ) {
     payload['authentication'] = authentication;
   }
 
@@ -321,6 +377,14 @@ export function validateConnectionForm(
 
     if (field.kind === 'readonly-copy' || field.kind === 'scopes' || field.kind === 'switch') {
       continue;
+    }
+
+    if (field.kind === 'key-value' && raw !== '') {
+      const pairs = parseKeyValuePairs(raw);
+      if (pairs.some((pair) => pair.name.trim() === '' || pair.value.trim() === '')) {
+        errors[field.name] = 'connections:validation.keyValuePair';
+        continue;
+      }
     }
 
     const requiredWhen: string | undefined = field.requiredWhen;

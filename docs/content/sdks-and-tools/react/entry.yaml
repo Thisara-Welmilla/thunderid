@@ -129,6 +129,13 @@ sections:
       - name: storage
         type: sessionStorage or localStorage \
         description: Storage mechanism to use for session management. Defaults to `sessionStorage` if not provided.
+      - name: session
+        type: SessionConfig
+        tag: optional
+        description: Behaviour around the {{ProductName}} session. Set `session.silentSignIn.beforeRedirect` to `true`
+          to try a silent sign-in before `signIn()` redirects. The silent attempt is skipped when the sign-in options
+          set their own `prompt`. `session.silentSignIn.timeout` (milliseconds, default `10000`) bounds how long a silent
+          sign-in waits.
       - name: afterSignInUrl
         type: string
         tag: optional

@@ -13,8 +13,10 @@ import (
 	"github.com/thunder-id/thunderid/internal/notification"
 	ncommon "github.com/thunder-id/thunderid/internal/notification/common"
 	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/outboundauth"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
@@ -300,7 +302,32 @@ func (s *service) updateSender(ctx context.Context, senderType ncommon.Notificat
 	if svcErr != nil {
 		return nil, svcErr
 	}
-	dto.Properties = mergeStoredSecrets(dto.Properties, existing.Properties,
+	storedProperties := existing.Properties
+	if senderType == ncommon.NotificationSenderTypeMessage && provider == ncommon.NotificationProviderTypeCustom {
+		var err error
+		dto.Properties, err = mergeSMSGatewayProperties(dto.Properties, existing.Properties)
+		if err != nil {
+			return nil, &notification.ErrorInvalidRequestFormat
+		}
+	}
+	if senderType == ncommon.NotificationSenderTypeEmail && provider == ncommon.NotificationProviderTypeSMTP {
+		var err error
+		dto.Properties, err = mergeSMTPAuthentication(dto.Properties, existing.Properties)
+		if err != nil {
+			return nil, &notification.ErrorInvalidRequestFormat
+		}
+	}
+	if senderType == ncommon.NotificationSenderTypeMessage && provider == ncommon.NotificationProviderTypeCustom ||
+		senderType == ncommon.NotificationSenderTypeEmail && provider == ncommon.NotificationProviderTypeSMTP {
+		storedProperties = make([]cmodels.Property, 0, len(existing.Properties))
+		for _, property := range existing.Properties {
+			if !outboundauth.OwnsPropertyKey(property.GetName()) &&
+				property.GetName() != ncommon.CustomPropKeyHTTPHeaders {
+				storedProperties = append(storedProperties, property)
+			}
+		}
+	}
+	dto.Properties = mergeStoredSecrets(dto.Properties, storedProperties,
 		senderCredentialTargetKeys(senderType, provider)...)
 	updated, svcErr := s.notificationService.UpdateSender(ctx, id, dto)
 	if svcErr == nil {
@@ -310,10 +337,12 @@ func (s *service) updateSender(ctx context.Context, senderType ncommon.Notificat
 }
 
 // senderCredentialTargetKeys returns the transport properties that identify where a sender's
-// outbound authentication credential is presented. Only email vendors carry outbound
-// authentication today; every other sender reports none.
+// outbound authentication credential is presented.
 func senderCredentialTargetKeys(senderType ncommon.NotificationSenderType,
 	provider ncommon.NotificationProviderType) []string {
+	if senderType == ncommon.NotificationSenderTypeMessage && provider == ncommon.NotificationProviderTypeCustom {
+		return []string{ncommon.CustomPropKeyURL}
+	}
 	if senderType != ncommon.NotificationSenderTypeEmail {
 		return nil
 	}

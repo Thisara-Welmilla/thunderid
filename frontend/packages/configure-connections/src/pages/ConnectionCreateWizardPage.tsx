@@ -303,6 +303,7 @@ export default function ConnectionCreateWizardPage(): JSX.Element {
               hasStoredSecret={false}
               vendorDisplayName={meta.displayName}
               showNameField={false}
+              showAuthentication={!isAuthZENPDP && activeType !== ConnectionTypes.SMS_GATEWAY}
               onFieldChange={(name, value) => {
                 clearCreateError();
                 setEditedValues((prev) => ({...prev, [name]: value}));

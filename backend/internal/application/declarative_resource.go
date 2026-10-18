@@ -32,20 +32,26 @@ const (
 
 // applicationExporter implements declarativeresource.ResourceExporter for applications.
 type applicationExporter struct {
-	service ApplicationServiceInterface
+	service        ApplicationServiceInterface
+	sharingService sharing.SharingServiceInterface
 }
 
-// newApplicationExporter creates a new application exporter.
-func newApplicationExporter(service ApplicationServiceInterface) *applicationExporter {
-	return &applicationExporter{service: service}
+// newApplicationExporter creates a new application exporter. The sharing service supplies the
+// policies an exported application carries.
+func newApplicationExporter(
+	service ApplicationServiceInterface, sharingService sharing.SharingServiceInterface,
+) *applicationExporter {
+	return &applicationExporter{service: service, sharingService: sharingService}
 }
 
 // NewApplicationExporterForTest creates a new application exporter for testing purposes.
-func NewApplicationExporterForTest(service ApplicationServiceInterface) *applicationExporter {
+func NewApplicationExporterForTest(
+	service ApplicationServiceInterface, sharingService sharing.SharingServiceInterface,
+) *applicationExporter {
 	if !testing.Testing() {
 		panic("only for tests!")
 	}
-	return newApplicationExporter(service)
+	return newApplicationExporter(service, sharingService)
 }
 
 // GetResourceType returns the resource type for applications.
@@ -106,9 +112,9 @@ func (e *applicationExporter) GetResourceByID(ctx context.Context, id string) (
 
 	// A document that silently lost its sharing would re-import as an application nobody can act
 	// for, so this fails the export rather than thinning it.
-	replayable, err := e.service.ExportSharingPolicies(ctx, id)
-	if err != nil {
-		return nil, "", err
+	replayable, sharingErr := e.sharingService.ExportPolicies(ctx, ApplicationSharingType, id)
+	if sharingErr != nil {
+		return nil, "", translateSharingError(sharingErr)
 	}
 	policies := make([]sharing.PolicyRequest, 0, len(replayable))
 	for _, r := range replayable {

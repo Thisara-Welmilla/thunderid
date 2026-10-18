@@ -3,6 +3,7 @@
 
 import {describe, expect, it} from 'vitest';
 import {CONNECTION_FORM_FIELDS, type ConnectionFieldDef} from '../../config/connectionFormFields';
+import {AUTHENTICATION_METHOD_FIELD_NAMES} from '../../models/authentication-methods';
 import type {ConnectionResponse} from '../../models/connection';
 import {
   AUTH_TYPE_FIELD,
@@ -20,6 +21,7 @@ const OIDC_FIELDS = CONNECTION_FORM_FIELDS.oidc;
 const OAUTH_FIELDS = CONNECTION_FORM_FIELDS.oauth;
 const TWILIO_FIELDS = CONNECTION_FORM_FIELDS.twilio;
 const SMS_GATEWAY_FIELDS = CONNECTION_FORM_FIELDS['sms-gateway'];
+const SMS_GENERAL_FIELDS = SMS_GATEWAY_FIELDS.filter((field) => !AUTHENTICATION_METHOD_FIELD_NAMES.has(field.name));
 const AUTHZEN_PDP_FIELDS = CONNECTION_FORM_FIELDS['authzen-pdp'];
 const SMTP_FIELDS = CONNECTION_FORM_FIELDS['email-smtp'];
 const REDIRECT = 'https://id.acme.io/oauth/callback/google';
@@ -69,6 +71,62 @@ describe('responseToFormValues', () => {
     expect(values['redirectUri']).toBe(REDIRECT);
   });
 
+  it('falls back to the derived redirect URI when the response value is empty', () => {
+    const response = {id: '1', type: 'google', name: 'X', clientId: 'y', redirectUri: ''} as ConnectionResponse;
+    expect(responseToFormValues(response, GOOGLE_FIELDS, REDIRECT)['redirectUri']).toBe(REDIRECT);
+  });
+
+  it('shows masked API-key headers in the SMS gateway authentication form', () => {
+    const response = {
+      id: '1',
+      type: 'sms-gateway',
+      name: 'SMS Gateway',
+      authentication: {
+        type: 'api_key',
+        properties: {'Key-1': '******', 'Key-2': '******'},
+      },
+    } as ConnectionResponse;
+
+    const values = responseToFormValues(response, SMS_GATEWAY_FIELDS, REDIRECT);
+    expect(values['httpHeaders']).toBe('Key-1: ******, Key-2: ******');
+    expect(values['authenticationScheme']).toBe('API_KEY');
+  });
+
+  it('keeps SMS gateway general headers separate from authentication', () => {
+    const response = {
+      id: '1',
+      type: 'sms-gateway',
+      name: 'SMS Gateway',
+      httpHeaders: 'X-Campaign: campaign-1',
+      authentication: {type: 'api_key', properties: {'X-Api-Key': '******'}},
+    } as ConnectionResponse;
+    const values = responseToFormValues(response, SMS_GATEWAY_FIELDS, REDIRECT);
+    expect(values['smsHttpHeaders']).toBe('X-Campaign: campaign-1');
+    expect(values['httpHeaders']).toBe('X-Api-Key: ******');
+
+    const request = formValuesToRequest(values, SMS_GENERAL_FIELDS, {
+      mode: 'edit',
+      excludeGenericAuthentication: true,
+    });
+    expect(request).toMatchObject({
+      httpHeaders: 'X-Campaign: campaign-1',
+    });
+    expect(request.authentication).toBeUndefined();
+    expect(outboundAuthenticationFromFormValues(values)).toEqual({
+      type: 'api_key',
+      properties: {'X-Api-Key': '******'},
+    });
+  });
+
+  it('sends SMS gateway general headers in the original string format', () => {
+    const values = emptyFormValues(SMS_GATEWAY_FIELDS, REDIRECT);
+    values['name'] = 'SMS Gateway';
+    values['url'] = 'https://sms.example.com/send';
+    values['smsHttpHeaders'] = 'X-Campaign: campaign-1';
+    const request = formValuesToRequest(values, SMS_GATEWAY_FIELDS, {mode: 'create'});
+    expect(request).toMatchObject({httpHeaders: 'X-Campaign: campaign-1'});
+  });
+
   it('converts a boolean tokenExchangeEnabled into a "true"/"false" form string', () => {
     const enabled = {
       id: '1',
@@ -112,15 +170,15 @@ describe('responseToFormValues', () => {
       name: 'Cerbos PDP',
       endpoint: 'https://pdp.example.com/access/v1/evaluation',
       authentication: {
-        scheme: 'BASIC',
-        basic: {username: MASKED_SECRET, password: MASKED_SECRET},
+        type: 'basic',
+        properties: {username: 'test-user', password: MASKED_SECRET},
       },
     } as ConnectionResponse;
 
     const values = responseToFormValues(response, AUTHZEN_PDP_FIELDS, REDIRECT);
 
     expect(values['authenticationScheme']).toBe('BASIC');
-    expect(values['basicUsername']).toBe('');
+    expect(values['basicUsername']).toBe('test-user');
     expect(values['basicPassword']).toBe('');
   });
 
@@ -128,7 +186,7 @@ describe('responseToFormValues', () => {
     const fields: ConnectionFieldDef[] = [
       {
         name: 'authMode',
-        responsePath: 'authentication.scheme',
+        responsePath: 'authentication.type',
         labelKey: 'test.authMode',
         kind: 'select',
       },
@@ -136,18 +194,18 @@ describe('responseToFormValues', () => {
     const response = {
       id: '1',
       type: 'authzen-pdp',
-      authentication: {scheme: 'BEARER'},
+      authentication: {type: 'bearer'},
     } as ConnectionResponse;
 
-    expect(responseToFormValues(response, fields, REDIRECT)['authMode']).toBe('BEARER');
+    expect(responseToFormValues(response, fields, REDIRECT)['authMode']).toBe('bearer');
   });
 });
 
 describe('outboundAuthenticationFromFormValues', () => {
   it('maps Bearer authentication', () => {
     expect(outboundAuthenticationFromFormValues({authenticationScheme: 'BEARER', bearerToken: ' token '})).toEqual({
-      scheme: 'BEARER',
-      bearer: {token: 'token'},
+      type: 'bearer',
+      properties: {token: 'token'},
     });
   });
 
@@ -158,7 +216,7 @@ describe('outboundAuthenticationFromFormValues', () => {
         basicUsername: ' user ',
         basicPassword: ' password ',
       }),
-    ).toEqual({scheme: 'BASIC', basic: {username: 'user', password: 'password'}});
+    ).toEqual({type: 'basic', properties: {username: 'user', password: 'password'}});
   });
 
   it('maps API-key headers as structured values', () => {
@@ -168,19 +226,14 @@ describe('outboundAuthenticationFromFormValues', () => {
         httpHeaders: 'X-API-Key: secret, X-Tenant: acme',
       }),
     ).toEqual({
-      scheme: 'API_KEY',
-      apiKey: {
-        headers: [
-          {name: 'X-API-Key', value: 'secret'},
-          {name: 'X-Tenant', value: 'acme'},
-        ],
-      },
+      type: 'api_key',
+      properties: {'X-API-Key': 'secret', 'X-Tenant': 'acme'},
     });
   });
 
   it('maps missing or NONE authentication to no authentication', () => {
-    expect(outboundAuthenticationFromFormValues({})).toEqual({scheme: 'NONE'});
-    expect(outboundAuthenticationFromFormValues({authenticationScheme: 'NONE'})).toEqual({scheme: 'NONE'});
+    expect(outboundAuthenticationFromFormValues({})).toEqual({type: 'none'});
+    expect(outboundAuthenticationFromFormValues({authenticationScheme: 'NONE'})).toEqual({type: 'none'});
   });
 });
 
@@ -270,7 +323,29 @@ describe('formValuesToRequest', () => {
     const named = formValuesToRequest({...values, fromName: 'Acme Support'}, SMTP_FIELDS, {
       mode: 'create',
     }) as unknown as Record<string, unknown>;
-    expect(named.fromName).toBe('Acme Support');
+    expect(named['fromName']).toBe('Acme Support');
+  });
+
+  it('maps SMS gateway authentication separately from general headers', () => {
+    const values = {
+      ...emptyFormValues(SMS_GATEWAY_FIELDS, REDIRECT),
+      name: 'Custom SMS Sender',
+      url: 'https://sms.example.com/send',
+      smsHttpHeaders: 'X-Campaign: campaign-1',
+      authenticationScheme: 'API_KEY',
+      httpHeaders: 'X-API-Key: secret',
+    };
+    const general = formValuesToRequest(values, SMS_GENERAL_FIELDS, {
+      mode: 'edit',
+      excludeGenericAuthentication: true,
+    });
+    expect(general.httpHeaders).toBe('X-Campaign: campaign-1');
+    expect(general.authentication).toBeUndefined();
+    expect(outboundAuthenticationFromFormValues(values)).toEqual({
+      type: 'api_key',
+      properties: {'X-API-Key': 'secret'},
+    });
+    expect(outboundAuthenticationFromFormValues({...values, authenticationScheme: 'NONE'})).toEqual({type: 'none'});
   });
 
   it('still sends the SMS gateway transport defaults now that neither field is required', () => {
@@ -406,6 +481,22 @@ describe('validateConnectionForm', () => {
     expect(errors).not.toHaveProperty('clientSecret');
   });
 
+  it('rejects an incomplete API key header pair', () => {
+    const errors = validateConnectionForm(
+      {
+        name: 'Custom SMS Sender',
+        url: 'https://sms.example.com/send',
+        httpMethod: 'POST',
+        contentType: 'JSON',
+        httpHeaders: 'X-API-Key:',
+      },
+      SMS_GATEWAY_FIELDS,
+      'edit',
+    );
+
+    expect(errors['httpHeaders']).toBe('connections:validation.keyValuePair');
+  });
+
   it('flags invalid URLs and accepts valid ones', () => {
     const bad = validateConnectionForm(
       {
@@ -510,6 +601,22 @@ describe('validateConnectionForm', () => {
     expect(validateConnectionForm(values, AUTHZEN_PDP_FIELDS, 'edit')).not.toHaveProperty('endpoint');
   });
 
+  it.each(['BEARER', 'BASIC', 'API_KEY'])(
+    'requires HTTPS for a remote SMS gateway with %s authentication',
+    (authenticationScheme) => {
+      const values = {
+        ...emptyFormValues(SMS_GATEWAY_FIELDS, REDIRECT),
+        url: 'http://sms.example.com/send',
+        authenticationScheme,
+      };
+      expect(validateConnectionForm(values, SMS_GATEWAY_FIELDS, 'edit')['url']).toBe(
+        'connections:validation.authenticatedEndpointHttps',
+      );
+      values.url = 'http://localhost:8080/send';
+      expect(validateConnectionForm(values, SMS_GATEWAY_FIELDS, 'edit')).not.toHaveProperty('url');
+    },
+  );
+
   it.each(['-1', '1.5', 'abc'])('rejects invalid AuthZEN PDP retry count %s', (retryCount) => {
     const errors = validateConnectionForm(
       {...emptyFormValues(AUTHZEN_PDP_FIELDS, REDIRECT), retryCount},
@@ -581,7 +688,7 @@ describe('validateConnectionForm', () => {
       name: 'Corp SMTP',
     };
 
-    expect(validateConnectionForm(values, SMTP_FIELDS, 'create').fromAddress).toBe(
+    expect(validateConnectionForm(values, SMTP_FIELDS, 'create')['fromAddress']).toBe(
       'connections:validation.emailAddress',
     );
     expect(validateConnectionForm({...values, fromAddress: 'noreply@acme.io'}, SMTP_FIELDS, 'create')).toEqual({});
@@ -599,7 +706,7 @@ describe('validateConnectionForm', () => {
       tls: 'none',
     };
 
-    expect(validateConnectionForm(values, SMTP_FIELDS, 'create').tls).toBe(
+    expect(validateConnectionForm(values, SMTP_FIELDS, 'create')['tls']).toBe(
       'connections:validation.tlsRequiredForAuthentication',
     );
     expect(validateConnectionForm({...values, tls: 'starttls'}, SMTP_FIELDS, 'create')).toEqual({});
@@ -638,9 +745,9 @@ describe('outbound authentication mapping', () => {
       },
       SMTP_FIELDS,
       {mode: 'create'},
-    ) as Record<string, unknown>;
+    ) as unknown as Record<string, unknown>;
 
-    expect(request.authentication).toEqual({
+    expect(request['authentication']).toEqual({
       properties: {password: 's3cret', username: 'mailer'},
       type: 'basic',
     });
@@ -651,15 +758,15 @@ describe('outbound authentication mapping', () => {
   it('sends the method alone when it takes no fields', () => {
     const request = formValuesToRequest({...BASE_SMTP, [AUTH_TYPE_FIELD]: 'none'}, SMTP_FIELDS, {
       mode: 'create',
-    }) as Record<string, unknown>;
+    }) as unknown as Record<string, unknown>;
 
-    expect(request.authentication).toEqual({type: 'none'});
+    expect(request['authentication']).toEqual({type: 'none'});
   });
 
   it('omits authentication entirely when the form carries none', () => {
-    const request = formValuesToRequest(BASE_SMTP, SMTP_FIELDS, {mode: 'create'}) as Record<string, unknown>;
+    const request = formValuesToRequest(BASE_SMTP, SMTP_FIELDS, {mode: 'create'}) as unknown as Record<string, unknown>;
 
-    expect(request.authentication).toBeUndefined();
+    expect(request['authentication']).toBeUndefined();
   });
 
   // A blank credential is how the form says "keep the stored one", so it must not be sent.
@@ -673,9 +780,9 @@ describe('outbound authentication mapping', () => {
       },
       SMTP_FIELDS,
       {mode: 'edit'},
-    ) as Record<string, unknown>;
+    ) as unknown as Record<string, unknown>;
 
-    expect(request.authentication).toEqual({properties: {username: 'mailer'}, type: 'basic'});
+    expect(request['authentication']).toEqual({properties: {username: 'mailer'}, type: 'basic'});
   });
 
   // Sending the mask back would store the literal asterisks as the password.
@@ -689,9 +796,9 @@ describe('outbound authentication mapping', () => {
       },
       SMTP_FIELDS,
       {mode: 'edit'},
-    ) as Record<string, unknown>;
+    ) as unknown as Record<string, unknown>;
 
-    expect(request.authentication).toEqual({properties: {username: 'mailer'}, type: 'basic'});
+    expect(request['authentication']).toEqual({properties: {username: 'mailer'}, type: 'basic'});
   });
 
   it('flattens a response into namespaced values and blanks the masked credential', () => {
@@ -742,9 +849,9 @@ describe('outbound authentication mapping', () => {
       },
       SMTP_FIELDS,
       {mode: 'create'},
-    ) as Record<string, unknown>;
+    ) as unknown as Record<string, unknown>;
 
-    expect(request.authentication).toEqual({
+    expect(request['authentication']).toEqual({
       properties: {clientId: 'abc', tokenEndpoint: 'https://idp.acme.io/token'},
       type: 'client_credentials',
     });

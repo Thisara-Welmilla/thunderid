@@ -50,14 +50,11 @@ func (suite *HandlerTestSuite) SetupTest() {
 
 	// Setup services and handler
 	suite.mockAppService = applicationmock.NewApplicationServiceInterfaceMock(suite.T())
-	// Exporting an application reads the sharing policies recorded for it.
-	suite.mockAppService.EXPECT().ExportSharingPolicies(mock.Anything, mock.Anything).
-		Return(nil, nil).Maybe()
 	suite.mockIDPService = idpmock.NewIDPServiceInterfaceMock(suite.T())
 	suite.mockNotificationService = notificationmock.NewNotificationSenderMgtSvcInterfaceMock(suite.T())
 	suite.mockEntityTypeService = entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
 	exporters := []declarativeresource.ResourceExporter{
-		application.NewApplicationExporterForTest(suite.mockAppService),
+		application.NewApplicationExporterForTest(suite.mockAppService, sharingWithNoPolicies(suite.T())),
 		connection.NewConnectionExporterForTest(suite.mockIDPService, suite.mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(suite.mockEntityTypeService, entitytype.TypeCategoryUser),
 	}
@@ -81,7 +78,7 @@ func TestNewExportHandler(t *testing.T) {
 	mockNotificationService := notificationmock.NewNotificationSenderMgtSvcInterfaceMock(t)
 	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(t)
 	exporters := []declarativeresource.ResourceExporter{
-		application.NewApplicationExporterForTest(mockAppService),
+		application.NewApplicationExporterForTest(mockAppService, sharingWithNoPolicies(t)),
 		connection.NewConnectionExporterForTest(mockIDPService, mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(mockEntityTypeService, entitytype.TypeCategoryUser),
 	}
@@ -437,7 +434,7 @@ func setupBenchmarkTest(b *testing.B) (*exportHandler, []byte) {
 	mockNotificationService := notificationmock.NewNotificationSenderMgtSvcInterfaceMock(b)
 	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(b)
 	exporters := []declarativeresource.ResourceExporter{
-		application.NewApplicationExporterForTest(mockAppService),
+		application.NewApplicationExporterForTest(mockAppService, sharingWithNoPolicies(b)),
 		connection.NewConnectionExporterForTest(mockIDPService, mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(mockEntityTypeService, entitytype.TypeCategoryUser),
 	}

@@ -341,10 +341,13 @@ func validateEntityType(schemaDTO *EntityType) error {
 		return fmt.Errorf("invalid schema for entity type '%s': %w", schemaDTO.Handle, compileErr)
 	}
 
-	if svcErr := validateSystemAttributes(compiledSchema, schemaDTO.SystemAttributes); svcErr != nil {
+	systemAttrs, svcErr := validateSystemAttributes(
+		schemaDTO.Category, compiledSchema, schemaDTO.SystemAttributes)
+	if svcErr != nil {
 		return fmt.Errorf("invalid system attributes for entity type '%s': %s",
 			schemaDTO.Handle, svcErr.ErrorDescription)
 	}
+	schemaDTO.SystemAttributes = systemAttrs
 
 	return nil
 }

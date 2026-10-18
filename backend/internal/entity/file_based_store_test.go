@@ -167,30 +167,32 @@ func (s *FileBasedStoreTestSuite) seedLinkedEntity(id, linkedIDs string) {
 		SystemAttributes: json.RawMessage(`{"linkedIds":` + linkedIDs + `}`)})
 }
 
-func (s *FileBasedStoreTestSuite) TestResolveLinkedAccount_OneMatch() {
+func (s *FileBasedStoreTestSuite) TestResolveLinkedAccounts_OneMatch() {
 	s.seedLinkedEntity("linked1", `{"idp-a":{"sub-1":{}}}`)
 	s.seedLinkedEntity("other1", `{"idp-a":{"sub-2":{}}}`)
 
-	id, err := s.store.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
+	ids, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
 	s.Require().NoError(err)
-	s.Equal("linked1", *id)
+	s.Equal([]string{"linked1"}, ids)
 }
 
-func (s *FileBasedStoreTestSuite) TestResolveLinkedAccount_NoMatch() {
+func (s *FileBasedStoreTestSuite) TestResolveLinkedAccounts_NoMatch() {
 	s.seedEntity(makeTestEntity("plain1", "user", "ou1"))
 	s.seedLinkedEntity("linked2", `{"idp-b":{"sub-1":{}}}`)
 	s.seedLinkedEntity("malformed1", `"not-an-object"`)
 
-	_, err := s.store.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
-	s.ErrorIs(err, ErrEntityNotFound)
+	ids, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Empty(ids)
 }
 
-func (s *FileBasedStoreTestSuite) TestResolveLinkedAccount_MultipleMatches() {
+func (s *FileBasedStoreTestSuite) TestResolveLinkedAccounts_MultipleMatches() {
 	s.seedLinkedEntity("linked3", `{"idp-a":{"sub-1":{}}}`)
 	s.seedLinkedEntity("linked4", `{"idp-a":{"sub-1":{}}}`)
 
-	_, err := s.store.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
-	s.ErrorIs(err, ErrAmbiguousEntity)
+	ids, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.ElementsMatch([]string{"linked3", "linked4"}, ids)
 }
 
 func (s *FileBasedStoreTestSuite) TestGetEntityListCount_WithCategoryAndFilter() {

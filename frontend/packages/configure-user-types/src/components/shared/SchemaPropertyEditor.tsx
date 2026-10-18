@@ -3,6 +3,7 @@
 
 import {I18nTextInput} from '@thunderid/components';
 import {useResolveDisplayName} from '@thunderid/hooks';
+import {isContactAttributeType, resolveAttributeRegex} from '@thunderid/utils';
 import {
   Alert,
   Box,
@@ -32,8 +33,10 @@ import {useTranslation} from 'react-i18next';
 import AttributeLibraryPanel from './AttributeLibraryPanel';
 import type {LibraryAttribute, SchemaPropertyInput, UIPropertyType} from '../../types/user-types';
 import {invalidateI18nCache} from '../../utils/invalidateI18nCache';
+import {getMissingPrimaryContactTypes} from '../../utils/primaryContacts';
 
-const supportsUnique = (type: UIPropertyType): boolean => type === 'string' || type === 'number' || type === 'enum';
+const supportsUnique = (type: UIPropertyType): boolean =>
+  type === 'string' || isContactAttributeType(type) || type === 'number' || type === 'enum';
 
 const supportsCredential = (type: UIPropertyType): boolean => type === 'string' || type === 'number';
 
@@ -141,21 +144,24 @@ export default function SchemaPropertyEditor({
   ): void => {
     onPropertiesChange(
       properties.map((prop) =>
-        prop.id === id
-          ? {
-              ...prop,
-              [field]: value,
-              // Clear unique when credential is enabled.
-              ...(field === 'credential' && value && {unique: false}),
-              // Reset type-specific fields when the type changes.
-              ...(field === 'type' && {
-                enum: (value as UIPropertyType) === 'enum' ? prop.enum : [],
-                regex: '',
-                unique: supportsUnique(value as UIPropertyType) ? prop.unique : false,
-                credential: supportsCredential(value as UIPropertyType) ? prop.credential : false,
-              }),
-            }
-          : prop,
+        field === 'primary' && prop.id !== id && prop.type === properties.find((candidate) => candidate.id === id)?.type
+          ? {...prop, primary: false}
+          : prop.id === id
+            ? {
+                ...prop,
+                [field]: value,
+                // Clear unique when credential is enabled.
+                ...(field === 'credential' && value && {unique: false}),
+                // Reset type-specific fields when the type changes.
+                ...(field === 'type' && {
+                  enum: (value as UIPropertyType) === 'enum' ? prop.enum : [],
+                  primary: false,
+                  regex: resolveAttributeRegex(value),
+                  unique: supportsUnique(value as UIPropertyType) ? prop.unique : false,
+                  credential: supportsCredential(value as UIPropertyType) ? prop.credential : false,
+                }),
+              }
+            : prop,
       ),
     );
   };
@@ -247,6 +253,7 @@ export default function SchemaPropertyEditor({
                 <Chip label={t('common:form.required', 'Required')} size="small" variant="outlined" />
               )}
               {property.unique && <Chip label={t('userTypes:unique', 'Unique')} size="small" variant="outlined" />}
+              {property.primary && <Chip label={t('userTypes:primary', 'Primary')} size="small" variant="outlined" />}
               {property.credential && (
                 <Chip label={t('userTypes:credential', 'Credential')} size="small" variant="outlined" />
               )}
@@ -291,6 +298,8 @@ export default function SchemaPropertyEditor({
                       disabled={disabled}
                     >
                       <MenuItem value="string">{t('userTypes:types.string', 'String')}</MenuItem>
+                      <MenuItem value="email">{t('userTypes:types.email', 'Email')}</MenuItem>
+                      <MenuItem value="mobile">{t('userTypes:types.mobile', 'Mobile')}</MenuItem>
                       <MenuItem value="number">{t('userTypes:types.number', 'Number')}</MenuItem>
                       <MenuItem value="boolean">{t('userTypes:types.boolean', 'Boolean')}</MenuItem>
                       <MenuItem value="enum">{t('userTypes:types.enum', 'Enum')}</MenuItem>
@@ -378,6 +387,40 @@ export default function SchemaPropertyEditor({
                       />
                     </Tooltip>
                   )}
+                  {isContactAttributeType(property.type) && (
+                    <Tooltip
+                      title={
+                        property.primary &&
+                        properties.some(
+                          (candidate) =>
+                            candidate.id !== property.id && candidate.type === property.type && candidate.name.trim(),
+                        )
+                          ? t(
+                              'userTypes:tooltips.primarySelected',
+                              'Used as the primary contact for users. To change it, select Primary on another attribute of this type',
+                            )
+                          : t('userTypes:tooltips.primary', 'Used as the primary contact for users')
+                      }
+                      placement="top"
+                      arrow
+                    >
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={Boolean(property.primary)}
+                            disabled={disabled || Boolean(property.primary)}
+                            onChange={(event) => handlePropertyChange(property.id, 'primary', event.target.checked)}
+                          />
+                        }
+                        label={
+                          <Stack direction="row" alignItems="center" spacing={0.5}>
+                            <span>{t('userTypes:primary', 'Primary')}</span>
+                            <Info size={14} color="inherit" />
+                          </Stack>
+                        }
+                      />
+                    </Tooltip>
+                  )}
                   {supportsCredential(property.type) && (
                     <Tooltip
                       title={t(
@@ -423,11 +466,30 @@ export default function SchemaPropertyEditor({
                 )}
 
                 {/* String: regex pattern */}
-                {property.type === 'string' && (
+                {(property.type === 'string' || isContactAttributeType(property.type)) && (
                   <FormControl fullWidth>
-                    <FormLabel>{t('userTypes:regexPattern', 'Regular Expression Pattern (Optional)')}</FormLabel>
+                    <FormLabel>
+                      {isContactAttributeType(property.type)
+                        ? t('userTypes:contactRegexPattern', 'Regular Expression Pattern')
+                        : t('userTypes:regexPattern', 'Regular Expression Pattern (Optional)')}
+                    </FormLabel>
                     <TextField
                       value={property.regex}
+                      required={isContactAttributeType(property.type)}
+                      error={isContactAttributeType(property.type) && !property.regex.trim()}
+                      helperText={
+                        isContactAttributeType(property.type) && !property.regex.trim()
+                          ? property.type === 'email'
+                            ? t(
+                                'userTypes:validationErrors.emailRegexRequired',
+                                'Enter a regular expression for email attributes.',
+                              )
+                            : t(
+                                'userTypes:validationErrors.mobileRegexRequired',
+                                'Enter a regular expression for mobile attributes.',
+                              )
+                          : undefined
+                      }
                       onChange={(e) => handlePropertyChange(property.id, 'regex', e.target.value)}
                       placeholder={t('userTypes:regexPlaceholder', 'e.g., ^[a-zA-Z0-9]+$')}
                       size="small"
@@ -501,6 +563,13 @@ export default function SchemaPropertyEditor({
           </Button>
         )}
 
+        {getMissingPrimaryContactTypes(properties).map((type) => (
+          <Alert key={type} severity="error">
+            {type === 'email'
+              ? t('userTypes:validationErrors.primaryEmail', 'Select one email attribute as the primary email.')
+              : t('userTypes:validationErrors.primaryMobile', 'Select one mobile attribute as the primary mobile.')}
+          </Alert>
+        ))}
         {footer}
       </Stack>
 

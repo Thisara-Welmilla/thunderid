@@ -83,24 +83,40 @@ const AUTHZEN_PDP_CONNECTION = {
 const AUTHZEN_PDP_BEARER_CONNECTION = {
   ...AUTHZEN_PDP_CONNECTION,
   authentication: {
-    scheme: 'BEARER',
-    bearer: {token: '******'},
+    type: 'bearer',
+    properties: {token: '******'},
+  },
+};
+
+const AUTHZEN_PDP_BASIC_CONNECTION = {
+  ...AUTHZEN_PDP_CONNECTION,
+  authentication: {
+    type: 'basic',
+    properties: {username: 'pdp-user', password: '******'},
   },
 };
 
 const AUTHZEN_PDP_BEARER_WITHOUT_TOKEN = {
   ...AUTHZEN_PDP_CONNECTION,
   authentication: {
-    scheme: 'BEARER',
-    bearer: {token: ''},
+    type: 'bearer',
+    properties: {token: ''},
   },
 };
 
-const AUTHZEN_PDP_API_KEY_WITH_NULL_HEADERS = {
+const AUTHZEN_PDP_API_KEY_WITH_NULL_PROPERTIES = {
   ...AUTHZEN_PDP_CONNECTION,
   authentication: {
-    scheme: 'API_KEY',
-    apiKey: {headers: null},
+    type: 'api_key',
+    properties: null,
+  },
+};
+
+const AUTHZEN_PDP_API_KEYS = {
+  ...AUTHZEN_PDP_CONNECTION,
+  authentication: {
+    type: 'api_key',
+    properties: {'X-First-Key': '******', 'X-Second-Key': '******'},
   },
 };
 
@@ -199,6 +215,27 @@ vi.mock('../../components/ConnectionForm', () => ({
         </button>
         <button type="button" data-testid="edit-name" onClick={() => onFieldChange('name', 'Renamed')}>
           edit name
+        </button>
+        <button
+          type="button"
+          data-testid="edit-endpoint"
+          onClick={() => onFieldChange('endpoint', 'https://other.example.com/access/v1/evaluation')}
+        >
+          edit endpoint
+        </button>
+        <button
+          type="button"
+          data-testid="edit-url"
+          onClick={() => onFieldChange('url', 'https://other.example.com/send')}
+        >
+          edit URL
+        </button>
+        <button
+          type="button"
+          data-testid="edit-batch-endpoint"
+          onClick={() => onFieldChange('batchEndpoint', 'https://other.example.com/access/v1/evaluations')}
+        >
+          edit batch endpoint
         </button>
         {nameError && <div data-testid="stub-name-error">{nameError}</div>}
       </div>
@@ -360,6 +397,52 @@ describe('ConnectionDetailPage', () => {
     expect(screen.getByRole('region', {name: 'Authentication'})).toContainElement(
       screen.getByTestId('connection-authentication-section'),
     );
+  });
+
+  it('shows the shared authentication tab for SMS gateway connections', () => {
+    mockParams.type = 'sms-gateway';
+    mockParams.id = 'sms1';
+    mockConn.data = {
+      id: 'sms1',
+      type: 'sms-gateway',
+      name: 'SMS Gateway',
+      url: 'https://sms.example.com/send',
+      authentication: {type: 'api_key', properties: {'X-API-Key': '******'}},
+    };
+    mockMeta.methods = [{type: 'api_key', displayName: 'API key'}];
+    render(<ConnectionDetailPage />);
+
+    expect(screen.getByTestId('stub-connection-form')).toBeInTheDocument();
+    expect(screen.queryByTestId('connection-authentication-section')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('connection-tab-authentication'));
+    expect(screen.getByRole('region', {name: 'Authentication'})).toBeInTheDocument();
+    expect(screen.getByTestId('connection-field-select-authenticationScheme')).toBeInTheDocument();
+  });
+
+  it('requires fresh SMS gateway credentials when its URL changes', () => {
+    mockParams.type = 'sms-gateway';
+    mockParams.id = 'sms1';
+    mockConn.data = {
+      id: 'sms1',
+      type: 'sms-gateway',
+      name: 'SMS Gateway',
+      url: 'https://sms.example.com/send',
+      authentication: {type: 'bearer', properties: {token: '******'}},
+    };
+    render(<ConnectionDetailPage />);
+
+    fireEvent.click(screen.getByTestId('edit-url'));
+    expect(screen.getByText('The SMS gateway URL changed. Enter fresh credentials before saving.')).toBeInTheDocument();
+    expect(screen.getByTestId('save-bar')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('connection-tab-authentication'));
+    fireEvent.change(document.getElementById('connection-field-bearerToken')!, {target: {value: 'new-token'}});
+    expect(screen.getByTestId('save-bar')).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId('save-bar'));
+    expect(updateMock.mock.calls[0][0]).toMatchObject({
+      url: 'https://other.example.com/send',
+      authentication: {type: 'bearer', properties: {token: 'new-token'}},
+    });
   });
 
   // A provider saved with a credential comes back masked, so the password stays locked until the
@@ -614,9 +697,11 @@ describe('ConnectionDetailPage', () => {
     mockParams.type = 'authzen-pdp';
     mockParams.id = 'pdp1';
     mockConn.data = AUTHZEN_PDP_CONNECTION;
+    mockMeta.methods = [{type: 'none', displayName: 'None'}];
     render(<ConnectionDetailPage />);
 
     expect(screen.getByLabelText('Connection Configuration')).toBeInTheDocument();
+    expect(screen.queryByTestId('connection-authentication-section')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('connection-tab-authentication'));
     expect(screen.getByText('Authentication method')).toBeInTheDocument();
     expect(screen.getByText('None')).toBeInTheDocument();
@@ -648,7 +733,7 @@ describe('ConnectionDetailPage', () => {
   it('AuthZEN PDP: handles a stored API key response with null headers', () => {
     mockParams.type = 'authzen-pdp';
     mockParams.id = 'pdp1';
-    mockConn.data = AUTHZEN_PDP_API_KEY_WITH_NULL_HEADERS;
+    mockConn.data = AUTHZEN_PDP_API_KEY_WITH_NULL_PROPERTIES;
 
     render(<ConnectionDetailPage />);
 
@@ -658,6 +743,21 @@ describe('ConnectionDetailPage', () => {
 
     fireEvent.click(screen.getByTestId('connection-tab-authentication'));
     expect(screen.getByText('This field is required.')).toBeInTheDocument();
+  });
+
+  it('AuthZEN PDP: sends the remaining masked header when one is deleted', () => {
+    mockParams.type = 'authzen-pdp';
+    mockParams.id = 'pdp1';
+    mockConn.data = AUTHZEN_PDP_API_KEYS;
+    render(<ConnectionDetailPage />);
+
+    fireEvent.click(screen.getByTestId('connection-tab-authentication'));
+    fireEvent.click(screen.getByTestId('connection-field-httpHeaders-remove-1'));
+    fireEvent.click(screen.getByTestId('save-bar'));
+
+    expect(updateMock.mock.calls[0][0]).toMatchObject({
+      authentication: {type: 'api_key', properties: {'X-Second-Key': '******'}},
+    });
   });
 
   it('AuthZEN PDP: preserves stored authentication when saving unrelated changes', () => {
@@ -674,6 +774,66 @@ describe('ConnectionDetailPage', () => {
     expect(payload).not.toHaveProperty('authentication');
   });
 
+  it('AuthZEN PDP: requires a fresh Bearer token when the endpoint changes', () => {
+    mockParams.type = 'authzen-pdp';
+    mockParams.id = 'pdp1';
+    mockConn.data = AUTHZEN_PDP_BEARER_CONNECTION;
+    render(<ConnectionDetailPage />);
+
+    fireEvent.click(screen.getByTestId('edit-endpoint'));
+    expect(screen.getByText('The PDP endpoint changed. Enter fresh credentials before saving.')).toBeInTheDocument();
+    expect(screen.getByTestId('save-bar')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('connection-tab-authentication'));
+    fireEvent.change(document.getElementById('connection-field-bearerToken')!, {target: {value: 'new-token'}});
+    expect(screen.getByTestId('save-bar')).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId('save-bar'));
+    expect(updateMock.mock.calls[0][0]).toMatchObject({
+      endpoint: 'https://other.example.com/access/v1/evaluation',
+      authentication: {type: 'bearer', properties: {token: 'new-token'}},
+    });
+  });
+
+  it('AuthZEN PDP: requires a fresh Basic password when the batch endpoint changes', () => {
+    mockParams.type = 'authzen-pdp';
+    mockParams.id = 'pdp1';
+    mockConn.data = AUTHZEN_PDP_BASIC_CONNECTION;
+    render(<ConnectionDetailPage />);
+
+    fireEvent.click(screen.getByTestId('edit-batch-endpoint'));
+    expect(screen.getByTestId('save-bar')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('connection-tab-authentication'));
+    expect(document.getElementById('connection-field-basicUsername')).not.toBeDisabled();
+    fireEvent.change(document.getElementById('connection-field-basicPassword')!, {target: {value: 'new-password'}});
+    expect(screen.getByTestId('save-bar')).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId('save-bar'));
+    expect(updateMock.mock.calls[0][0]).toMatchObject({
+      batchEndpoint: 'https://other.example.com/access/v1/evaluations',
+      authentication: {type: 'basic', properties: {username: 'pdp-user', password: 'new-password'}},
+    });
+  });
+
+  it('AuthZEN PDP: requires fresh values for every API-key header after an endpoint change', () => {
+    mockParams.type = 'authzen-pdp';
+    mockParams.id = 'pdp1';
+    mockConn.data = AUTHZEN_PDP_API_KEYS;
+    render(<ConnectionDetailPage />);
+
+    fireEvent.click(screen.getByTestId('edit-endpoint'));
+    expect(screen.getByTestId('save-bar')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('connection-tab-authentication'));
+    fireEvent.click(screen.getByTestId('connection-field-httpHeaders-update-1'));
+    fireEvent.change(document.getElementById('connection-field-httpHeaders-value-1')!, {target: {value: 'first-new'}});
+    expect(screen.getByTestId('save-bar')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('connection-field-httpHeaders-update-2'));
+    fireEvent.change(document.getElementById('connection-field-httpHeaders-value-2')!, {target: {value: 'second-new'}});
+    expect(screen.getByTestId('save-bar')).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId('save-bar'));
+    expect(updateMock.mock.calls[0][0]).toMatchObject({
+      authentication: {type: 'api_key', properties: {'X-First-Key': 'first-new', 'X-Second-Key': 'second-new'}},
+    });
+  });
+
   it('AuthZEN PDP: submits a structured Bearer credential replacement', () => {
     mockParams.type = 'authzen-pdp';
     mockParams.id = 'pdp1';
@@ -686,7 +846,7 @@ describe('ConnectionDetailPage', () => {
     fireEvent.click(screen.getByTestId('save-bar'));
 
     const payload = updateMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload).toMatchObject({authentication: {scheme: 'BEARER', bearer: {token: 'new-token'}}});
+    expect(payload).toMatchObject({authentication: {type: 'bearer', properties: {token: 'new-token'}}});
     expect(payload).not.toHaveProperty('authenticationScheme');
     expect(payload).not.toHaveProperty('bearerToken');
   });
@@ -717,7 +877,7 @@ describe('ConnectionDetailPage', () => {
     fireEvent.click(screen.getByTestId('save-bar'));
 
     expect(updateMock.mock.calls[0][0]).toMatchObject({
-      authentication: {scheme: 'BEARER', bearer: {token: 'new-token'}},
+      authentication: {type: 'bearer', properties: {token: 'new-token'}},
     });
   });
 
@@ -733,6 +893,6 @@ describe('ConnectionDetailPage', () => {
     fireEvent.click(screen.getByTestId('save-bar'));
 
     const payload = updateMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload).toMatchObject({authentication: {scheme: 'NONE'}});
+    expect(payload).toMatchObject({authentication: {type: 'none'}});
   });
 });

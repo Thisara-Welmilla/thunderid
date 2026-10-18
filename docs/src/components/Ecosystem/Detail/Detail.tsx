@@ -555,9 +555,11 @@ export function Shell({
  * An entry's own page: the shell over the entry's sections.
  *
  * The sample callout is the same one the quickstarts carry, keyed on the entry
- * id because that is what the release feed calls the package. It renders
- * nothing for an entry with no published sample archive, so entries opt in by
- * publishing one rather than by being listed here.
+ * id because that is what the release feed calls the package. An entry whose
+ * sample lives in the samples repository names it with `sample` instead, and
+ * the callout offers that sample's release. It renders nothing for an entry
+ * with no published sample archive, so entries opt in by publishing one rather
+ * than by being listed here.
  */
 export default function Detail({entry}: {entry: EcosystemEntry}): JSX.Element {
   return (
@@ -569,7 +571,16 @@ export default function Detail({entry}: {entry: EcosystemEntry}): JSX.Element {
         // The callout carries its own bottom margin for prose pages; here the
         // column's own gap does that work.
         <Box sx={{'& > *': {mb: 0}}}>
-          <SdkQuickstartDownload packageId={entry.id} icon={<EntryIcon name={entry.icon} size={22} />} />
+          {entry.sample ? (
+            <SdkQuickstartDownload
+              packageId={entry.sample}
+              type="sample"
+              prewiredWith={entry.package.name}
+              icon={<EntryIcon name={entry.icon} size={22} />}
+            />
+          ) : (
+            <SdkQuickstartDownload packageId={entry.id} icon={<EntryIcon name={entry.icon} size={22} />} />
+          )}
         </Box>
       }
     />

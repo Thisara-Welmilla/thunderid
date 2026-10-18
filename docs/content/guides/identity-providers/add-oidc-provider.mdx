@@ -134,6 +134,12 @@ To find an existing local user for an incoming federated identity that has no re
 Behavior:
 
 - Resolution tries the recorded link for this connection and subject first. A subject is unique only within the connection that issued it, so both parts are required and a subject on its own never resolves a user.
+- One identity can be linked to several local users, for example a person with an account in each of two organization units. When more than one user holds the link:
+  - In a sign-in flow with a **Resolve User** node, such as one built with the **Account Linking with Verification and Account Selection** widget, the person picks which account to continue with. Without that node, the sign-in fails.
+  - In a registration or onboarding flow, Provisioning counts only the linked users in the organization unit it registers into when cross-OU provisioning is allowed. If none is there, a new user is created with the link. If one is there, the flow completes as that user when registration with an existing user is allowed. Otherwise it fails with "User already exists".
+  - The direct federated authentication API cannot prompt, so it fails.
+
+  See the **Resolve User** executor in [Executor Reference](../../flows/advanced-configurations#executor-reference).
 - Otherwise, every configured attribute that has a value must match. Each local user that matches becomes a candidate. A match does not sign the user in: the flow's Account Linking node has the user verify one of the candidates before linking it. The direct authentication API cannot prompt, so it signs in recorded links only.
 - Each attribute is an external claim name. It matches on every local attribute it's mapped to under **Attribute Mappings**, and on the local attribute of the same name, because mappings copy the value there too. For example, with `email` mapped to `username`, linking on `email` finds a user whose `username` or whose `email` holds the incoming address.
 - Each local attribute is matched on the value it would be provisioned with. An attribute with no mapping of its own therefore also works as a local attribute name: linking on `costCenter` with `cost_centre` mapped to `costCenter` matches on the incoming `cost_centre` value.

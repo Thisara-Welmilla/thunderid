@@ -197,29 +197,35 @@ func (s *CompositeStoreTestSuite) TestIdentifyEntity_DBError() {
 	s.Error(err)
 }
 
-func (s *CompositeStoreTestSuite) TestResolveLinkedAccount_DBFound() {
-	id := "e1"
-	s.dbStore.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").Return(&id, nil)
-	got, err := s.store.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
+func (s *CompositeStoreTestSuite) TestResolveLinkedAccounts_MergesStores() {
+	s.dbStore.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{"e1"}, nil)
+	s.fileStore.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{"decl-1"}, nil)
+	got, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
 	s.Require().NoError(err)
-	s.Equal("e1", *got)
-	s.fileStore.AssertNotCalled(s.T(), "ResolveLinkedAccount", mock.Anything, mock.Anything, mock.Anything)
+	s.Equal([]string{"e1", "decl-1"}, got)
 }
 
-func (s *CompositeStoreTestSuite) TestResolveLinkedAccount_DBNotFound_FileFallback() {
-	id := "decl-1"
-	s.dbStore.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").Return((*string)(nil), ErrEntityNotFound)
-	s.fileStore.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").Return(&id, nil)
-	got, err := s.store.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
+// An entity in both stores holds the link once, not twice.
+func (s *CompositeStoreTestSuite) TestResolveLinkedAccounts_EntityInBothStoresReturnedOnce() {
+	s.dbStore.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{"e1"}, nil)
+	s.fileStore.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{"e1", "decl-1"}, nil)
+	got, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
 	s.Require().NoError(err)
-	s.Equal("decl-1", *got)
+	s.Equal([]string{"e1", "decl-1"}, got)
 }
 
-func (s *CompositeStoreTestSuite) TestResolveLinkedAccount_DBError() {
-	s.dbStore.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").Return((*string)(nil), s.testErr)
-	_, err := s.store.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
+func (s *CompositeStoreTestSuite) TestResolveLinkedAccounts_DBError() {
+	s.dbStore.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return(nil, s.testErr)
+	_, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
 	s.ErrorIs(err, s.testErr)
-	s.fileStore.AssertNotCalled(s.T(), "ResolveLinkedAccount", mock.Anything, mock.Anything, mock.Anything)
+	s.fileStore.AssertNotCalled(s.T(), "ResolveLinkedAccounts", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func (s *CompositeStoreTestSuite) TestResolveLinkedAccounts_FileError() {
+	s.dbStore.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{}, nil)
+	s.fileStore.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return(nil, s.testErr)
+	_, err := s.store.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
+	s.ErrorIs(err, s.testErr)
 }
 
 func (s *CompositeStoreTestSuite) TestGetEntityListCount_MergesStores() {

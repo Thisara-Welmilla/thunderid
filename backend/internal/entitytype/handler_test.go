@@ -458,3 +458,8 @@ func TestHandleEntityTypeListRequest_Success(t *testing.T) {
 	handler.HandleEntityTypeListRequest(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
+
+func TestSanitizeSystemAttributes_KeepsPrimaryContacts(t *testing.T) {
+	attrs := &SystemAttributes{Display: "work", PrimaryEmail: "work", PrimaryMobile: "phone"}
+	assert.Equal(t, attrs, sanitizeSystemAttributes(attrs))
+}
