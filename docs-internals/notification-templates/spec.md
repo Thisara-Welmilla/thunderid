@@ -20,13 +20,13 @@ Template content belongs to an organization unit and is independent of language 
 
 The Notification Templates module manages templates and coordinates rendering. It uses the Translation feature to resolve localized text and the Design feature to apply the relevant design. Runtime consumers invoke the template renderer, which returns the fully resolved notification content ready for sending. They do not call the Translation or Design features themselves to resolve template placeholders; the renderer has already applied them.
 
-Templates required by flows, which are themselves created at bootstrap, are imported through the existing bootstrap path. After import they are managed like any other template: editable in `mutable` store mode, and read-only when file-declared (`declarative` or `composite` mode). Features installed or enabled later create any additional templates they require.
+Templates required by flows, which are themselves created at bootstrap, are imported through the existing bootstrap path. After import they are managed like any other template: editable in `mutable` store mode, and read-only when file-declared (`declarative` or `composite` mode).
 
 ```mermaid
 flowchart TB
     subgraph clients [Clients]
         Console["ThunderID Console<br/>template editor + preview"]
-        ApiClient["API consumers<br/>SDKs / GitOps"]
+        ApiClient["API consumers<br/>SDKs"]
     end
 
     subgraph core [ ]
@@ -209,7 +209,7 @@ CREATE TABLE NOTIFICATION_TEMPLATE (
 
 Scoping columns are `DEPLOYMENT_ID` and the owning `OU_ID`; the `UNIQUE (DEPLOYMENT_ID, CHANNEL, HANDLE)` constraint keeps a handle unique per channel across the deployment, and the runtime lookup is by channel and handle, not by organization unit. There is no per-application column in this phase.
 
-Templates are seeded and kept up to date as **declarative resources** (`resource_type: notification_template`) through the existing bootstrap importer (`internal/system/importer`), matched by handle for idempotent upsert. The runtime lookup (`GetTemplateByHandle`) is served through a read-through cache keyed by `channel:handle`; writes keep it coherent (create and update re-populate the entry, delete invalidates it), while list and get-by-id bypass the cache. Migration must preserve existing shipped templates and valid flow references.
+Templates are seeded and kept up to date as **declarative resources** (`resource_type: notification_template`) through the existing bootstrap importer (`internal/system/importer`), matched by handle for idempotent upsert. The runtime lookup (`GetTemplateByHandle`) is served through a read-through cache keyed by `channel:handle`; writes keep it coherent (create and update re-populate the entry, delete invalidates it), while list and get-by-id bypass the cache. Migration is handled by the declarative resource import itself (idempotent upsert by handle), which preserves existing shipped templates and valid flow references; there is no separate code-level migration.
 
 ### API
 
@@ -329,12 +329,11 @@ The flow editor lists templates for the selected notification node’s channel s
 
 ### R5. Provision templates used by flows
 
-**Requirement:** Flows, out-of-flow senders, and installed features that require a notification template have a corresponding manageable template.
+**Requirement:** Flows and out-of-flow senders that require a notification template have a corresponding manageable template.
 
 **Acceptance criteria:**
 
 - **AC5.1:** Given a fresh installation, when bootstrap runs, then it seeds the default templates required by its shipped flows and notification endpoints as declarative resources (`resource_type: notification_template`), idempotently upserted by handle.
-- **AC5.2:** Given a feature that requires a new template, when it is installed or enabled, then the corresponding template is created through the same declarative resource import path.
 
 ### R6. Deliver rendered notifications through the selected provider
 
