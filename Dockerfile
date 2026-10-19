@@ -37,7 +37,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 RUN ls -l /app/target/dist/
 
 # Runtime stage
-FROM alpine:3.19
+FROM alpine:3.23
 
 # Install required packages
 RUN apk add --no-cache \

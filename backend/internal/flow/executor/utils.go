@@ -13,6 +13,8 @@ import (
 	"time"
 
 	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	authnprovidercm "github.com/thunder-id/thunderid/internal/authnprovider/common"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
 	entitytypemodel "github.com/thunder-id/thunderid/internal/entitytype/model"
 	"github.com/thunder-id/thunderid/internal/flow/common"
 	"github.com/thunder-id/thunderid/internal/flow/core"
@@ -271,7 +273,8 @@ func isCrossOUProvisioningAllowed(ctx *providers.NodeContext) bool {
 }
 
 // setFederatedEntityState records whether federated authentication resolved a concrete local user
-// (via account linking) into the entityState runtime key.
+// (via account linking) into the entityState runtime key. Several users holding the link is recorded
+// as ambiguous, for a later node to let the user pick between them.
 func setFederatedEntityState(ctx context.Context, execResp *providers.ExecutorResponse,
 	authnProvider providers.AuthnProviderManager) {
 	execResp.RuntimeData[common.RuntimeKeyEntityState] = entityStateNotExists
@@ -283,9 +286,34 @@ func setFederatedEntityState(ctx context.Context, execResp *providers.ExecutorRe
 
 	authUser, entityRef, svcErr := authnProvider.GetEntityReference(ctx, execResp.AuthUser)
 	execResp.AuthUser = authUser
-	if svcErr == nil && entityRef != nil {
+	switch {
+	case svcErr == nil && entityRef != nil:
 		execResp.RuntimeData[common.RuntimeKeyEntityState] = entityStateExists
+	case svcErr != nil && svcErr.Code == authnprovidermgr.ErrorAmbiguousUser.Code:
+		execResp.RuntimeData[common.RuntimeKeyEntityState] = entityStateAmbiguous
 	}
+}
+
+// authenticateEntityByID signs in an entity whose ID the flow already trusts, such as one it just
+// provisioned or the federated link's holder the user picked, onto base. On success it sets the
+// AuthUser and copies the authenticated claims into runtime data. It returns the authentication
+// provider's error as is, and ErrEntityAuthFailed when the AuthUser comes back unauthenticated.
+func authenticateEntityByID(ctx *providers.NodeContext, authnProvider providers.AuthnProviderManager,
+	entityID string, base providers.AuthUser, execResp *providers.ExecutorResponse) *tidcommon.ServiceError {
+	credential := map[string]interface{}{authnprovidercm.CredentialTypeProvisionedEntityID: entityID}
+	authUser, authenticatedClaims, svcErr := authnProvider.AuthenticateUser(ctx.Context, nil, credential,
+		nil, nil, base)
+	if svcErr != nil {
+		return svcErr
+	}
+	if !authUser.IsAuthenticated() {
+		return &ErrEntityAuthFailed
+	}
+	execResp.AuthUser = authUser
+	for key, value := range authenticatedClaims {
+		execResp.RuntimeData[key] = systemutils.ConvertInterfaceValueToString(value)
+	}
+	return nil
 }
 
 // resolveAndSetMappedAuthorizationTargets resolves the IDP's AuthorizationRuleMapping (explicit value

@@ -69,7 +69,7 @@ describe('fieldsForMode', () => {
     ]);
   });
 
-  it('does not hide any SMS vendor fields on create', () => {
+  it('shows SMS gateway authentication fields only on edit', () => {
     expect(fieldNames(ConnectionTypes.TWILIO, 'create')).toEqual(fieldNames(ConnectionTypes.TWILIO, 'edit'));
     expect(fieldNames(ConnectionTypes.VONAGE, 'create')).toEqual(fieldNames(ConnectionTypes.VONAGE, 'edit'));
     expect(fieldNames(ConnectionTypes.SMS_GATEWAY, 'create')).toEqual([
@@ -77,9 +77,16 @@ describe('fieldsForMode', () => {
       'url',
       'httpMethod',
       'contentType',
-      'httpHeaders',
+      'smsHttpHeaders',
     ]);
-    expect(fieldNames(ConnectionTypes.SMS_GATEWAY, 'create')).toEqual(fieldNames(ConnectionTypes.SMS_GATEWAY, 'edit'));
+    expect(fieldNames(ConnectionTypes.SMS_GATEWAY, 'edit')).toEqual([
+      ...fieldNames(ConnectionTypes.SMS_GATEWAY, 'create'),
+      'authenticationScheme',
+      'bearerToken',
+      'httpHeaders',
+      'basicUsername',
+      'basicPassword',
+    ]);
   });
 
   it('offers the SMS gateway method and content type as selects with the API-accepted values', () => {
@@ -101,8 +108,8 @@ describe('fieldsForMode', () => {
     expect(required).toEqual(['name', 'url']);
   });
 
-  it('edits SMS gateway headers as key-value rows rather than one packed string', () => {
-    const headers = fieldsForMode(ConnectionTypes.SMS_GATEWAY, 'create').find((field) => field.name === 'httpHeaders');
+  it('keeps general headers separate from authentication header fields', () => {
+    const headers = fieldsForMode(ConnectionTypes.SMS_GATEWAY, 'edit').find((field) => field.name === 'httpHeaders');
 
     expect(headers).toMatchObject({kind: 'key-value', addLabelKey: 'connections:form.fields.httpHeaders.add'});
     expect(headers?.required).toBeUndefined();

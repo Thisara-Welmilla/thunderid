@@ -29,7 +29,13 @@ vi.mock('../../api/useCreateConnection', () => ({
 }));
 
 vi.mock('../../components/ConnectionForm', () => ({
-  default: function StubConnectionForm({onFieldChange}: {onFieldChange: (name: string, value: string) => void}) {
+  default: function StubConnectionForm({
+    onFieldChange,
+    showAuthentication,
+  }: {
+    onFieldChange: (name: string, value: string) => void;
+    showAuthentication?: boolean;
+  }) {
     useEffect(() => {
       // Populate the fields required by every connection type used in these tests
       // (oidc, oauth, sms-gateway, email-smtp).
@@ -44,7 +50,7 @@ vi.mock('../../components/ConnectionForm', () => ({
       onFieldChange('fromName', 'Acme Support');
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    return <div data-testid="stub-connection-form" />;
+    return <div data-testid="stub-connection-form" data-show-authentication={String(showAuthentication)} />;
   },
 }));
 
@@ -166,6 +172,7 @@ describe('ConnectionCreateWizardPage', () => {
     expect(screen.getByText('Policy Decision Point (PDP)')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', {name: 'Show hidden breadcrumbs'}));
     expect(screen.getByText('AuthZEN')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-connection-form')).toHaveAttribute('data-show-authentication', 'false');
   });
 
   it('preserves the PDP wizard path when navigating back', () => {
@@ -212,6 +219,7 @@ describe('ConnectionCreateWizardPage', () => {
     render(<ConnectionCreateWizardPage />);
 
     selectTypeAndName('connection-type-option-sms-gateway', 'Custom SMS Sender');
+    expect(screen.getByTestId('stub-connection-form')).toHaveAttribute('data-show-authentication', 'false');
     fireEvent.click(screen.getByTestId('wizard-create'));
 
     expect(mutateMock).toHaveBeenCalledTimes(1);

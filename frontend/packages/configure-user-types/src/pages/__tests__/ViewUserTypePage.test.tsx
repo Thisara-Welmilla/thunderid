@@ -1737,4 +1737,120 @@ describe('ViewUserTypePage', () => {
       });
     });
   });
+  it.each(['email', 'mobile'] as const)('blocks saving with a specific missing primary %s message', async (type) => {
+    const user = userEvent.setup();
+    mockUseGetUserType.mockReturnValue({
+      data: {...mockUserType, schema: {contact: {type}, backup: {type}}, systemAttributes: {}},
+      isLoading: false,
+      error: null,
+      refetch: mockRefetch,
+    });
+    render(<ViewUserTypePage />);
+    await user.click(screen.getByTestId('select-ou-child'));
+    await user.click(screen.getByRole('button', {name: /^save$/i}));
+    expect(
+      screen.getByText(
+        type === 'email'
+          ? 'Select one email attribute as the primary email.'
+          : 'Select one mobile attribute as the primary mobile.',
+      ),
+    ).toBeInTheDocument();
+    expect(mockUpdateMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing primary before the breaking schema change warning', async () => {
+    const user = userEvent.setup();
+    mockUseGetUserType.mockReturnValue({
+      data: {
+        ...mockUserType,
+        schema: {
+          status: {type: 'string', required: true, enum: ['ACTIVE', 'INACTIVE']},
+          contact: {type: 'email'},
+          backup: {type: 'email'},
+        },
+        systemAttributes: {},
+      },
+      isLoading: false,
+      error: null,
+      refetch: mockRefetch,
+    });
+    render(<ViewUserTypePage />);
+    await goToSchemaTab(user);
+    await expandProperty(user, 'status');
+    const activeChip = (await screen.findByText('ACTIVE')).closest('.MuiChip-root');
+    await user.click(within(activeChip as HTMLElement).getByTestId('CancelIcon'));
+    await user.click(screen.getByRole('button', {name: /^save$/i}));
+    expect(screen.getAllByText('Select one email attribute as the primary email.').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mockUpdateMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it.each(['@example.com$', ''])('preserves saved contact regex %j during unrelated edits', async (regex) => {
+    const user = userEvent.setup();
+    mockUseGetUserType.mockReturnValue({
+      data: {
+        ...mockUserType,
+        systemAttributes: {display: 'work', primaryEmail: 'recovery', primaryMobile: 'phone'},
+        schema: {
+          work: {type: 'email', unique: true, regex},
+          recovery: {type: 'email', regex: '@recover.example.com$'},
+          phone: {type: 'mobile'},
+        },
+      },
+      isLoading: false,
+      error: null,
+      refetch: mockRefetch,
+    });
+    mockUpdateMutateAsync.mockResolvedValue(undefined);
+    render(<ViewUserTypePage />);
+    await user.click(screen.getByRole('button', {name: /edit user type name/i}));
+    const name = screen.getByRole('textbox', {name: /user type name/i});
+    await user.clear(name);
+    await user.type(name, 'Renamed{Enter}');
+    await user.click(screen.getByRole('button', {name: /^save$/i}));
+    await waitFor(() =>
+      expect(mockUpdateMutateAsync).toHaveBeenCalledWith({
+        userTypeId: 'schema-123',
+        data: expect.objectContaining({
+          systemAttributes: {display: 'work', primaryEmail: 'recovery', primaryMobile: 'phone'},
+          schema: {
+            work: {
+              type: 'email',
+              required: false,
+              unique: true,
+              regex: regex || '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$',
+            },
+            recovery: {type: 'email', required: false, regex: '@recover.example.com$'},
+            phone: {type: 'mobile', required: false, regex: '^\\+[1-9]\\d{1,14}$'},
+          },
+        }),
+      }),
+    );
+  });
+  it.each(['email', 'mobile'] as const)('blocks saving an empty %s regex', async (type) => {
+    const user = userEvent.setup();
+    mockUseGetUserType.mockReturnValue({
+      data: {
+        ...mockUserType,
+        schema: {contact: {type, regex: '^custom$'}},
+        systemAttributes: type === 'email' ? {primaryEmail: 'contact'} : {primaryMobile: 'contact'},
+      },
+      isLoading: false,
+      error: null,
+      refetch: mockRefetch,
+    });
+    render(<ViewUserTypePage />);
+    await user.click(screen.getByRole('tab', {name: /schema/i}));
+    await user.click(screen.getByText('contact'));
+    await user.clear(screen.getByDisplayValue('^custom$'));
+    await user.click(screen.getByRole('button', {name: /^save$/i}));
+    expect(
+      screen.getAllByText(
+        type === 'email'
+          ? 'Enter a regular expression for email attributes.'
+          : 'Enter a regular expression for mobile attributes.',
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(mockUpdateMutateAsync).not.toHaveBeenCalled();
+  });
 });

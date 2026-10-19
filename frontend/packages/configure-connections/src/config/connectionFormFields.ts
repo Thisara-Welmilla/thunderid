@@ -142,6 +142,54 @@ const TRUSTED_TOKEN_AUDIENCE_FIELD: ConnectionFieldDef = {
  * Ordered field definitions per connection type, driving the shared {@link ConnectionForm}
  * and its dynamically-built validation schema.
  */
+const HTTP_AUTHENTICATION_FIELDS: ConnectionFieldDef[] = [
+  {
+    name: 'authenticationScheme',
+    responsePath: 'authentication.type',
+    labelKey: 'connections:form.fields.authScheme.label',
+    kind: 'select',
+    visibility: 'edit',
+    defaultValue: 'NONE',
+    options: [
+      {value: 'NONE', label: 'None'},
+      {value: 'BEARER', label: 'Bearer token'},
+      {value: 'BASIC', label: 'Basic authentication'},
+      {value: 'API_KEY', label: 'API key'},
+    ],
+  },
+  {
+    name: 'bearerToken',
+    labelKey: 'connections:form.fields.bearerToken.label',
+    kind: 'secret',
+    visibility: 'edit',
+    requiredWhenValue: {field: 'authenticationScheme', value: 'BEARER'},
+  },
+  {
+    name: 'httpHeaders',
+    labelKey: 'connections:form.fields.httpHeaders.label',
+    hintKey: 'connections:form.fields.httpHeaders.hint',
+    kind: 'key-value',
+    visibility: 'edit',
+    placeholder: 'X-Tenant-ID',
+    addLabelKey: 'connections:form.fields.httpHeaders.add',
+  },
+  {
+    name: 'basicUsername',
+    responsePath: 'authentication.properties.username',
+    labelKey: 'connections:form.fields.basicUsername.label',
+    kind: 'text',
+    visibility: 'edit',
+    requiredWhenValue: {field: 'authenticationScheme', value: 'BASIC'},
+  },
+  {
+    name: 'basicPassword',
+    labelKey: 'connections:form.fields.basicPassword.label',
+    kind: 'secret',
+    visibility: 'edit',
+    requiredWhenValue: {field: 'authenticationScheme', value: 'BASIC'},
+  },
+];
+
 export const CONNECTION_FORM_FIELDS: Record<ConnectionType, ConnectionFieldDef[]> = {
   [ConnectionTypes.GOOGLE]: oauthFields('Google Workspace', '1234567890-abc.apps.googleusercontent.com'),
   [ConnectionTypes.GITHUB]: oauthFields(
@@ -346,6 +394,7 @@ export const CONNECTION_FORM_FIELDS: Record<ConnectionType, ConnectionFieldDef[]
       kind: 'url',
       required: true,
       placeholder: 'https://sms.example.com/send',
+      requiresHttpsWhenAuthenticated: true,
     },
     {
       name: 'httpMethod',
@@ -370,13 +419,14 @@ export const CONNECTION_FORM_FIELDS: Record<ConnectionType, ConnectionFieldDef[]
       ],
     },
     {
-      name: 'httpHeaders',
-      labelKey: 'connections:form.fields.httpHeaders.label',
-      hintKey: 'connections:form.fields.httpHeaders.hint',
+      name: 'smsHttpHeaders',
+      labelKey: 'connections:form.fields.smsHttpHeaders.label',
+      hintKey: 'connections:form.fields.smsHttpHeaders.hint',
       kind: 'key-value',
-      placeholder: 'X-API-Key',
-      addLabelKey: 'connections:form.fields.httpHeaders.add',
+      placeholder: 'X-Campaign-ID',
+      addLabelKey: 'connections:form.fields.smsHttpHeaders.add',
     },
+    ...HTTP_AUTHENTICATION_FIELDS,
   ],
   [ConnectionTypes.AUTHZEN_PDP]: [
     NAME_FIELD('Production AuthZEN PDP'),
@@ -419,50 +469,7 @@ export const CONNECTION_FORM_FIELDS: Record<ConnectionType, ConnectionFieldDef[]
       pattern: /^(0|[1-9]\d*)$/,
       patternErrorKey: 'connections:validation.nonNegativeInteger',
     },
-    {
-      name: 'authenticationScheme',
-      responsePath: 'authentication.scheme',
-      labelKey: 'connections:form.fields.authScheme.label',
-      kind: 'select',
-      visibility: 'edit',
-      defaultValue: 'NONE',
-      options: [
-        {value: 'NONE', label: 'None'},
-        {value: 'BEARER', label: 'Bearer token'},
-        {value: 'BASIC', label: 'Basic authentication'},
-        {value: 'API_KEY', label: 'API key'},
-      ],
-    },
-    {
-      name: 'bearerToken',
-      labelKey: 'connections:form.fields.bearerToken.label',
-      kind: 'secret',
-      visibility: 'edit',
-      requiredWhenValue: {field: 'authenticationScheme', value: 'BEARER'},
-    },
-    {
-      name: 'httpHeaders',
-      labelKey: 'connections:form.fields.httpHeaders.label',
-      hintKey: 'connections:form.fields.httpHeaders.hint',
-      kind: 'key-value',
-      visibility: 'edit',
-      placeholder: 'X-Tenant-ID',
-      addLabelKey: 'connections:form.fields.httpHeaders.add',
-    },
-    {
-      name: 'basicUsername',
-      labelKey: 'connections:form.fields.basicUsername.label',
-      kind: 'secret',
-      visibility: 'edit',
-      requiredWhenValue: {field: 'authenticationScheme', value: 'BASIC'},
-    },
-    {
-      name: 'basicPassword',
-      labelKey: 'connections:form.fields.basicPassword.label',
-      kind: 'secret',
-      visibility: 'edit',
-      requiredWhenValue: {field: 'authenticationScheme', value: 'BASIC'},
-    },
+    ...HTTP_AUTHENTICATION_FIELDS,
   ],
   [ConnectionTypes.SMTP]: [
     NAME_FIELD('Corp SMTP'),

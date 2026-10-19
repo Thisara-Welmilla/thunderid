@@ -2086,6 +2086,34 @@ func (s *PromptOnlyNodeTestSuite) TestEnrichInputsFromForwardedData_ClaimNeverSa
 	s.Equal("password", resp.Inputs[0].Identifier, "a claim must not satisfy a credential input")
 }
 
+// A forwarded input offering options is a choice the user makes, so a claim of the same name never
+// answers it, while a plain input the claim holds is still taken from the claim.
+func (s *PromptOnlyNodeTestSuite) TestEnrichInputsFromForwardedData_ClaimNeverSatisfiesAChoice() {
+	node := newPromptNode("prompt-1", map[string]interface{}{}, false, false)
+
+	ctx := &providers.NodeContext{
+		ExecutionID: "test-flow",
+		UserInputs:  map[string]string{},
+		RuntimeData: externalIdentityData(map[string]interface{}{
+			testEmailAttr: "a@example.com", "username": "a@example.com",
+		}),
+		ForwardedData: map[string]interface{}{
+			common.ForwardedDataKeyInputs: []providers.Input{
+				{Identifier: testEmailAttr, Type: "TEXT_INPUT", Required: true},
+				{Identifier: "username", Type: providers.InputTypeSelect,
+					Options: []string{"a@example.com", "b@example.com"}},
+			},
+		},
+	}
+	resp, err := node.Execute(ctx)
+
+	s.Nil(err)
+	s.NotNil(resp)
+	s.Require().Len(resp.Inputs, 1)
+	s.Equal("username", resp.Inputs[0].Identifier, "a claim must not answer a choice between options")
+	s.Equal([]string{"a@example.com", "b@example.com"}, resp.Inputs[0].Options)
+}
+
 func (s *PromptOnlyNodeTestSuite) TestEnrichInputsFromForwardedData_DoesNotDuplicateExistingInput() {
 	node := newPromptNode("prompt-1", map[string]interface{}{}, false, false)
 	pn := node.(PromptNodeInterface)

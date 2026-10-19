@@ -16,7 +16,9 @@ description: >-
   sign Flutter users in to {{ProductName}} with authorization code and PKCE.
 links:
   external: https://pub.dev/packages/flutter_appauth
-  samples: https://github.com/thunder-id/samples/tree/main/samples/integrations/flutter-app-auth
+  samples: https://github.com/thunder-id/samples/tree/main/integrations/flutter-app-auth
+# Offers the sample's released zip at the top of the page, from the samples repo releases.
+sample: integrations/flutter-app-auth
 
 hero:
   description: >-
@@ -37,21 +39,10 @@ hero:
     - label: Get started
       href: "#setup"
       variant: primary
-    - label: Try the sample app
-      href: "#sample"
-      variant: secondary
     - label: flutter_appauth docs
       href: https://pub.dev/packages/flutter_appauth
       variant: secondary
       external: true
-  aside:
-    type: install
-    footnote: flutter_appauth 12 · Flutter 3.38+ · Android API 24+ · iOS 13+
-    tabs:
-      - label: flutter
-        code:
-          lang: bash
-          content: flutter pub add flutter_appauth
 
 sections:
   - type: steps
@@ -61,8 +52,8 @@ sections:
     intro: >-
       Works with a new Flutter application or one you already have. Requires a running {{ProductName}} instance; the
       steps use https://localhost:8090, the default for a local install. The scheme com.example.appauth is a
-      placeholder: use your own, in lowercase, everywhere it appears. To start from working code instead, the
-      ready-made sample app under Sample app below runs every step of this guide.
+      placeholder: use your own, in lowercase, everywhere it appears. To start from working code instead, download
+      the sample app above, which runs every step of this guide; its README covers setting it up.
     steps:
       - title: Create the application in {{ProductName}}
         description: >-
@@ -293,14 +284,6 @@ sections:
           above opts in, and keeping it in the debug source set leaves release builds untouched. In production,
           serve {{ProductName}} with a certificate from a public certificate authority and skip this step.
 
-  - type: guides
-    id: sample
-    title: Sample app
-    intro: >-
-      A ready-made Flutter application that runs the code above, from the {{ProductName}} samples repository at
-      samples/integrations/flutter-app-auth. Register it in the Console, pass its client ID, and run it.
-    items: [try-the-sample-app]
-
   - type: table
     id: endpoints
     title: Endpoint mapping
@@ -335,25 +318,6 @@ sections:
       - cells: [iOS, "13+"]
         badge: {label: supported, tone: success}
 
-  - type: linkGrid
-    id: beyond
-    title: Beyond this guide
-    intro: >-
-      Everything past this configuration is ordinary flutter_appauth and AppAuth, documented by their
-      authors, plus the {{ProductName}} application settings this guide touches.
-    items:
-      - label: flutter_appauth README
-        href: https://pub.dev/packages/flutter_appauth
-        external: true
-      - label: AppAuth for Android
-        href: https://github.com/openid/AppAuth-Android
-        external: true
-      - label: AppAuth for iOS
-        href: https://github.com/openid/AppAuth-iOS
-        external: true
-      - label: "{{ProductName}} application settings"
-        href: /docs/next/guides/applications/application-settings
-
   - type: support
     id: support
     title: Where to get help
@@ -382,117 +346,6 @@ sections:
           - label: flutter_appauth issues
             href: https://github.com/MaikuB/flutter_appauth/issues
             variant: secondary
-            external: true
-
-guides:
-  - id: try-the-sample-app
-    title: Try the Flutter AppAuth Sample App
-    icon: terminal
-    description: >-
-      Run the ready-made sample to see sign-in, token refresh, session restore, and sign-out against
-      {{ProductName}} end to end.
-    intro: >-
-      The {{ProductName}} samples repository ships a sample in samples/integrations/flutter-app-auth that runs
-      the code from the Flutter AppAuth guide: sign-in with authorization code and PKCE in the system browser,
-      token refresh with rotation, session restore when the application restarts, and sign-out through the end
-      session endpoint, on Android and iOS.
-    sections:
-      - type: steps
-        id: steps
-        title: Try the sample
-        steps:
-          - title: Prerequisites
-            description: >-
-              Flutter 3.38.1 or later, an Android emulator (API 24+) or an iOS Simulator (iOS 13+), and a running
-              {{ProductName}} instance. The steps use https://localhost:8090, the default for a local install.
-          - title: Get the sample
-            description: >-
-              The sample lives in the {{ProductName}} samples repository. A sparse checkout downloads only the
-              sample directory rather than the whole repository.
-            code:
-              lang: bash
-              content: |-
-                git clone --depth 1 --filter=blob:none --sparse https://github.com/thunder-id/samples.git
-                cd samples
-                git sparse-checkout set samples/integrations/flutter-app-auth
-                cd samples/integrations/flutter-app-auth
-                flutter pub get
-          - title: Create the application in {{ProductName}}
-            description: >-
-              The sample uses the com.example.appauth scheme, so register its redirect URIs exactly as below. The
-              ID token attributes decide what the sample shows as the signed-in user's name.
-            uiPath:
-              - Open the Console at https://localhost:8090/console and navigate to Applications
-              - Click Add Application and select Flutter
-              - Under Sign-In Approach, select Redirect to {{ProductName}} Gate
-              - Under Deep Link / Universal Link, enter com.example.appauth://callback
-              - Click Create, then copy the Client ID
-              - On the Advanced tab, add com.example.appauth://logout under Post-Logout Redirect URIs and save
-              - On the Token tab, open User, then ID Token, and add email and name
-          - title: Trust the local certificate
-            description: >-
-              A local {{ProductName}} serves a self-signed certificate, which the device must trust before the
-              browser or AppAuth can reach it. Debug builds of the sample already trust user-installed certificates
-              through android/app/src/debug/res/xml/network_security_config.xml, so only the device needs setting
-              up. Run these once per emulator or simulator.
-            tabs:
-              - label: Android
-                code:
-                  lang: bash
-                  content: |-
-                    # Forward the emulator's localhost:8090 to your machine.
-                    adb reverse tcp:8090 tcp:8090
-
-                    # Copy the certificate, then install it on the emulator: Settings > Security & privacy >
-                    # More security & privacy > Encryption & credentials > Install a certificate > CA certificate,
-                    # and select thunderid-dev.crt from Downloads.
-                    adb push <THUNDERID_HOME>/config/certs/server.cert /sdcard/Download/thunderid-dev.crt
-              - label: iOS Simulator
-                code:
-                  lang: bash
-                  content: xcrun simctl keychain booted add-root-cert <THUNDERID_HOME>/config/certs/server.cert
-          - title: Configure and run
-            description: >-
-              The sample reads its settings at build time, so there is no file to edit. Pass the Client ID from
-              the Console with --dart-define. For an instance other than https://localhost:8090, also pass
-              THUNDERID_ISSUER.
-            code:
-              lang: bash
-              content: |-
-                flutter run --dart-define=THUNDERID_CLIENT_ID=<your-client-id>
-
-                # A different instance:
-                flutter run --dart-define=THUNDERID_CLIENT_ID=<your-client-id> \
-                  --dart-define=THUNDERID_ISSUER=https://thunderid.example.com
-          - title: Try it out
-            description: >-
-              Tap Sign in and sign in on the {{ProductName}} page that opens in the browser. The application shows
-              the signed-in user's name and the access token's expiry. Tap Refresh tokens to exchange the refresh
-              token, restart the application to see the session restored from the stored refresh token, and tap
-              Sign out to end the {{ProductName}} session and return to the application.
-      - type: table
-        id: files
-        title: Sample contents
-        showHeader: true
-        columns:
-          - {label: File, style: code}
-          - {label: What it does, style: text}
-        rows:
-          - cells: [lib/auth_config.dart, "Issuer, client ID, redirect URIs, and scopes, read from --dart-define."]
-          - cells: [lib/auth_service.dart, "Sign-in, refresh, session restore, and sign-out with flutter_appauth."]
-          - cells: [lib/main.dart, A single screen that drives the service.]
-          - cells: [android/app/build.gradle.kts, Registers the com.example.appauth redirect scheme.]
-          - cells: [android/app/src/main/AndroidManifest.xml, "MainActivity without android:taskAffinity=\"\", so the redirect completes sign-in."]
-          - cells: [ios/Runner/Info.plist, Registers the same scheme under CFBundleURLTypes.]
-      - type: linkGrid
-        id: source
-        title: Sample source
-        items:
-          - label: Sample on GitHub
-            href: https://github.com/thunder-id/samples/tree/main/samples/integrations/flutter-app-auth
-            external: true
-          - label: Sample README
-            href: https://github.com/thunder-id/samples/blob/main/samples/integrations/flutter-app-auth/README.md
             external: true
 
 rail:

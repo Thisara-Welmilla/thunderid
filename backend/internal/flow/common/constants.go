@@ -244,8 +244,9 @@ const (
 	// on both the consumption device and the authentication device to correlate the CIBA request.
 	RuntimeKeyBindingMessage = "bindingMessage"
 	// RuntimeKeyEntityState holds the entity existence state, set by the IdentifyingExecutor in
-	// check_state mode, or by the federated auth executors and the linking executor once the
-	// identity resolves to an entity.
+	// check_state and resolve modes, or by the federated auth executors and the linking executor
+	// once the identity resolves to an entity. The federated auth executors set it to ambiguous when
+	// several entities hold the identity's link.
 	RuntimeKeyEntityState = "entityState"
 	// RuntimeKeyExternalIdentity holds what an external party asserted, as the JSON encoding of
 	// core.ExternalIdentity: the connection and subject of a federated authentication, and the claims.

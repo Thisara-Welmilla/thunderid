@@ -107,6 +107,36 @@ const {mockAttributes} = vi.hoisted(() => ({
       enum: [],
       regex: '',
     },
+    {
+      name: 'workMail',
+      displayName: '',
+      type: 'email',
+      required: false,
+      unique: false,
+      credential: false,
+      enum: [],
+      regex: '^[^\\s@]+@[^\\s@]+$',
+    },
+    {
+      name: 'altMail',
+      displayName: '',
+      type: 'email',
+      required: false,
+      unique: false,
+      credential: false,
+      enum: [],
+      regex: '^[^\\s@]+@[^\\s@]+$',
+    },
+    {
+      name: 'phone',
+      displayName: '',
+      type: 'mobile',
+      required: false,
+      unique: false,
+      credential: false,
+      enum: [],
+      regex: '^\\+[1-9]\\d{1,14}$',
+    },
   ] as LibraryAttribute[],
 }));
 
@@ -886,6 +916,167 @@ describe('CreateUserTypePage', () => {
           },
         },
         systemAttributes: {display: 'employeeId'},
+      });
+    });
+  });
+
+  it('submits the sole email and mobile attributes as primary contacts', async () => {
+    const user = userEvent.setup();
+    mockMutateAsync.mockResolvedValue(undefined);
+
+    renderPage();
+
+    await goToPropertiesStep(user, 'Contacts');
+    await addAttribute(user, 'workMail');
+    await addAttribute(user, 'phone');
+
+    await user.click(screen.getByRole('button', {name: /Create User Type/i}));
+
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          schema: {
+            workMail: {type: 'email', required: false, regex: '^[^\\s@]+@[^\\s@]+$'},
+            phone: {type: 'mobile', required: false, regex: '^\\+[1-9]\\d{1,14}$'},
+          },
+          systemAttributes: expect.objectContaining({primaryEmail: 'workMail', primaryMobile: 'phone'}) as unknown,
+        }),
+      );
+    });
+  });
+
+  it('submits the selected primary email when several email attributes exist', async () => {
+    const user = userEvent.setup();
+    mockMutateAsync.mockResolvedValue(undefined);
+
+    renderPage();
+
+    await goToPropertiesStep(user, 'Contacts');
+    await addAttribute(user, 'workMail');
+    await addAttribute(user, 'altMail');
+
+    const [workPrimary, altPrimary] = screen.getAllByLabelText('Primary');
+    expect(workPrimary).toBeChecked();
+    expect(altPrimary).not.toBeChecked();
+    await user.click(altPrimary);
+
+    await user.click(screen.getByRole('button', {name: /Create User Type/i}));
+
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          systemAttributes: expect.objectContaining({primaryEmail: 'altMail'}) as unknown,
+        }),
+      );
+    });
+  });
+
+  it.each(['workMail', 'phone'])('submits named properties while ignoring an unnamed %s row', async (attribute) => {
+    const user = userEvent.setup();
+    mockMutateAsync.mockResolvedValue(undefined);
+    renderPage();
+
+    await goToPropertiesStep(user, 'Contacts');
+    await addAttribute(user, 'username');
+    await addAttribute(user, attribute);
+    await user.clear(getPropertyNameInputs()[1]);
+
+    const submit = screen.getByRole('button', {name: /Create User Type/i});
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledWith({
+        handle: 'contacts',
+        displayName: 'Contacts',
+        ouId: 'root-ou',
+        schema: {username: {type: 'string', required: true, unique: true}},
+        systemAttributes: {display: 'username'},
+      });
+    });
+  });
+
+  it('disables submit when a contact attribute has no regex', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await goToPropertiesStep(user, 'Contacts');
+    await addAttribute(user, 'workMail');
+
+    await user.clear(screen.getByDisplayValue('^[^\\s@]+@[^\\s@]+$'));
+
+    expect(screen.getByRole('button', {name: /Create User Type/i})).toBeDisabled();
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['workMail', '', 'email', 'primaryEmail'],
+    ['workMail', ' ', 'email', 'primaryEmail'],
+    ['phone', '', 'mobile', 'primaryMobile'],
+    ['phone', ' ', 'mobile', 'primaryMobile'],
+  ] as const)(
+    'submits a sole named %s after an unnamed same-type draft (%j)',
+    async (attribute, draftName, type, primaryKey) => {
+      const user = userEvent.setup();
+      mockMutateAsync.mockResolvedValue(undefined);
+      renderPage();
+
+      await goToPropertiesStep(user, 'Contacts');
+      await addAttribute(user, attribute);
+      await user.clear(getPropertyNameInputs()[0]);
+      if (draftName) await user.type(getPropertyNameInputs()[0], draftName);
+      await addAttribute(user, attribute);
+
+      const [draftPrimary, namedPrimary] = screen.getAllByLabelText('Primary');
+      expect(draftPrimary).not.toBeChecked();
+      expect(namedPrimary).toBeChecked();
+      const submit = screen.getByRole('button', {name: /Create User Type/i});
+      expect(submit).toBeEnabled();
+      await user.click(submit);
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledWith({
+          handle: 'contacts',
+          displayName: 'Contacts',
+          ouId: 'root-ou',
+          schema: {
+            [attribute]: {
+              type,
+              required: false,
+              regex: type === 'email' ? '^[^\\s@]+@[^\\s@]+$' : '^\\+[1-9]\\d{1,14}$',
+            },
+          },
+          systemAttributes: {display: attribute, [primaryKey]: attribute},
+        });
+      });
+    },
+  );
+
+  it('selects the remaining named email when the previous primary name is cleared', async () => {
+    const user = userEvent.setup();
+    mockMutateAsync.mockResolvedValue(undefined);
+    renderPage();
+
+    await goToPropertiesStep(user, 'Contacts');
+    await addAttribute(user, 'username');
+    await addAttribute(user, 'workMail');
+    await addAttribute(user, 'altMail');
+    await user.clear(getPropertyNameInputs()[1]);
+
+    const [draftPrimary, namedPrimary] = screen.getAllByLabelText('Primary');
+    expect(draftPrimary).not.toBeChecked();
+    expect(namedPrimary).toBeChecked();
+    await user.click(screen.getByRole('button', {name: /Create User Type/i}));
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledWith({
+        handle: 'contacts',
+        displayName: 'Contacts',
+        ouId: 'root-ou',
+        schema: {
+          username: {type: 'string', required: true, unique: true},
+          altMail: {type: 'email', required: false, regex: '^[^\\s@]+@[^\\s@]+$'},
+        },
+        systemAttributes: {display: 'username', primaryEmail: 'altMail'},
       });
     });
   });

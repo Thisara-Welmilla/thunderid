@@ -2818,6 +2818,26 @@ func (suite *HandlerTestSuite) TestSharingPolicyPostPassesNamedRoots() {
 	suite.Equal(http.StatusCreated, w.Code, "body: %s", w.Body.String())
 }
 
+// An edit cannot change whose decision a policy is, since that would be another policy, so a PUT
+// naming an issuer is refused rather than answered with the old issuer as though it had applied.
+func (suite *HandlerTestSuite) TestSharingPolicyPutRefusesAnIssuer() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+
+	w := httptest.NewRecorder()
+	handler.HandleSharingPolicyPutRequest(w, sharingRequest(http.MethodPut,
+		"/applications/app-1/sharing-policies/p1",
+		map[string]interface{}{"version": 1, "initiatingOuId": "another-ou",
+			"childUnits": map[string]string{"mode": "all"}},
+		map[string]string{"id": "app-1", "policyId": "p1"}))
+
+	// The service mock records no call: the body never gets that far.
+	suite.Require().Equal(http.StatusBadRequest, w.Code, "body: %s", w.Body.String())
+	var body map[string]interface{}
+	suite.Require().NoError(json.Unmarshal(w.Body.Bytes(), &body))
+	suite.Equal(ErrorInvalidRequestFormat.Code, body["code"])
+}
+
 // An edit restates a deployment-wide section to move its exclusions, so the refusal a create gets
 // does not apply here. Whether the edit widens the policy is the framework's rule to enforce.
 func (suite *HandlerTestSuite) TestSharingPolicyPutPassesADeploymentWideSection() {

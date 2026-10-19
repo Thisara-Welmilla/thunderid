@@ -810,6 +810,67 @@ func (s *ApplicationImportExportSuite) TestDeleteApplicationRemovesItsSharingPol
 	s.Equal(float64(0), listed["totalResults"], "the deleted application's policies went with it")
 }
 
+// An export copied to make a second application in the same deployment still carries the source's
+// policy ids. The copy's sharing is stored under ids of its own, and the source keeps its policy.
+func (s *ApplicationImportExportSuite) TestImportOfACopiedDocumentGetsItsOwnSharing() {
+	appName := "App Clone Src " + s.handleSuffix
+	sourceID, err := createApplication(Application{
+		OUID: s.ouID, Name: appName, Description: "Source of a copied document",
+		Template: "web", AuthFlowID: s.authFlowID,
+		InboundAuthConfig: []InboundAuthConfig{{
+			Type: "oauth2",
+			OAuthAppConfig: &OAuthAppConfig{
+				ClientID:                "app-clone-src-" + s.handleSuffix,
+				ClientSecret:            "app-clone-src-secret",
+				RedirectURIs:            []string{"https://app-clone.example.com/callback"},
+				GrantTypes:              []string{"client_credentials"},
+				TokenEndpointAuthMethod: "client_secret_basic",
+			},
+		}},
+	})
+	s.Require().NoError(err)
+	defer func() { _ = deleteApplication(sourceID) }()
+
+	sourceBase := "/applications/" + sourceID + "/sharing-policies"
+	status, sourcePolicy := s.sharingRequest(http.MethodPost, sourceBase,
+		map[string]interface{}{"childUnits": allChildUnits()})
+	s.Require().Equal(http.StatusCreated, status, "body: %v", sourcePolicy)
+
+	exported, err := s.exportApps(appExportRequest{Applications: []string{sourceID}})
+	s.Require().NoError(err)
+	// The copy is a new application: no id of its own yet, another name, another client.
+	content := withoutTopLevelKey(exported.Resources, "id")
+	content = strings.Replace(content, "name: "+appName, "name: App Clone Copy "+s.handleSuffix, 1)
+	vars := s.extractTemplateVariables(content, map[string]interface{}{
+		"clientId":     "app-clone-copy-" + s.handleSuffix,
+		"clientSecret": "app-clone-copy-secret",
+		"redirectUris": []string{"https://app-clone.example.com/callback"},
+	})
+
+	imported, err := s.importApps(appImportRequest{
+		Content: content, Variables: vars,
+		Options: appImportOptions{Upsert: true, ContinueOnError: false},
+	})
+	s.Require().NoError(err)
+	s.Require().Zero(imported.Summary.Failed, "import results: %+v", imported.Results)
+	copyID := imported.Results[0].ResourceID
+	s.Require().NotEqual(sourceID, copyID, "the copy is a new application")
+	defer func() { _ = deleteApplication(copyID) }()
+
+	status, copied := s.sharingRequest(http.MethodGet, "/applications/"+copyID+"/sharing-policies", nil)
+	s.Require().Equal(http.StatusOK, status, "body: %v", copied)
+	copiedPolicies, _ := copied["policies"].([]interface{})
+	s.Require().Len(copiedPolicies, 1, "the copy carries the sharing the document declared")
+	s.NotEqual(sourcePolicy["id"], copiedPolicies[0].(map[string]interface{})["id"],
+		"under an id of its own")
+
+	status, source := s.sharingRequest(http.MethodGet, sourceBase, nil)
+	s.Require().Equal(http.StatusOK, status, "body: %v", source)
+	sourcePolicies, _ := source["policies"].([]interface{})
+	s.Require().Len(sourcePolicies, 1)
+	s.Equal(sourcePolicy["id"], sourcePolicies[0].(map[string]interface{})["id"], "the source keeps its policy")
+}
+
 // withoutTopLevelKey drops one top-level key and its block from a YAML document, leaving the rest
 // of the text as it was so the export's template placeholders survive.
 func withoutTopLevelKey(content, key string) string {

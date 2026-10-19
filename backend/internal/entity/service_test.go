@@ -21,6 +21,7 @@ import (
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 	"github.com/thunder-id/thunderid/tests/mocks/crypto/hashmock"
 	"github.com/thunder-id/thunderid/tests/mocks/entitytypemock"
+	"github.com/thunder-id/thunderid/tests/mocks/oumock"
 )
 
 type ServiceTestSuite struct {
@@ -97,42 +98,17 @@ func (s *ServiceTestSuite) TestCreateEntity_Success() {
 	s.Equal(e.ID, got.ID)
 }
 
-// A new entity linked to a subject another entity holds is refused before anything is written, and
-// a subject nobody holds is written as the entity's linkedIds.
+// A new entity's link is written as its linkedIds whether or not other entities hold the subject.
 func (s *ServiceTestSuite) TestCreateEntity_LinkedAccount() {
-	other := "someone-else"
-	for name, tc := range map[string]struct {
-		holder  *string
-		lookErr error
-		wantErr error
-	}{
-		"free":      {lookErr: ErrEntityNotFound},
-		"held":      {holder: &other, wantErr: ErrLinkedAccountConflict},
-		"ambiguous": {lookErr: ErrAmbiguousEntity, wantErr: ErrLinkedAccountConflict},
-	} {
-		s.Run(name, func() {
-			s.SetupTest()
-			e := testEntity("e-linked")
-			s.store.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").
-				Return(tc.holder, tc.lookErr).Once()
-			if tc.wantErr == nil {
-				s.store.On("CreateEntity", mock.Anything, mock.MatchedBy(func(got providers.Entity) bool {
-					return string(got.SystemAttributes) == `{"linkedIds":{"idp-a":{"sub-1":{}}}}`
-				}), json.RawMessage(nil), json.RawMessage(nil)).Return(nil).Once()
-				s.store.On("GetEntity", mock.Anything, e.ID).Return(*e, nil).Once()
-			}
+	e := testEntity("e-linked")
+	s.store.On("CreateEntity", mock.Anything, mock.MatchedBy(func(got providers.Entity) bool {
+		return string(got.SystemAttributes) == `{"linkedIds":{"idp-a":{"sub-1":{}}}}`
+	}), json.RawMessage(nil), json.RawMessage(nil)).Return(nil).Once()
+	s.store.On("GetEntity", mock.Anything, e.ID).Return(*e, nil).Once()
 
-			_, err := s.svc.CreateEntity(s.ctx, e, nil, &providers.LinkedAccount{IdpID: "idp-a", Sub: "sub-1"})
-
-			if tc.wantErr == nil {
-				s.NoError(err)
-				return
-			}
-			s.ErrorIs(err, tc.wantErr)
-			s.store.AssertNotCalled(s.T(), "CreateEntity", mock.Anything, mock.Anything, mock.Anything,
-				mock.Anything)
-		})
-	}
+	_, err := s.svc.CreateEntity(s.ctx, e, nil, &providers.LinkedAccount{IdpID: "idp-a", Sub: "sub-1"})
+	s.NoError(err)
+	s.store.AssertNotCalled(s.T(), "ResolveLinkedAccounts", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func (s *ServiceTestSuite) TestGetEntity_Success() {
@@ -921,7 +897,7 @@ func (s *ServiceTestSuite) TestUpdateSystemCredentials_StampsOverLockedBlob() {
 
 func (s *ServiceTestSuite) TestLinkAccount_RecordsLink() {
 	e := testEntity("e-link")
-	s.expectLinkLock(*e, nil)
+	s.expectLinkLock(*e)
 
 	var written json.RawMessage
 	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.Anything).
@@ -933,7 +909,7 @@ func (s *ServiceTestSuite) TestLinkAccount_RecordsLink() {
 }
 
 // linkedIds a caller writes into the system attributes are dropped, so a link is created only through
-// the typed link and its conflict check.
+// the typed link.
 func (s *ServiceTestSuite) TestCreateEntity_CallerLinkedIDsDropped() {
 	e := testEntity("e-raw-links")
 	e.SystemAttributes = json.RawMessage(`{"name":"x","linkedIds":{"idp-a":{"sub-1":{}}}}`)
@@ -944,7 +920,6 @@ func (s *ServiceTestSuite) TestCreateEntity_CallerLinkedIDsDropped() {
 
 	_, err := s.svc.CreateEntity(s.ctx, e, nil, nil)
 	s.NoError(err)
-	s.store.AssertNotCalled(s.T(), "ResolveLinkedAccount", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // A link missing its connection or subject names nothing, so the create is refused before anything
@@ -964,7 +939,7 @@ func (s *ServiceTestSuite) TestCreateEntity_IncompleteLinkRejected() {
 func (s *ServiceTestSuite) TestLinkAccount_AddsSecondConnection() {
 	e := testEntity("e-link-2")
 	e.SystemAttributes = json.RawMessage(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`)
-	s.expectLinkLock(*e, nil)
+	s.expectLinkLock(*e)
 
 	var written json.RawMessage
 	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.Anything).
@@ -982,7 +957,7 @@ func (s *ServiceTestSuite) TestLinkAccount_AddsSecondConnection() {
 func (s *ServiceTestSuite) TestLinkAccount_SameSubjectIsNoOp() {
 	e := testEntity("e-link-3")
 	e.SystemAttributes = json.RawMessage(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`)
-	s.expectLinkLock(*e, nil)
+	s.expectLinkLock(*e)
 
 	s.NoError(s.svc.LinkAccount(s.ctx, e.ID, "idp-a", "sub-1"))
 	s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything)
@@ -994,7 +969,7 @@ func (s *ServiceTestSuite) TestLinkAccount_SameSubjectIsNoOp() {
 func (s *ServiceTestSuite) TestLinkAccount_AddsSecondSubjectAtSameConnection() {
 	e := testEntity("e-link-4")
 	e.SystemAttributes = json.RawMessage(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`)
-	s.expectLinkLock(*e, nil)
+	s.expectLinkLock(*e)
 
 	var written json.RawMessage
 	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.Anything).
@@ -1010,43 +985,29 @@ func (s *ServiceTestSuite) TestLinkAccount_AddsSecondSubjectAtSameConnection() {
 		"a second account at the same connection must not replace the first")
 }
 
-// expectLinkLock expects the link write to lock the entity, reading it as e, and look the pair up,
-// answering with holder as the entity that already holds it (nil for none).
-func (s *ServiceTestSuite) expectLinkLock(e providers.Entity, holder *string) {
+// expectLinkLock expects the link write to lock the entity, reading it as e.
+func (s *ServiceTestSuite) expectLinkLock(e providers.Entity) {
 	s.store.On("LockEntity", mock.Anything, e.ID).Return(e, nil).Once()
-	if holder == nil {
-		s.store.On("ResolveLinkedAccount", mock.Anything, mock.Anything, mock.Anything).
-			Return(nil, ErrEntityNotFound).Once()
-		return
-	}
-	s.store.On("ResolveLinkedAccount", mock.Anything, mock.Anything, mock.Anything).
-		Return(holder, nil).Once()
 }
 
-func (s *ServiceTestSuite) TestLinkAccount_RefusesPairHeldByAnotherEntity() {
-	other := "e-other"
-	s.expectLinkLock(*testEntity("e-link-5"), &other)
-
-	s.ErrorIs(s.svc.LinkAccount(s.ctx, "e-link-5", "idp-a", "sub-1"), ErrLinkedAccountConflict)
-	s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything)
-}
-
-func (s *ServiceTestSuite) TestLinkAccount_RefusesAmbiguousPair() {
-	s.store.On("LockEntity", mock.Anything, "e-link-6").Return(*testEntity("e-link-6"), nil).Once()
-	s.store.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").
-		Return(nil, ErrAmbiguousEntity).Once()
-
-	s.ErrorIs(s.svc.LinkAccount(s.ctx, "e-link-6", "idp-a", "sub-1"), ErrLinkedAccountConflict)
-	s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything)
-}
-
-// The entity's own pair resolving to itself is a repeat link, not a conflict.
-func (s *ServiceTestSuite) TestLinkAccount_OwnPairIsNotAConflict() {
-	e := testEntity("e-link-7")
-	e.SystemAttributes = json.RawMessage(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`)
-	s.expectLinkLock(*e, &e.ID)
+// Several entities may hold one subject, so linking never looks up who else holds it.
+func (s *ServiceTestSuite) TestLinkAccount_DoesNotCheckOtherHolders() {
+	e := testEntity("e-link-5")
+	s.expectLinkLock(*e)
+	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.Anything).Return(nil).Once()
 
 	s.NoError(s.svc.LinkAccount(s.ctx, e.ID, "idp-a", "sub-1"))
+	s.store.AssertNotCalled(s.T(), "ResolveLinkedAccounts", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// The entity's own pair is a repeat link, so nothing is written.
+func (s *ServiceTestSuite) TestLinkAccount_OwnPairIsNotRewritten() {
+	e := testEntity("e-link-7")
+	e.SystemAttributes = json.RawMessage(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`)
+	s.expectLinkLock(*e)
+
+	s.NoError(s.svc.LinkAccount(s.ctx, e.ID, "idp-a", "sub-1"))
+	s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func (s *ServiceTestSuite) TestLinkAccount_LockFailureWritesNothing() {
@@ -1054,7 +1015,6 @@ func (s *ServiceTestSuite) TestLinkAccount_LockFailureWritesNothing() {
 	s.store.On("LockEntity", mock.Anything, "e-link-8").Return(providers.Entity{}, lockErr).Once()
 
 	s.ErrorIs(s.svc.LinkAccount(s.ctx, "e-link-8", "idp-a", "sub-1"), lockErr)
-	s.store.AssertNotCalled(s.T(), "ResolveLinkedAccount", mock.Anything, mock.Anything, mock.Anything)
 	s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything)
 }
 
@@ -1072,10 +1032,10 @@ func (s *ServiceTestSuite) TestLinkAccount_EnforcesLinkLimit() {
 	e := testEntity("e-link-full")
 	e.SystemAttributes = blob
 
-	s.expectLinkLock(*e, nil)
+	s.expectLinkLock(*e)
 	s.ErrorIs(s.svc.LinkAccount(s.ctx, e.ID, "idp-b", "sub-new"), ErrIndexedValueLimitExceeded)
 
-	s.expectLinkLock(*e, nil)
+	s.expectLinkLock(*e)
 	s.NoError(s.svc.LinkAccount(s.ctx, e.ID, "idp-a", "sub-0"))
 	s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything)
 }
@@ -1089,7 +1049,7 @@ func (s *ServiceTestSuite) TestLinkAccount_RefusesMalformedStoredLinks() {
 	} {
 		e := testEntity("e-link-bad")
 		e.SystemAttributes = json.RawMessage(blob)
-		s.expectLinkLock(*e, nil)
+		s.expectLinkLock(*e)
 		s.Error(s.svc.LinkAccount(s.ctx, e.ID, "idp-a", "sub-2"), name)
 	}
 	s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything)
@@ -1099,7 +1059,7 @@ func (s *ServiceTestSuite) TestLinkAccount_RefusesMalformedStoredLinks() {
 func (s *ServiceTestSuite) TestLinkAccount_NullLinksStartEmpty() {
 	e := testEntity("e-link-null")
 	e.SystemAttributes = json.RawMessage(`{"linkedIds":null}`)
-	s.expectLinkLock(*e, nil)
+	s.expectLinkLock(*e)
 
 	var written json.RawMessage
 	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.Anything).
@@ -1115,23 +1075,60 @@ func (s *ServiceTestSuite) TestLinkAccount_RejectsEmptyArguments() {
 	s.ErrorIs(s.svc.LinkAccount(s.ctx, "e1", "idp-a", ""), ErrBadAttributesInRequest)
 }
 
-func (s *ServiceTestSuite) TestResolveLinkedAccount_Delegates() {
-	expected := "e-resolved"
-	s.store.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").Return(&expected, nil)
+func (s *ServiceTestSuite) TestResolveLinkedAccounts_Delegates() {
+	expected := []string{"e-resolved", "e-other"}
+	s.store.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return(expected, nil)
 
-	got, err := s.svc.ResolveLinkedAccount(s.ctx, "idp-a", "sub-1")
+	got, err := s.svc.ResolveLinkedAccounts(s.ctx, "idp-a", "sub-1")
 	s.Require().NoError(err)
-	s.Equal(expected, *got)
+	s.Equal(expected, got)
 }
 
 // A subject is unique only within its issuing connection, so both parts are required and a missing
 // one is a bad request rather than a broad lookup.
-func (s *ServiceTestSuite) TestResolveLinkedAccount_RejectsEmptyArguments() {
-	_, err := s.svc.ResolveLinkedAccount(s.ctx, "", "sub-1")
+func (s *ServiceTestSuite) TestResolveLinkedAccounts_RejectsEmptyArguments() {
+	_, err := s.svc.ResolveLinkedAccounts(s.ctx, "", "sub-1")
 	s.ErrorIs(err, ErrBadAttributesInRequest)
-	_, err = s.svc.ResolveLinkedAccount(s.ctx, "idp-a", "")
+	_, err = s.svc.ResolveLinkedAccounts(s.ctx, "idp-a", "")
 	s.ErrorIs(err, ErrBadAttributesInRequest)
-	s.store.AssertNotCalled(s.T(), "ResolveLinkedAccount", mock.Anything, mock.Anything, mock.Anything)
+	s.store.AssertNotCalled(s.T(), "ResolveLinkedAccounts", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Every holder of the subject is returned with its OU handle, for the user to pick between them.
+func (s *ServiceTestSuite) TestGetLinkedEntities_ReturnsHoldersWithOUHandles() {
+	ouService := oumock.NewOrganizationUnitServiceInterfaceMock(s.T())
+	s.svc = newEntityService(s.store, s.hashService, nil, ouService, transaction.NewNoOpTransactioner())
+	first, second := testEntity("e-holder-1"), testEntity("e-holder-2")
+	second.OUID = "ou-2"
+	s.store.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").
+		Return([]string{first.ID, second.ID}, nil).Once()
+	s.store.On("GetEntitiesByIDs", mock.Anything, []string{first.ID, second.ID}).
+		Return([]providers.Entity{*first, *second}, nil).Once()
+	ouService.On("GetOrganizationUnitHandlesByIDs", mock.Anything, []string{"ou-1", "ou-2"}).
+		Return(map[string]string{"ou-1": "sales", "ou-2": "support"}, nil).Once()
+
+	got, err := s.svc.GetLinkedEntities(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Require().Len(got, 2)
+	s.Equal("sales", got[0].OUHandle)
+	s.Equal("support", got[1].OUHandle)
+}
+
+func (s *ServiceTestSuite) TestGetLinkedEntities_NoHolders() {
+	s.store.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{}, nil).Once()
+	s.store.On("GetEntitiesByIDs", mock.Anything, []string{}).Return([]providers.Entity{}, nil).Once()
+
+	got, err := s.svc.GetLinkedEntities(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Empty(got)
+}
+
+func (s *ServiceTestSuite) TestGetLinkedEntities_GetEntitiesFails() {
+	s.store.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").Return([]string{"e-1"}, nil).Once()
+	s.store.On("GetEntitiesByIDs", mock.Anything, []string{"e-1"}).Return(nil, s.testErr).Once()
+
+	_, err := s.svc.GetLinkedEntities(s.ctx, "idp-a", "sub-1")
+	s.ErrorIs(err, s.testErr)
 }
 
 // An entity with no marker recorded is written through untouched.
@@ -1193,4 +1190,134 @@ func (s *ServiceTestSuite) TestUpdateSystemAttributes_ValuesAtLimitAccepted() {
 	store.On("UpdateSystemAttributes", mock.Anything, "e1", mock.IsType(json.RawMessage(nil))).Return(nil)
 
 	s.NoError(svc.UpdateSystemAttributes(s.ctx, "e1", attrs))
+}
+
+// legacyEntity is a user federated before links were recorded: its subject sits only in sub.
+func legacyEntity(id, sub string) providers.Entity {
+	attrs, _ := json.Marshal(map[string]interface{}{"username": "user-" + id, "sub": sub})
+	e := testEntity(id)
+	e.Attributes = attrs
+	return *e
+}
+
+func (s *ServiceTestSuite) expectLegacyLookup(e providers.Entity) {
+	s.store.On("SearchEntities", mock.Anything, map[string]interface{}{"sub": "sub-1"}).
+		Return([]providers.Entity{e}, nil).Once()
+	s.expectLegacyLock(e)
+}
+
+func (s *ServiceTestSuite) expectLegacyLock(e providers.Entity) {
+	s.store.On("LockEntity", mock.Anything, e.ID).Return(e, nil).Once()
+}
+
+func (s *ServiceTestSuite) TestClaimLegacySubject_LinksAndDropsSub() {
+	e := legacyEntity("e-legacy", "sub-1")
+	s.expectLegacyLookup(e)
+
+	var sysWritten, attrsWritten json.RawMessage
+	s.store.On("UpdateSystemAttributes", mock.Anything, e.ID, mock.Anything).
+		Run(func(args mock.Arguments) { sysWritten, _ = args.Get(2).(json.RawMessage) }).Return(nil).Once()
+	s.store.On("UpdateAttributes", mock.Anything, e.ID, mock.Anything).
+		Run(func(args mock.Arguments) { attrsWritten, _ = args.Get(2).(json.RawMessage) }).Return(nil).Once()
+
+	got, err := s.svc.ClaimLegacySubject(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Equal([]string{e.ID}, got)
+	s.JSONEq(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`, string(sysWritten))
+	s.JSONEq(`{"username":"user-e-legacy"}`, string(attrsWritten))
+}
+
+// One subject may be held by users in several OUs, and before links a sign-in matched sub whatever
+// else the user held. Every holder is claimed, credentials and other links included, and the flow
+// lets the person pick between them.
+func (s *ServiceTestSuite) TestClaimLegacySubject_ClaimsEveryHolder() {
+	plain := legacyEntity("e-plain", "sub-1")
+	withPassword := legacyEntity("e-password", "sub-1")
+	withLink := legacyEntity("e-linked", "sub-1")
+	withLink.SystemAttributes = json.RawMessage(`{"linkedIds":{"idp-b":{"other":{}}}}`)
+	s.store.On("SearchEntities", mock.Anything, map[string]interface{}{"sub": "sub-1"}).
+		Return([]providers.Entity{plain, withPassword, withLink}, nil).Once()
+	s.expectLegacyLock(plain)
+	s.expectLegacyLock(withPassword)
+	s.expectLegacyLock(withLink)
+
+	var linkedSys json.RawMessage
+	s.store.On("UpdateSystemAttributes", mock.Anything, withLink.ID, mock.Anything).
+		Run(func(args mock.Arguments) { linkedSys, _ = args.Get(2).(json.RawMessage) }).Return(nil).Once()
+	s.store.On("UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything).Return(nil).Twice()
+	s.store.On("UpdateAttributes", mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(3)
+
+	got, err := s.svc.ClaimLegacySubject(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Equal([]string{plain.ID, withPassword.ID, withLink.ID}, got)
+	s.JSONEq(`{"linkedIds":{"idp-a":{"sub-1":{}},"idp-b":{"other":{}}}}`, string(linkedSys),
+		"the new link should sit beside the existing one")
+	s.store.AssertNotCalled(s.T(), "GetEntityWithCredentials", mock.Anything, mock.Anything)
+}
+
+func (s *ServiceTestSuite) TestClaimLegacySubject_NoHolderClaimsNothing() {
+	s.store.On("SearchEntities", mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Once()
+
+	got, err := s.svc.ClaimLegacySubject(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Empty(got)
+	s.store.AssertNotCalled(s.T(), "LockEntity", mock.Anything, mock.Anything)
+}
+
+func (s *ServiceTestSuite) TestClaimLegacySubject_LookupErrorPassesThrough() {
+	lookupErr := errors.New("db down")
+	s.store.On("SearchEntities", mock.Anything, mock.Anything).Return(nil, lookupErr).Once()
+
+	_, err := s.svc.ClaimLegacySubject(s.ctx, "idp-a", "sub-1")
+	s.ErrorIs(err, lookupErr)
+	s.store.AssertNotCalled(s.T(), "LockEntity", mock.Anything, mock.Anything)
+}
+
+// A holder already on this link, recorded by a concurrent claim, keeps its system attributes and
+// still drops sub.
+func (s *ServiceTestSuite) TestClaimLegacySubject_AlreadyLinkedDropsSubOnly() {
+	e := legacyEntity("e-linked", "sub-1")
+	e.SystemAttributes = json.RawMessage(`{"linkedIds":{"idp-a":{"sub-1":{}}}}`)
+	s.expectLegacyLookup(e)
+	s.store.On("UpdateAttributes", mock.Anything, e.ID, mock.Anything).Return(nil).Once()
+
+	got, err := s.svc.ClaimLegacySubject(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Equal([]string{e.ID}, got)
+	s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// The lookup ran outside the lock, so a sub a concurrent claim or edit changed is not claimed.
+func (s *ServiceTestSuite) TestClaimLegacySubject_SubChangedUnderLock() {
+	e := legacyEntity("e-raced", "sub-other")
+	s.expectLegacyLookup(e)
+
+	got, err := s.svc.ClaimLegacySubject(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Empty(got)
+	s.store.AssertNotCalled(s.T(), "UpdateSystemAttributes", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A declarative holder, or one deleted after the search, is not found under the lock. It is skipped
+// rather than failing the claim for every other holder.
+func (s *ServiceTestSuite) TestClaimLegacySubject_SkipsHolderNotFoundUnderLock() {
+	declarative := legacyEntity("e-declarative", "sub-1")
+	legacy := legacyEntity("e-legacy", "sub-1")
+	s.store.On("SearchEntities", mock.Anything, map[string]interface{}{"sub": "sub-1"}).
+		Return([]providers.Entity{declarative, legacy}, nil).Once()
+	s.store.On("LockEntity", mock.Anything, declarative.ID).Return(providers.Entity{}, ErrEntityNotFound).Once()
+	s.expectLegacyLock(legacy)
+	s.store.On("UpdateSystemAttributes", mock.Anything, legacy.ID, mock.Anything).Return(nil).Once()
+	s.store.On("UpdateAttributes", mock.Anything, legacy.ID, mock.Anything).Return(nil).Once()
+
+	got, err := s.svc.ClaimLegacySubject(s.ctx, "idp-a", "sub-1")
+	s.Require().NoError(err)
+	s.Equal([]string{legacy.ID}, got)
+}
+
+func (s *ServiceTestSuite) TestClaimLegacySubject_RequiresConnectionAndSubject() {
+	_, err := s.svc.ClaimLegacySubject(s.ctx, "", "sub-1")
+	s.ErrorIs(err, ErrBadAttributesInRequest)
+	_, err = s.svc.ClaimLegacySubject(s.ctx, "idp-a", "")
+	s.ErrorIs(err, ErrBadAttributesInRequest)
 }

@@ -38,6 +38,14 @@ export type {TemplateLiteralResult, TemplateLiteralHandlers} from './template/pa
 
 // Validation
 export {EMAIL_REGEX} from './validation/emailRegex';
+export {
+  CONTACT_ATTRIBUTE_REGEX,
+  CONTACT_ATTRIBUTE_TYPES,
+  getContactTypesMissingRegex,
+  isContactAttributeType,
+  resolveAttributeRegex,
+} from './validation/contactAttribute';
+export type {ContactAttributeType} from './validation/contactAttribute';
 
 // Administration Flows
 export {

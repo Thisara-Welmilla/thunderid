@@ -191,13 +191,15 @@ func writeInvalidBody(ctx context.Context, w http.ResponseWriter) {
 	})
 }
 
-// writeSenderMappingError reports a failure to map a request onto a sender DTO. The mapping
-// rejects a payload naming an authentication method the server does not implement, which is the
-// caller's mistake and must not be reported as a server fault; everything else that can fail
-// here is building a property, which is.
+// writeSenderMappingError reports authentication validation as a client error while retaining a
+// server error for failures to construct or encrypt sender properties.
 func writeSenderMappingError(ctx context.Context, w http.ResponseWriter, err error) {
 	if errors.Is(err, errUnsupportedAuthenticationType) {
 		writeServiceError(ctx, w, &ErrorInvalidAuthenticationType)
+		return
+	}
+	if errors.Is(err, errInvalidSMSGatewayAuthentication) {
+		writeServiceError(ctx, w, &notification.ErrorInvalidRequestFormat)
 		return
 	}
 	writeServiceError(ctx, w, &tidcommon.InternalServerError)

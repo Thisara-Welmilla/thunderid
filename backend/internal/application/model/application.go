@@ -192,12 +192,19 @@ type ApplicationListResponse struct {
 	Applications []BasicApplicationResponse `json:"applications"`
 }
 
-// SharingPolicyRequest is a sharing policy as this API accepts one, which is narrower than what
+// SharingPolicyRequest is a sharing policy as this API creates one, which is narrower than what
 // the framework can hold. It carries no policy id and no terms: the id is the framework's to mint
 // on an interactive create, and an application declares no overlay fields for terms to govern.
 // Declaring either here would accept bodies the published schema refuses.
 type SharingPolicyRequest struct {
-	InitiatingOUID string                        `json:"initiatingOuId,omitempty"`
+	InitiatingOUID string `json:"initiatingOuId,omitempty"`
+	SharingPolicyUpdateRequest
+}
+
+// SharingPolicyUpdateRequest is an edit of a sharing policy: its sections and the version being
+// edited. Whose decision the policy is cannot change, since that would be another policy, so an
+// edit does not carry it.
+type SharingPolicyUpdateRequest struct {
 	AllUnits       *SharingAllUnitsRequest       `json:"allUnits,omitempty"`
 	ChildUnits     *SharingChildUnitsRequest     `json:"childUnits,omitempty"`
 	OtherTreeRoots *SharingOtherTreeRootsRequest `json:"otherTreeRoots,omitempty"`

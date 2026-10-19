@@ -34,6 +34,11 @@ func (p *disabledEntityProvider) SearchEntities(
 	return nil, errNotImplemented
 }
 
+func (p *disabledEntityProvider) GetLinkedEntities(
+	_, _ string) ([]*providers.Entity, *EntityProviderError) {
+	return nil, errNotImplemented
+}
+
 func (p *disabledEntityProvider) GetEntity(
 	_ string) (*providers.Entity, *EntityProviderError) {
 	return nil, errNotImplemented

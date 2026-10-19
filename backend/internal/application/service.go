@@ -71,8 +71,6 @@ type ApplicationServiceInterface interface {
 	DeleteSharingPolicy(ctx context.Context, appID, policyID string) *tidcommon.ServiceError
 	ResolveSharingOverlay(ctx context.Context, appID, ouID string) (
 		sharing.ResolvedOverlay, *tidcommon.ServiceError)
-	ExportSharingPolicies(ctx context.Context, appID string) (
-		[]sharing.ReplayablePolicy, *tidcommon.ServiceError)
 }
 
 // artifactLifetimeResolver reports how long an artifact issued to the given OAuth client can remain
@@ -140,9 +138,13 @@ func (as *applicationService) CreateApplication(ctx context.Context, app *model.
 		return nil, &ErrorCannotModifyDeclarativeResource
 	}
 
-	// Check if an application with the same ID exists and is declarative (in composite mode)
-	if app.ID != "" && as.inboundClientService.IsDeclarative(ctx, app.ID) {
-		return nil, &ErrorCannotModifyDeclarativeResource
+	// Check if an application with the same ID exists and is declarative (in composite mode). An id
+	// no entity holds yet is the ordinary case for a create.
+	if app.ID != "" {
+		if svcErr := as.checkApplicationDeclarative(ctx, app.ID); svcErr != nil &&
+			svcErr.Code != ErrorApplicationNotFound.Code {
+			return nil, svcErr
+		}
 	}
 
 	processedDTO, inboundAuthConfig, svcErr := as.ValidateApplication(ctx, app)
@@ -424,14 +426,34 @@ func (as *applicationService) GetApplication(ctx context.Context, appID string) 
 	return as.enrichApplicationWithCertificate(ctx, buildApplicationResponse(fullApp))
 }
 
+// checkApplicationDeclarative refuses an application declared in a resource file, which cannot be
+// changed or removed through the API. An id no entity holds is answered as not found.
+func (as *applicationService) checkApplicationDeclarative(
+	ctx context.Context, appID string,
+) *tidcommon.ServiceError {
+	isDeclarative, err := as.entityService.IsEntityDeclarative(ctx, appID)
+	if err != nil {
+		if errors.Is(err, entity.ErrEntityNotFound) {
+			return &ErrorApplicationNotFound
+		}
+		as.logger.Error(ctx, "Failed to check whether the application is declarative",
+			log.String("appID", appID), log.Error(err))
+		return &tidcommon.InternalServerError
+	}
+	if isDeclarative {
+		return &ErrorCannotModifyDeclarativeResource
+	}
+	return nil
+}
+
 // UpdateApplication update the application for given app id.
 func (as *applicationService) UpdateApplication(ctx context.Context, appID string, app *model.ApplicationDTO) (
 	*model.ApplicationDTO, *tidcommon.ServiceError) {
 	if appID == "" {
 		return nil, &ErrorInvalidApplicationID
 	}
-	if as.inboundClientService.IsDeclarative(ctx, appID) {
-		return nil, &ErrorCannotModifyDeclarativeResource
+	if svcErr := as.checkApplicationDeclarative(ctx, appID); svcErr != nil {
+		return nil, svcErr
 	}
 	existingApp, inboundAuthConfig, svcErr := as.validateApplicationForUpdate(ctx, appID, app)
 
@@ -662,8 +684,14 @@ func (as *applicationService) DeleteApplication(ctx context.Context, appID strin
 				log.String("appID", appID), log.Error(entErr))
 			return &tidcommon.InternalServerError
 		}
-	} else if existing != nil && existing.Category != providers.EntityCategoryApp {
-		return &ErrorApplicationNotFound
+	} else if existing != nil {
+		if existing.Category != providers.EntityCategoryApp {
+			return &ErrorApplicationNotFound
+		}
+		// Refused before anything is removed. Only an entity that exists can be declared.
+		if svcErr := as.checkApplicationDeclarative(ctx, appID); svcErr != nil {
+			return svcErr
+		}
 	}
 
 	// Remove dependents that must be deleted with the application (e.g. its role assignments and
@@ -726,8 +754,8 @@ func (as *applicationService) ValidateDeleteApplication(ctx context.Context, app
 	if svcErr != nil {
 		return nil, svcErr
 	}
-	if as.inboundClientService.IsDeclarative(ctx, appID) {
-		return nil, &ErrorCannotModifyDeclarativeResource
+	if svcErr := as.checkApplicationDeclarative(ctx, appID); svcErr != nil {
+		return nil, svcErr
 	}
 	if as.dependencyRegistry == nil {
 		as.logger.Error(ctx, "Dependency registry not set; refusing to delete application",
@@ -790,8 +818,8 @@ func (as *applicationService) ValidateCredentialAction(
 	if svcErr != nil {
 		return nil, svcErr
 	}
-	if as.inboundClientService.IsDeclarative(ctx, appID) {
-		return nil, &ErrorCannotModifyDeclarativeResource
+	if svcErr := as.checkApplicationDeclarative(ctx, appID); svcErr != nil {
+		return nil, svcErr
 	}
 
 	clientID, err := clientIDFromEntity(existing)
@@ -2632,6 +2660,16 @@ func (as *applicationService) CreateSharingPolicy(
 	if svcErr != nil {
 		return sharing.Policy{}, svcErr
 	}
+	// Applications that load from resource files only have all their sharing declared there.
+	if isDeclarativeModeEnabled() {
+		return sharing.Policy{}, &ErrorCannotModifyDeclarativeResource
+	}
+	// A declared application's own sharing is declared with it.
+	if req.InitiatingOUID == "" || req.InitiatingOUID == owningOUID {
+		if svcErr := as.checkApplicationDeclarative(ctx, appID); svcErr != nil {
+			return sharing.Policy{}, svcErr
+		}
+	}
 	// The framework drops the caller's id and version on an interactive create, so a request
 	// carrying either is answered as though it had not.
 	policy, svcErr := as.sharingService.CreatePolicy(ctx, ApplicationSharingType, appID, owningOUID, req)
@@ -2663,6 +2701,9 @@ func (as *applicationService) UpdateSharingPolicy(
 	if _, svcErr := as.requireOwnPolicy(ctx, appID, policyID); svcErr != nil {
 		return sharing.Policy{}, svcErr
 	}
+	if isDeclarativeModeEnabled() {
+		return sharing.Policy{}, &ErrorCannotModifyDeclarativeResource
+	}
 	policy, svcErr := as.sharingService.UpdatePolicy(ctx, policyID, req)
 	return policy, translateSharingError(svcErr)
 }
@@ -2677,6 +2718,9 @@ func (as *applicationService) DeleteSharingPolicy(
 			return nil
 		}
 		return svcErr
+	}
+	if isDeclarativeModeEnabled() {
+		return &ErrorCannotModifyDeclarativeResource
 	}
 	if policy.Declared {
 		return &ErrorSharingPolicyDeclared
@@ -2709,12 +2753,4 @@ func (as *applicationService) ResolveSharingOverlay(
 		return sharing.ResolvedOverlay{}, &ErrorApplicationNotSharedToOU
 	}
 	return overlay, nil
-}
-
-// ExportSharingPolicies returns the application's policies in an order safe to replay.
-func (as *applicationService) ExportSharingPolicies(
-	ctx context.Context, appID string,
-) ([]sharing.ReplayablePolicy, *tidcommon.ServiceError) {
-	policies, svcErr := as.sharingService.ExportPolicies(ctx, ApplicationSharingType, appID)
-	return policies, translateSharingError(svcErr)
 }

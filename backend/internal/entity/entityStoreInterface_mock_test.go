@@ -1147,24 +1147,24 @@ func (_c *entityStoreInterfaceMock_LockEntity_Call) RunAndReturn(run func(ctx co
 	return _c
 }
 
-// ResolveLinkedAccount provides a mock function for the type entityStoreInterfaceMock
-func (_mock *entityStoreInterfaceMock) ResolveLinkedAccount(ctx context.Context, idpID string, sub string) (*string, error) {
+// ResolveLinkedAccounts provides a mock function for the type entityStoreInterfaceMock
+func (_mock *entityStoreInterfaceMock) ResolveLinkedAccounts(ctx context.Context, idpID string, sub string) ([]string, error) {
 	ret := _mock.Called(ctx, idpID, sub)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ResolveLinkedAccount")
+		panic("no return value specified for ResolveLinkedAccounts")
 	}
 
-	var r0 *string
+	var r0 []string
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*string, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) ([]string, error)); ok {
 		return returnFunc(ctx, idpID, sub)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *string); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) []string); ok {
 		r0 = returnFunc(ctx, idpID, sub)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*string)
+			r0 = ret.Get(0).([]string)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
@@ -1175,20 +1175,20 @@ func (_mock *entityStoreInterfaceMock) ResolveLinkedAccount(ctx context.Context,
 	return r0, r1
 }
 
-// entityStoreInterfaceMock_ResolveLinkedAccount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveLinkedAccount'
-type entityStoreInterfaceMock_ResolveLinkedAccount_Call struct {
+// entityStoreInterfaceMock_ResolveLinkedAccounts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveLinkedAccounts'
+type entityStoreInterfaceMock_ResolveLinkedAccounts_Call struct {
 	*mock.Call
 }
 
-// ResolveLinkedAccount is a helper method to define mock.On call
+// ResolveLinkedAccounts is a helper method to define mock.On call
 //   - ctx context.Context
 //   - idpID string
 //   - sub string
-func (_e *entityStoreInterfaceMock_Expecter) ResolveLinkedAccount(ctx any, idpID any, sub any) *entityStoreInterfaceMock_ResolveLinkedAccount_Call {
-	return &entityStoreInterfaceMock_ResolveLinkedAccount_Call{Call: _e.mock.On("ResolveLinkedAccount", ctx, idpID, sub)}
+func (_e *entityStoreInterfaceMock_Expecter) ResolveLinkedAccounts(ctx any, idpID any, sub any) *entityStoreInterfaceMock_ResolveLinkedAccounts_Call {
+	return &entityStoreInterfaceMock_ResolveLinkedAccounts_Call{Call: _e.mock.On("ResolveLinkedAccounts", ctx, idpID, sub)}
 }
 
-func (_c *entityStoreInterfaceMock_ResolveLinkedAccount_Call) Run(run func(ctx context.Context, idpID string, sub string)) *entityStoreInterfaceMock_ResolveLinkedAccount_Call {
+func (_c *entityStoreInterfaceMock_ResolveLinkedAccounts_Call) Run(run func(ctx context.Context, idpID string, sub string)) *entityStoreInterfaceMock_ResolveLinkedAccounts_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -1211,12 +1211,12 @@ func (_c *entityStoreInterfaceMock_ResolveLinkedAccount_Call) Run(run func(ctx c
 	return _c
 }
 
-func (_c *entityStoreInterfaceMock_ResolveLinkedAccount_Call) Return(s *string, err error) *entityStoreInterfaceMock_ResolveLinkedAccount_Call {
-	_c.Call.Return(s, err)
+func (_c *entityStoreInterfaceMock_ResolveLinkedAccounts_Call) Return(strings []string, err error) *entityStoreInterfaceMock_ResolveLinkedAccounts_Call {
+	_c.Call.Return(strings, err)
 	return _c
 }
 
-func (_c *entityStoreInterfaceMock_ResolveLinkedAccount_Call) RunAndReturn(run func(ctx context.Context, idpID string, sub string) (*string, error)) *entityStoreInterfaceMock_ResolveLinkedAccount_Call {
+func (_c *entityStoreInterfaceMock_ResolveLinkedAccounts_Call) RunAndReturn(run func(ctx context.Context, idpID string, sub string) ([]string, error)) *entityStoreInterfaceMock_ResolveLinkedAccounts_Call {
 	_c.Call.Return(run)
 	return _c
 }

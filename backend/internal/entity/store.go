@@ -46,7 +46,7 @@ type entityStoreInterface interface {
 
 	// Query
 	IdentifyEntity(ctx context.Context, filters map[string]interface{}) (*string, error)
-	ResolveLinkedAccount(ctx context.Context, idpID, sub string) (*string, error)
+	ResolveLinkedAccounts(ctx context.Context, idpID, sub string) ([]string, error)
 	SearchEntities(ctx context.Context, filters map[string]interface{}) ([]providers.Entity, error)
 	GetEntityListCount(ctx context.Context, category string,
 		filters map[string]interface{}) (int, error)
@@ -423,9 +423,6 @@ func (es *entityDBStore) syncAttributeIdentifiers(ctx context.Context, entityID 
 	}
 
 	_, err = dbClient.ExecuteContext(ctx, *query, args...)
-	if provider.IsUniqueIndexViolation(err, linkedIDIndexName, linkedIDIndexColumns) {
-		return ErrLinkedAccountConflict
-	}
 	if err != nil {
 		return fmt.Errorf("failed to batch insert identifiers: %w", err)
 	}
@@ -547,9 +544,9 @@ func (es *entityDBStore) LockEntity(ctx context.Context, id string) (providers.E
 	return es.GetEntity(ctx, id)
 }
 
-// ResolveLinkedAccount resolves the entity linked to a subject at a connection from the identifier
-// index only.
-func (es *entityDBStore) ResolveLinkedAccount(ctx context.Context, idpID, sub string) (*string, error) {
+// ResolveLinkedAccounts returns the entities linked to a subject at a connection from the identifier
+// index only. A subject no entity is linked to returns an empty list.
+func (es *entityDBStore) ResolveLinkedAccounts(ctx context.Context, idpID, sub string) ([]string, error) {
 	dbClient, err := es.dbProvider.GetEntityDBClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database client: %w", err)
@@ -561,18 +558,15 @@ func (es *entityDBStore) ResolveLinkedAccount(ctx context.Context, idpID, sub st
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	if len(results) == 0 {
-		return nil, ErrEntityNotFound
+	entityIDs := make([]string, 0, len(results))
+	for _, row := range results {
+		entityID, ok := row["id"].(string)
+		if !ok || entityID == "" {
+			return nil, fmt.Errorf("unexpected type for id: %T", row["id"])
+		}
+		entityIDs = append(entityIDs, entityID)
 	}
-	if len(results) > 1 {
-		return nil, ErrAmbiguousEntity
-	}
-
-	entityID, ok := results[0]["id"].(string)
-	if !ok || entityID == "" {
-		return nil, fmt.Errorf("unexpected type for id: %T", results[0]["id"])
-	}
-	return &entityID, nil
+	return entityIDs, nil
 }
 
 // SearchEntities searches for all entities matching the provided filters.

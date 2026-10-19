@@ -10,12 +10,34 @@ describe('ATTRIBUTES', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+  it('should not offer verification flags', () => {
+    const names = ATTRIBUTES.map((attr) => attr.name);
+    expect(names).not.toContain('email_verified');
+    expect(names).not.toContain('phone_verified');
+  });
+
+  describe('email', () => {
+    const email = ATTRIBUTES.find((attr) => attr.name === 'email');
+
+    it('should be an email attribute', () => {
+      expect(email?.type).toBe('email');
+    });
+
+    it('should accept a valid email', () => {
+      expect(new RegExp(email?.regex ?? '').test('User+tag@example.com')).toBe(true);
+    });
+
+    it('should reject a display name email', () => {
+      expect(new RegExp(email?.regex ?? '').test('Name <user@example.com>')).toBe(false);
+    });
+  });
+
   describe('mobile_number', () => {
     const mobileNumber = ATTRIBUTES.find((attr) => attr.name === 'mobile_number');
 
-    it('should be a string attribute named Mobile Number', () => {
+    it('should be a mobile attribute named Mobile Number', () => {
       expect(mobileNumber).toBeDefined();
-      expect(mobileNumber?.type).toBe('string');
+      expect(mobileNumber?.type).toBe('mobile');
       expect(mobileNumber?.displayName).toBe('Mobile Number');
     });
 

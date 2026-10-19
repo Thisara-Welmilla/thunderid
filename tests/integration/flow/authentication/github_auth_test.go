@@ -164,7 +164,6 @@ func (ts *GithubAuthFlowTestSuite) SetupSuite() {
 	userAttributes := map[string]interface{}{
 		"username":   "githubflowuser",
 		"password":   "Test@1234",
-		"sub":        "12345",
 		"email":      "testuser@github.com",
 		"givenName":  "Test",
 		"familyName": "User",

@@ -537,9 +537,10 @@ func (n *promptNode) enrichInputsFromForwardedData(ctx *providers.NodeContext, n
 			}
 		}
 		// External claims are only a fallback and must never take priority over runtime data. A
-		// credential is never taken from a claim.
+		// credential is never taken from a claim, and neither is a choice between offered options,
+		// which is the user's to make.
 		if val, ok := extIdentity.Claim(fwdInput.Identifier); ok && val != "" &&
-			fwdInput.Type != providers.InputTypePassword {
+			fwdInput.Type != providers.InputTypePassword && len(fwdInput.Options) == 0 {
 			continue
 		}
 		nodeResp.Inputs = append(nodeResp.Inputs, fwdInput)

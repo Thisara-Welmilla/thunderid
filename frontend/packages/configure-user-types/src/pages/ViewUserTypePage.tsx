@@ -3,7 +3,13 @@
 
 import {PageLoadingAnimation, QueryErrorNotice, UnsavedChangesBar} from '@thunderid/components';
 import {useLogger} from '@thunderid/logger/react';
-import {getErrorMessage, isEqualIgnoringEmpty} from '@thunderid/utils';
+import {
+  getContactTypesMissingRegex,
+  getErrorMessage,
+  isContactAttributeType,
+  isEqualIgnoringEmpty,
+  resolveAttributeRegex,
+} from '@thunderid/utils';
 import {
   Box,
   Stack,
@@ -36,6 +42,12 @@ import UserTypeConstraints from '../constants/user-type-constraints';
 import useUserTypeRoutes from '../hooks/useUserTypeRoutes';
 import type {PropertyDefinition, UserTypeDefinition, PropertyType, SchemaPropertyInput} from '../types/user-types';
 import getBreakingSchemaChanges from '../utils/getBreakingSchemaChanges';
+
+import {
+  getMissingPrimaryContactTypes,
+  normalizePrimaryContacts,
+  primaryContactMappings,
+} from '../utils/primaryContacts';
 
 interface TabPanelProps {
   children?: ReactNode;
@@ -73,7 +85,7 @@ function convertSchemaToProperties(schema: UserTypeDefinition): SchemaPropertyIn
     unique: 'unique' in value ? (value.unique ?? false) : false,
     credential: 'credential' in value ? (value.credential ?? false) : false,
     enum: 'enum' in value ? (value.enum ?? []) : [],
-    regex: 'regex' in value ? (value.regex ?? '') : '',
+    regex: resolveAttributeRegex(value.type, 'regex' in value ? value.regex : undefined),
     ...('items' in value ? {items: value.items} : {}),
     ...('properties' in value ? {properties: value.properties} : {}),
   }));
@@ -104,11 +116,11 @@ function convertPropertiesToSchema(properties: SchemaPropertyInput[]): UserTypeD
         (propDef as {credential?: boolean}).credential = true;
       }
 
-      if (prop.type === 'string' || prop.type === 'enum') {
+      if (prop.type === 'string' || isContactAttributeType(prop.type) || prop.type === 'enum') {
         if (prop.enum.length > 0) {
           (propDef as {enum?: string[]}).enum = prop.enum;
         }
-        if (prop.regex.trim()) {
+        if (prop.regex.trim() || isContactAttributeType(prop.type)) {
           (propDef as {regex?: string}).regex = prop.regex;
         }
       }
@@ -171,7 +183,19 @@ export default function ViewUserTypePage(): JSX.Element {
   const [breakingAttributes, setBreakingAttributes] = useState<string[]>([]);
 
   // Base properties from server data (useMemo so they're available synchronously)
-  const baseProperties = useMemo(() => (userType ? convertSchemaToProperties(userType.schema) : []), [userType]);
+  const baseProperties = useMemo(
+    () =>
+      userType
+        ? convertSchemaToProperties(userType.schema).map((property) => ({
+            ...property,
+            primary:
+              property.type === 'email'
+                ? userType.systemAttributes?.primaryEmail === property.name
+                : property.type === 'mobile' && userType.systemAttributes?.primaryMobile === property.name,
+          }))
+        : [],
+    [userType],
+  );
 
   // Effective properties (edited or from server)
   const effectiveProperties = editedProperties ?? baseProperties;
@@ -184,7 +208,7 @@ export default function ViewUserTypePage(): JSX.Element {
     () =>
       effectiveProperties.filter(
         (p) =>
-          (p.type === 'string' || p.type === 'number' || p.type === 'enum') &&
+          (p.type === 'string' || isContactAttributeType(p.type) || p.type === 'number' || p.type === 'enum') &&
           !p.credential &&
           p.name.trim().length > 0,
       ),
@@ -259,7 +283,7 @@ export default function ViewUserTypePage(): JSX.Element {
     (newProperties: SchemaPropertyInput[]): void => {
       updateUserTypeMutation.reset(); // a save error is stale once the form changes
       setValidationError(null);
-      setEditedProperties(newProperties);
+      setEditedProperties(normalizePrimaryContacts(newProperties));
     },
     [updateUserTypeMutation],
   );
@@ -278,7 +302,12 @@ export default function ViewUserTypePage(): JSX.Element {
     const ouId = (editedUserType.ouId ?? userType.ouId).trim();
     const allowSelfRegistration = editedUserType.allowSelfRegistration ?? userType.allowSelfRegistration;
     const displayAttribute = editedUserType.displayAttribute ?? userType.systemAttributes?.display ?? '';
+
     const schema = convertPropertiesToSchema(effectiveProperties);
+    const systemAttributes = {
+      ...primaryContactMappings(effectiveProperties),
+      ...(displayAttribute ? {display: displayAttribute} : {}),
+    };
 
     try {
       await updateUserTypeMutation.mutateAsync({
@@ -287,7 +316,7 @@ export default function ViewUserTypePage(): JSX.Element {
           displayName,
           ouId,
           allowSelfRegistration,
-          ...(displayAttribute ? {systemAttributes: {display: displayAttribute}} : {}),
+          ...(Object.keys(systemAttributes).length ? {systemAttributes} : {}),
           schema,
         },
       });
@@ -318,6 +347,36 @@ export default function ViewUserTypePage(): JSX.Element {
           duplicates: [...new Set(duplicates)].join(', '),
           defaultValue: 'Duplicate property names found: {{duplicates}}',
         }),
+      );
+      return;
+    }
+
+    const missingPrimaryContacts = getMissingPrimaryContactTypes(effectiveProperties);
+    if (missingPrimaryContacts.length > 0) {
+      setValidationError(
+        missingPrimaryContacts
+          .map((type) =>
+            type === 'email'
+              ? t('userTypes:validationErrors.primaryEmail', 'Select one email attribute as the primary email.')
+              : t('userTypes:validationErrors.primaryMobile', 'Select one mobile attribute as the primary mobile.'),
+          )
+          .join(' '),
+      );
+      return;
+    }
+    const missingRegexTypes = getContactTypesMissingRegex(effectiveProperties);
+    if (missingRegexTypes.length > 0) {
+      setValidationError(
+        missingRegexTypes
+          .map((type) =>
+            type === 'email'
+              ? t('userTypes:validationErrors.emailRegexRequired', 'Enter a regular expression for email attributes.')
+              : t(
+                  'userTypes:validationErrors.mobileRegexRequired',
+                  'Enter a regular expression for mobile attributes.',
+                ),
+          )
+          .join(' '),
       );
       return;
     }

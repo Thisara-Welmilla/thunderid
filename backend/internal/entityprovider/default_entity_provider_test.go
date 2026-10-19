@@ -63,6 +63,25 @@ func (suite *DefaultEntityProviderTestSuite) TestIdentifyEntity() {
 	suite.Equal(ErrorCodeSystemError, err.Code)
 }
 
+func (suite *DefaultEntityProviderTestSuite) TestGetLinkedEntities() {
+	holders := []providers.Entity{{ID: "e1", OUHandle: "sales"}, {ID: "e2", OUHandle: "support"}}
+	suite.mockService.On("GetLinkedEntities", mock.Anything, "idp-a", "sub-1").Return(holders, nil).Once()
+
+	got, err := suite.provider.GetLinkedEntities("idp-a", "sub-1")
+	suite.Nil(err)
+	suite.Require().Len(got, 2)
+	suite.Equal("sales", got[0].OUHandle)
+	suite.Equal("support", got[1].OUHandle)
+
+	suite.mockService.On("GetLinkedEntities", mock.Anything, "idp-a", "sub-1").
+		Return(nil, errors.New("db error")).Once()
+
+	got, err = suite.provider.GetLinkedEntities("idp-a", "sub-1")
+	suite.Nil(got)
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorCodeSystemError, err.Code)
+}
+
 func (suite *DefaultEntityProviderTestSuite) TestGetEntity() {
 	expected := &providers.Entity{
 		ID:       testEntityID,

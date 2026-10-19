@@ -82,6 +82,9 @@ During an authorization flow, <ProductName /> resolves the target resource serve
    1. Under **User**, select a user type. Select the user attributes to send to the configured AuthZEN PDP. If the PDP expects different property names, map each attribute to the corresponding name.
    2. Under **Agent**, select the agent attributes to send to the configured AuthZEN PDP. If the PDP expects different property names, map each attribute to the corresponding name.
 
+Authenticated remote evaluation endpoints must use HTTPS. Loopback endpoints may use HTTP. Changing the single or batch
+evaluation endpoint requires fresh credentials before the connection can be saved.
+
 ### Assign an authorization engine to a resource server
 
 1. Open **Resource Servers** and select the target resource server.

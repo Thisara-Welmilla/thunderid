@@ -2477,23 +2477,26 @@ var senderPropertyToConnectionField = map[string]string{
 	"sender_id":    "senderId",
 	"url":          "url",
 	"http_method":  "httpMethod",
-	"http_headers": "httpHeaders",
 	"content_type": "contentType",
 }
 
 // senderToConnectionBody converts a legacy NotificationSender{Properties: [...]} fixture into
 // the typed camelCase body /connections/{vendor} expects for sender-backed vendors.
-func senderToConnectionBody(sender NotificationSender) map[string]interface{} {
+func senderToConnectionBody(sender NotificationSender) (map[string]interface{}, error) {
 	body := map[string]interface{}{
 		"name":        sender.Name,
 		"description": sender.Description,
 	}
 	for _, prop := range sender.Properties {
+		if prop.Name == "http_headers" {
+			body["httpHeaders"] = prop.Value
+			continue
+		}
 		if field, ok := senderPropertyToConnectionField[prop.Name]; ok {
 			body[field] = prop.Value
 		}
 	}
-	return body
+	return body, nil
 }
 
 // CreateNotificationSender creates a notification sender via /connections/{vendor} and returns
@@ -2504,7 +2507,11 @@ func CreateNotificationSender(sender NotificationSender) (string, error) {
 		return "", err
 	}
 
-	bodyJSON, err := json.Marshal(senderToConnectionBody(sender))
+	body, err := senderToConnectionBody(sender)
+	if err != nil {
+		return "", err
+	}
+	bodyJSON, err := json.Marshal(body)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal connection body: %w", err)
 	}

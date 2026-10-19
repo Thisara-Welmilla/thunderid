@@ -1,7 +1,7 @@
 # SDK Development Specification
 
 - **Status:** Draft
-- **Version:** 0.4
+- **Version:** 0.5
 - **Related documents:**
   [threat-model.md](threat-model.md),
   [#5305](https://github.com/thunder-id/thunderid/issues/5305),
@@ -338,7 +338,7 @@ this table already covers.
 | `tokenValidation` | Object | No | Validation on | Clock tolerance, and per-claim switches that MUST be rejected when they would disable a check required by [Security requirements](#security-requirements) against a non-loopback `baseUrl`. Disabling a mandatory check is a test affordance, not a deployment option. |
 | `tokenLifecycle` | Object | No | Platform default | Refresh timing and lifecycle behaviour. |
 | `allowedExternalUrls` | List | No | Empty | Origins the SDK may attach an access token to when tokens are held in isolated storage. Every entry MUST use HTTPS. See [Token attachment](#token-attachment) for how entries are matched. |
-| `syncSession` | Boolean | No | `false` | Synchronizes the application session with the server session. Subject to third-party cookie restrictions. |
+| `session` | Object | No | Disabled | Browser SDKs only. Behaviour around the server's SSO session. `silentSignIn.beforeRedirect` (default `false`) makes `signIn` try a silent `prompt=none` sign-in first and continue with the redirect when it fails; it MUST be skipped when the caller sets its own `prompt`. `silentSignIn.timeout` (milliseconds, default `10000`) bounds how long a silent sign-in waits before reporting the user as signed out, including from `signInSilently`. Silent sign-in only finds the session when the browser sends the server's session cookie to the iframe, which needs the application on the same site as the server. |
 | `backchannelLogout` | Object | No | Disabled | Server-side SDKs only. Turns on [back-channel logout handling](#back-channel-logout-handling): `enabled`, the `path` of the handler where the SDK mounts it, and the `store` that records ended sessions. An SDK that cannot receive the request MUST document the key as unsupported. |
 | `organizationHandle` | String | No | None | Organization identifier, required when a custom domain is configured. |
 | `organizationChain` | Object | No | None | Chained authentication across organization contexts. |
@@ -1112,3 +1112,4 @@ session ended, so a user who signs out elsewhere is not left signed in to my app
 | 0.2 | 2026-09-15 | Cross-SDK parity enforcement stated as an outcome. How a check reads and records the decision is left to the implementation. |
 | 0.3 | 2026-09-26 | Management operations for applications, users, and agents added as an optional capability. |
 | 0.4 | 2026-10-06 | Back-channel logout handling added as an optional capability for SDKs with a server runtime. |
+| 0.5 | 2026-10-15 | `syncSession` replaced by a `session` object. The server does not implement OpenID Connect Session Management, so there is no check-session iframe for an SDK to synchronize with. `session.silentSignIn` configures silent sign-in from the SSO session instead. |

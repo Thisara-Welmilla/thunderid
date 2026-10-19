@@ -14,6 +14,8 @@ import (
 // maps onto ErrorInvalidAuthenticationType rather than a server fault.
 var errUnsupportedAuthenticationType = errors.New("unsupported authentication type")
 
+var errInvalidSMSGatewayAuthentication = errors.New("invalid SMS gateway authentication")
+
 // Client errors for connection operations.
 var (
 	// ErrorInvalidConnectionCategory is the error returned when the category query parameter

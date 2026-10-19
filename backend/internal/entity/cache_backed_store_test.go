@@ -227,14 +227,14 @@ func (s *CacheBackedEntityStoreTestSuite) TestIdentifyEntity_StoreError() {
 	s.mockStore.AssertExpectations(s.T())
 }
 
-func (s *CacheBackedEntityStoreTestSuite) TestResolveLinkedAccount_PassesThroughUncached() {
-	entityID := testEntityID
-	s.mockStore.On("ResolveLinkedAccount", mock.Anything, "idp-a", "sub-1").Return(&entityID, nil).Twice()
+func (s *CacheBackedEntityStoreTestSuite) TestResolveLinkedAccounts_PassesThroughUncached() {
+	s.mockStore.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").
+		Return([]string{testEntityID}, nil).Twice()
 
 	for range 2 {
-		result, err := s.cachedStore.ResolveLinkedAccount(context.Background(), "idp-a", "sub-1")
+		result, err := s.cachedStore.ResolveLinkedAccounts(context.Background(), "idp-a", "sub-1")
 		s.Require().NoError(err)
-		s.Equal(entityID, *result)
+		s.Equal([]string{testEntityID}, result)
 	}
 	s.mockStore.AssertExpectations(s.T())
 }

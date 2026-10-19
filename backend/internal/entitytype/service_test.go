@@ -808,7 +808,7 @@ func TestValidateEntityTypeDefinitionSuccess(t *testing.T) {
 		Schema:      validSchema,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.Nil(t, err)
 }
@@ -824,7 +824,7 @@ func TestValidateEntityTypeDefinitionReturnsErrorWhenDisplayNameIsEmpty(t *testi
 		Schema:      validSchema,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -841,7 +841,7 @@ func TestValidateEntityTypeDefinitionReturnsErrorWhenOUIDIsEmpty(t *testing.T) {
 		Schema:      validSchema,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -858,7 +858,7 @@ func TestValidateEntityTypeDefinitionAllowsNonUUIDOUID(t *testing.T) {
 		Schema:      validSchema,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.Nil(t, err)
 }
@@ -873,7 +873,7 @@ func TestValidateEntityTypeDefinitionReturnsErrorWhenSchemaIsEmpty(t *testing.T)
 		Schema:      json.RawMessage{},
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -890,7 +890,7 @@ func TestValidateEntityTypeDefinitionReturnsErrorWhenSchemaIsNil(t *testing.T) {
 		Schema:      nil,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -908,7 +908,7 @@ func TestValidateEntityTypeDefinitionReturnsErrorWhenSchemaCompilationFails(t *t
 		Schema:      invalidSchema,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -926,7 +926,7 @@ func TestValidateEntityTypeDefinitionReturnsErrorForInvalidJSON(t *testing.T) {
 		Schema:      invalidSchema,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -943,7 +943,7 @@ func TestValidateEntityTypeDefinitionReturnsErrorForEmptySchemaObject(t *testing
 		Schema:      emptySchema,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -987,7 +987,7 @@ func TestValidateEntityTypeDefinitionWithComplexSchema(t *testing.T) {
 		Schema:      complexSchema,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.Nil(t, err)
 }
@@ -1003,7 +1003,7 @@ func TestValidateEntityTypeDefinitionReturnsErrorForMissingTypeField(t *testing.
 		Schema:      schemaWithoutType,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -1021,7 +1021,7 @@ func TestValidateEntityTypeDefinitionReturnsErrorForInvalidType(t *testing.T) {
 		Schema:      schemaWithInvalidType,
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -1077,7 +1077,7 @@ func TestValidateEntityTypeDefinitionWithMultipleValidationErrors(t *testing.T) 
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, tc.schema)
+			err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &tc.schema)
 
 			require.NotNil(t, err)
 			require.Equal(t, ErrorInvalidEntityTypeRequest.Code, err.Code)
@@ -1094,7 +1094,7 @@ func TestValidateEntityTypeDefinitionCountsDisplayNameCharacters(t *testing.T) {
 		Schema:      json.RawMessage(`{"email":{"type":"string"}}`),
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.Nil(t, err)
 }
@@ -1108,7 +1108,7 @@ func TestValidateEntityTypeDefinitionWithValidDisplayAttribute(t *testing.T) {
 		Schema:           json.RawMessage(`{"email":{"type":"string"}}`),
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.Nil(t, err)
 }
@@ -1122,7 +1122,7 @@ func TestValidateEntityTypeDefinitionRejectsNonExistentDisplayAttribute(t *testi
 		Schema:           json.RawMessage(`{"email":{"type":"string"}}`),
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorInvalidDisplayAttribute.Code, err.Code)
@@ -1137,7 +1137,7 @@ func TestValidateEntityTypeDefinitionRejectsNonDisplayableDisplayAttribute(t *te
 		Schema:           json.RawMessage(`{"active":{"type":"boolean"}}`),
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorNonDisplayableAttribute.Code, err.Code)
@@ -1152,7 +1152,7 @@ func TestValidateEntityTypeDefinitionRejectsCredentialDisplayAttribute(t *testin
 		Schema:           json.RawMessage(`{"password":{"type":"string","credential":true}}`),
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.NotNil(t, err)
 	require.Equal(t, ErrorCredentialDisplayAttribute.Code, err.Code)
@@ -1166,7 +1166,7 @@ func TestValidateEntityTypeDefinitionWithNilSystemAttributes(t *testing.T) {
 		Schema:      json.RawMessage(`{"email":{"type":"string"}}`),
 	}
 
-	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, schema)
+	err := validateEntityTypeDefinition(context.Background(), TypeCategoryUser, &schema)
 
 	require.Nil(t, err)
 }
@@ -2487,4 +2487,139 @@ func TestCreateEntityType_InvalidHandleRejected(t *testing.T) {
 
 	require.NotNil(t, svcErr)
 	require.Equal(t, ErrorInvalidEntityTypeHandle.Code, svcErr.Code)
+}
+
+const primaryContactTestSchema = `{"work":{"type":"email"},"phone":{"type":"mobile"},"name":{"type":"string"}}`
+
+// validateContactDefinition validates an entity type with the given schema and system attributes.
+func (s *EntityTypeServiceTestSuite) validateContactDefinition(
+	category TypeCategory, schema string, attrs *SystemAttributes,
+) (*SystemAttributes, *tidcommon.ServiceError) {
+	entityType := EntityType{
+		DisplayName: "Contact", OUID: testOUID1, Schema: json.RawMessage(schema), SystemAttributes: attrs,
+	}
+	svcErr := validateEntityTypeDefinition(context.Background(), category, &entityType)
+	return entityType.SystemAttributes, svcErr
+}
+
+func (s *EntityTypeServiceTestSuite) TestValidateEntityTypeDefinition_PrimaryContactsValid() {
+	attrs := &SystemAttributes{Display: "work", PrimaryEmail: "work", PrimaryMobile: "phone"}
+
+	resolved, svcErr := s.validateContactDefinition(TypeCategoryUser, primaryContactTestSchema, attrs)
+
+	s.Require().Nil(svcErr)
+	s.Equal(attrs, resolved)
+}
+
+func (s *EntityTypeServiceTestSuite) TestValidateEntityTypeDefinition_PrimaryContactsDefaultToSoleAttribute() {
+	for _, attrs := range []*SystemAttributes{nil, {Display: "name"}} {
+		resolved, svcErr := s.validateContactDefinition(TypeCategoryUser, primaryContactTestSchema, attrs)
+
+		s.Require().Nil(svcErr)
+		s.Require().NotNil(resolved)
+		s.Equal("work", resolved.PrimaryEmail)
+		s.Equal("phone", resolved.PrimaryMobile)
+	}
+}
+
+func (s *EntityTypeServiceTestSuite) TestValidateEntityTypeDefinition_PrimaryContactSelectedFromMultiple() {
+	schema := `{"work":{"type":"email"},"recovery":{"type":"email"}}`
+
+	resolved, svcErr := s.validateContactDefinition(
+		TypeCategoryUser, schema, &SystemAttributes{PrimaryEmail: "recovery"})
+
+	s.Require().Nil(svcErr)
+	s.Equal("recovery", resolved.PrimaryEmail)
+}
+
+func (s *EntityTypeServiceTestSuite) TestValidateEntityTypeDefinition_PrimaryContactUnsetForMultiple() {
+	schema := `{"work":{"type":"email"},"recovery":{"type":"email"},"phone":{"type":"mobile"}}`
+
+	resolved, svcErr := s.validateContactDefinition(TypeCategoryUser, schema, nil)
+
+	s.Require().Nil(svcErr)
+	s.Equal(&SystemAttributes{PrimaryMobile: "phone"}, resolved)
+}
+
+func (s *EntityTypeServiceTestSuite) TestValidateEntityTypeDefinition_PrimaryContactNotFound() {
+	schema := `{"work":{"type":"email"},"nested":{"type":"object","properties":{"email":{"type":"email"}}}}`
+
+	for _, name := range []string{"missing", "nested.email"} {
+		_, svcErr := s.validateContactDefinition(TypeCategoryUser, schema, &SystemAttributes{PrimaryEmail: name})
+
+		s.Require().NotNil(svcErr, name)
+		s.Equal(ErrorInvalidPrimaryContactAttribute.Code, svcErr.Code, name)
+	}
+}
+
+func (s *EntityTypeServiceTestSuite) TestValidateEntityTypeDefinition_PrimaryContactTypeMismatch() {
+	for _, attrs := range []*SystemAttributes{
+		{PrimaryEmail: "phone", PrimaryMobile: "work"},
+		{PrimaryEmail: "name"},
+	} {
+		_, svcErr := s.validateContactDefinition(TypeCategoryUser, primaryContactTestSchema, attrs)
+
+		s.Require().NotNil(svcErr)
+		s.Equal(ErrorPrimaryContactTypeMismatch.Code, svcErr.Code)
+	}
+}
+
+func (s *EntityTypeServiceTestSuite) TestValidateEntityTypeDefinition_NoTopLevelContacts() {
+	for _, schema := range []string{
+		`{"name":{"type":"string"}}`,
+		`{"nested":{"type":"object","properties":{"email":{"type":"email"}}}}`,
+	} {
+		resolved, svcErr := s.validateContactDefinition(TypeCategoryUser, schema, nil)
+
+		s.Require().Nil(svcErr)
+		s.Nil(resolved)
+	}
+}
+
+func (s *EntityTypeServiceTestSuite) TestValidateEntityTypeDefinition_AgentContactsWithoutPrimary() {
+	resolved, svcErr := s.validateContactDefinition(TypeCategoryAgent, primaryContactTestSchema, nil)
+
+	s.Require().Nil(svcErr)
+	s.Nil(resolved)
+}
+
+func (s *EntityTypeServiceTestSuite) TestValidateEntityTypeDefinition_PrimaryContactNotSupportedForAgents() {
+	_, svcErr := s.validateContactDefinition(
+		TypeCategoryAgent, primaryContactTestSchema, &SystemAttributes{PrimaryEmail: "work"})
+
+	s.Require().NotNil(svcErr)
+	s.Equal(ErrorPrimaryContactNotSupported.Code, svcErr.Code)
+}
+
+func (s *EntityTypeServiceTestSuite) TestCreateEntityType_StoresDefaultPrimaryContacts() {
+	initEntityTypeTestRuntime(s.T())
+
+	storeMock := newEntityTypeStoreInterfaceMock(s.T())
+	ouServiceMock := oumock.NewOrganizationUnitServiceInterfaceMock(s.T())
+	ouServiceMock.On("IsOrganizationUnitExists", mock.Anything, testOUID1).
+		Return(true, (*tidcommon.ServiceError)(nil)).Once()
+	storeMock.On("GetEntityTypeByHandle", mock.Anything, TypeCategoryUser, "contacts").
+		Return(EntityType{}, ErrEntityTypeNotFound).Once()
+	storeMock.On("CreateEntityType", mock.Anything, mock.MatchedBy(func(e EntityType) bool {
+		return e.SystemAttributes != nil &&
+			e.SystemAttributes.PrimaryEmail == "work" && e.SystemAttributes.PrimaryMobile == "phone"
+	})).Return(nil).Once()
+
+	service := &entityTypeService{
+		entityTypeStore: storeMock,
+		ouService:       ouServiceMock,
+		transactioner:   &mockTransactioner{},
+		authzService:    newAllowAllAuthz(s.T()),
+	}
+
+	result, svcErr := service.CreateEntityType(context.Background(), TypeCategoryUser,
+		CreateEntityTypeRequestWithID{
+			Handle:      "contacts",
+			DisplayName: "Contacts",
+			OUID:        testOUID1,
+			Schema:      json.RawMessage(primaryContactTestSchema),
+		})
+
+	s.Require().Nil(svcErr)
+	s.Equal(&SystemAttributes{PrimaryEmail: "work", PrimaryMobile: "phone"}, result.SystemAttributes)
 }

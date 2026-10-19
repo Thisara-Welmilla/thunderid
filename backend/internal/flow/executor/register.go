@@ -274,7 +274,8 @@ func newBuiltInExecutorRegistrars() map[string]builtInExecutorRegistrar {
 				{Identifier: userAttributeUsername, Type: "string", Required: true},
 			}
 			reg.RegisterExecutor(ExecutorNameIdentifying, newIdentifyingExecutor(
-				"", identifyingInputs, []providers.Input{}, deps.FlowFactory, deps.EntityProvider))
+				"", identifyingInputs, []providers.Input{}, deps.FlowFactory, deps.EntityProvider,
+				deps.AuthnProvider))
 		},
 		ExecutorNameConsent: func(reg ExecutorRegistryInterface, deps ExecutorDependencies) {
 			reg.RegisterExecutor(ExecutorNameConsent, newConsentExecutor(

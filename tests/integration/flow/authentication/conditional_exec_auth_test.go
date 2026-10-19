@@ -219,7 +219,6 @@ func (ts *ConditionalExecAuthFlowTestSuite) SetupSuite() {
 	existingUserAttributes := map[string]interface{}{
 		"username":   "existingconditionalexecuser",
 		"password":   "Test@1234",
-		"sub":        conditionalExecExistingUserSub,
 		"email":      conditionalExecExistingUserEmail,
 		"givenName":  "Existing",
 		"familyName": "User",

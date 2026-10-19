@@ -238,7 +238,7 @@ func (us *entityTypeService) CreateEntityType(
 		SystemAttributes: request.SystemAttributes,
 		Schema:           request.Schema,
 	}
-	if validationErr := validateEntityTypeDefinition(ctx, category, schemaToValidate); validationErr != nil {
+	if validationErr := validateEntityTypeDefinition(ctx, category, &schemaToValidate); validationErr != nil {
 		logger.Debug(ctx, "Entity type validation failed", log.String("handle", request.Handle))
 		return nil, validationErr
 	}
@@ -276,7 +276,7 @@ func (us *entityTypeService) CreateEntityType(
 		DisplayName:           request.DisplayName,
 		OUID:                  request.OUID,
 		AllowSelfRegistration: request.AllowSelfRegistration,
-		SystemAttributes:      request.SystemAttributes,
+		SystemAttributes:      schemaToValidate.SystemAttributes,
 		Schema:                request.Schema,
 	}
 
@@ -421,7 +421,7 @@ func (us *entityTypeService) UpdateEntityType(ctx context.Context, category Type
 		SystemAttributes: request.SystemAttributes,
 		Schema:           request.Schema,
 	}
-	if validationErr := validateEntityTypeDefinition(ctx, category, schemaToValidate); validationErr != nil {
+	if validationErr := validateEntityTypeDefinition(ctx, category, &schemaToValidate); validationErr != nil {
 		logger.Debug(ctx, "Entity type validation failed", log.String("id", schemaID))
 		return nil, validationErr
 	}
@@ -462,7 +462,7 @@ func (us *entityTypeService) UpdateEntityType(ctx context.Context, category Type
 		DisplayName:           request.DisplayName,
 		OUID:                  request.OUID,
 		AllowSelfRegistration: request.AllowSelfRegistration,
-		SystemAttributes:      request.SystemAttributes,
+		SystemAttributes:      schemaToValidate.SystemAttributes,
 		Schema:                request.Schema,
 	}
 
@@ -966,10 +966,11 @@ func logAndReturnServerError(ctx context.Context,
 	return &tidcommon.InternalServerError
 }
 
-// validateEntityTypeDefinition validates the entity type definition without checking OU existence.
-// This is used during initialization to validate file-based configurations.
+// validateEntityTypeDefinition validates the entity type definition for create and update requests,
+// without checking OU existence.
+// Omitted primary contact mappings are defaulted in place.
 func validateEntityTypeDefinition(
-	ctx context.Context, category TypeCategory, schema EntityType) *tidcommon.ServiceError {
+	ctx context.Context, category TypeCategory, schema *EntityType) *tidcommon.ServiceError {
 	logger := log.GetLogger()
 
 	if schema.DisplayName == "" {
@@ -1000,23 +1001,54 @@ func validateEntityTypeDefinition(
 		return invalidEntityTypeRequestErr(category, err.Error())
 	}
 
-	return validateSystemAttributes(compiledSchema, schema.SystemAttributes)
+	systemAttrs, svcErr := validateSystemAttributes(category, compiledSchema, schema.SystemAttributes)
+	if svcErr != nil {
+		return svcErr
+	}
+	schema.SystemAttributes = systemAttrs
+	return nil
 }
 
-// validateSystemAttributes validates the system attributes against the compiled schema.
+// validateSystemAttributes validates the system attributes against the compiled schema and returns
+// them with omitted primary contacts defaulted for user types.
 func validateSystemAttributes(
-	compiledSchema *model.Schema, systemAttrs *SystemAttributes,
-) *tidcommon.ServiceError {
-	if systemAttrs == nil {
-		return nil
+	category TypeCategory, compiledSchema *model.Schema, systemAttrs *SystemAttributes,
+) (*SystemAttributes, *tidcommon.ServiceError) {
+	var attrs SystemAttributes
+	if systemAttrs != nil {
+		attrs = *systemAttrs
 	}
 
-	return validateDisplayAttribute(compiledSchema, systemAttrs.Display)
+	if svcErr := validateDisplayAttribute(compiledSchema, attrs.Display); svcErr != nil {
+		return nil, svcErr
+	}
+
+	if category == TypeCategoryAgent {
+		if attrs.PrimaryEmail != "" || attrs.PrimaryMobile != "" {
+			return nil, &ErrorPrimaryContactNotSupported
+		}
+		return systemAttrs, nil
+	}
+
+	var svcErr *tidcommon.ServiceError
+	if attrs.PrimaryEmail, svcErr = resolvePrimaryContact(
+		compiledSchema, attrs.PrimaryEmail, model.TypeEmail); svcErr != nil {
+		return nil, svcErr
+	}
+	if attrs.PrimaryMobile, svcErr = resolvePrimaryContact(
+		compiledSchema, attrs.PrimaryMobile, model.TypeMobile); svcErr != nil {
+		return nil, svcErr
+	}
+
+	if systemAttrs == nil && attrs == (SystemAttributes{}) {
+		return nil, nil
+	}
+	return &attrs, nil
 }
 
 // validateDisplayAttribute validates that the display attribute, if provided,
 // references an existing, displayable, non-credential attribute in the compiled schema.
-// Only string and number types are considered displayable.
+// String, contact, and number types are displayable.
 func validateDisplayAttribute(
 	compiledSchema *model.Schema, display string,
 ) *tidcommon.ServiceError {
@@ -1033,5 +1065,29 @@ func validateDisplayAttribute(
 		return &ErrorCredentialDisplayAttribute
 	default:
 		return nil
+	}
+}
+
+// resolvePrimaryContact validates a primary contact mapping. An omitted mapping defaults to the
+// only top-level attribute of the contact type, and stays unset when there are several.
+func resolvePrimaryContact(
+	compiledSchema *model.Schema, name, contactType string,
+) (string, *tidcommon.ServiceError) {
+	if name == "" {
+		candidates := compiledSchema.GetAttributes(
+			model.AttributeFilter{AllowNonCredential: true, Type: contactType})
+		if len(candidates) == 1 {
+			return candidates[0].Attribute, nil
+		}
+		return "", nil
+	}
+
+	switch compiledSchema.ValidateAsPrimaryContact(name, contactType) {
+	case model.PrimaryContactNotFound:
+		return "", &ErrorInvalidPrimaryContactAttribute
+	case model.PrimaryContactTypeMismatch:
+		return "", &ErrorPrimaryContactTypeMismatch
+	default:
+		return name, nil
 	}
 }

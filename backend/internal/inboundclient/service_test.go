@@ -22,6 +22,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/cimd"
 	"github.com/thunder-id/thunderid/internal/entityprovider"
 	entitytypepkg "github.com/thunder-id/thunderid/internal/entitytype"
+	entitytypemodel "github.com/thunder-id/thunderid/internal/entitytype/model"
 	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
 	"github.com/thunder-id/thunderid/internal/sharing"
@@ -3855,7 +3856,7 @@ func (suite *InboundClientServiceTestSuite) TestValidateReferencedFlows_WalkerSe
 
 func subjectAttrFilter() entitytypepkg.AttributeFilter {
 	return entitytypepkg.AttributeFilter{
-		AllowNonCredential: true, RequiredOnly: true, UniqueOnly: true, Type: "string",
+		AllowNonCredential: true, RequiredOnly: true, UniqueOnly: true,
 	}
 }
 
@@ -3898,13 +3899,40 @@ func (suite *InboundClientServiceTestSuite) TestValidateSubjectAttributeMapping_
 }
 
 func (suite *InboundClientServiceTestSuite) TestValidateSubjectAttributeMapping_Valid() {
-	us := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
-	us.EXPECT().GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "employee", subjectAttrFilter()).
-		Return([]entitytypepkg.AttributeInfo{
-			{Attribute: "email", Unique: true, Required: true, Type: "string"}}, nil)
-	svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
-	assert.NoError(suite.T(), svc.validateSubjectAttributeMapping(
-		context.Background(), map[string]string{"employee": "email"}, []string{"employee"}))
+	for _, kind := range []string{entitytypemodel.TypeString, entitytypemodel.TypeEmail, entitytypemodel.TypeMobile} {
+		suite.Run(kind, func() {
+			schema, err := entitytypemodel.CompileSchema(
+				json.RawMessage(`{"contact":{"type":"` + kind + `","required":true,"unique":true}}`))
+			suite.Require().NoError(err)
+			us := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
+			us.EXPECT().GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "employee", subjectAttrFilter()).
+				Return(schema.GetAttributes(subjectAttrFilter()), nil)
+			svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
+			assert.NoError(suite.T(), svc.validateSubjectAttributeMapping(
+				context.Background(), map[string]string{"employee": "contact"}, []string{"employee"}))
+		})
+	}
+}
+
+func (suite *InboundClientServiceTestSuite) TestValidateSubjectAttributeMapping_RejectsIneligibleTypesAndConstraints() {
+	for _, definition := range []string{
+		`{"type":"number","required":true,"unique":true}`,
+		`{"type":"email","required":false,"unique":true}`,
+		`{"type":"mobile","required":true,"unique":false}`,
+		`{"type":"string","required":true,"unique":true,"credential":true}`,
+	} {
+		suite.Run(definition, func() {
+			schema, err := entitytypemodel.CompileSchema(json.RawMessage(`{"contact":` + definition + `}`))
+			suite.Require().NoError(err)
+			us := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
+			us.EXPECT().GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "employee", subjectAttrFilter()).
+				Return(schema.GetAttributes(subjectAttrFilter()), nil)
+			svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
+			assert.ErrorIs(suite.T(), svc.validateSubjectAttributeMapping(
+				context.Background(), map[string]string{"employee": "contact"}, []string{"employee"}),
+				ErrFKInvalidSubjectAttributeMapping)
+		})
+	}
 }
 
 func (suite *InboundClientServiceTestSuite) TestValidateSubjectAttributeMapping_SchemaLookupError() {

@@ -595,7 +595,7 @@ const (
 // mounts sharing endpoints of its own.
 
 // PolicyResponse is one recorded policy as an API returns it. Its sections come back in the shape
-// a request states them in, so what a caller reads is what it sends back to edit the policy.
+// a request states them in, so an edit copies them, with the version, into its request.
 type PolicyResponse struct {
 	ID string `json:"id"`
 	// InitiatingOUID is whose decision this policy is. The owning unit is not carried: it belongs

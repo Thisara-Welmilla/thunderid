@@ -1565,16 +1565,15 @@ func (s *inboundClientService) validateSubjectAttributeMapping(
 		if !slices.Contains(allowedUserTypes, entityType) {
 			return ErrFKInvalidSubjectAttributeMapping
 		}
-		// A subject attribute must be unique, required, non-credential, and string-typed: unique so it
+		// A subject attribute must be unique, required, non-credential, and string-backed: unique so it
 		// identifies a single user, required so every user of the type has it (a stable sub), and
-		// string so it can be emitted as the string sub claim.
+		// string-backed so it can be emitted as the string sub claim.
 		attrs, svcErr := s.entityType.GetAttributes(
 			security.WithRuntimeContext(ctx), entitytype.TypeCategoryUser, entityType,
 			entitytype.AttributeFilter{
 				AllowNonCredential: true,
 				RequiredOnly:       true,
 				UniqueOnly:         true,
-				Type:               entitytypemodel.TypeString,
 			})
 		if svcErr != nil {
 			s.logger.Error(ctx, "Failed to retrieve attributes for subject mapping validation",
@@ -1582,7 +1581,7 @@ func (s *inboundClientService) validateSubjectAttributeMapping(
 			return ErrUniqueAttributeLookupFailed
 		}
 		if !slices.ContainsFunc(attrs, func(a entitytype.AttributeInfo) bool {
-			return a.Attribute == subjectAttribute
+			return a.Attribute == subjectAttribute && entitytypemodel.IsStringBackedType(a.Type)
 		}) {
 			return ErrFKInvalidSubjectAttributeMapping
 		}

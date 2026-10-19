@@ -220,6 +220,12 @@ func (s *sharingService) createPolicy(
 	if _, ok := s.registry.get(rt); !ok {
 		return Policy{}, &ErrorResourceTypeNotRegistered
 	}
+	// A stored policy's version counts the edits made to it in this deployment, so a new one starts
+	// at the first, wherever its request came from. A version a document carries describes edits
+	// made somewhere else.
+	if !declared {
+		req.Version = 0
+	}
 	if resourceID == "" {
 		return Policy{}, withDetail(ErrorInvalidRequestFormat, "the resource is not named")
 	}
@@ -236,9 +242,11 @@ func (s *sharingService) createPolicy(
 			return Policy{}, svcErr
 		}
 	} else if req.ID != "" {
-		if svcErr := s.requireUnusedStoredID(ctx, req.ID); svcErr != nil {
+		id, svcErr := s.replayableStoredID(ctx, req.ID, rt, resourceID)
+		if svcErr != nil {
 			return Policy{}, svcErr
 		}
+		req.ID = id
 	}
 
 	// One policy per organization unit per resource, checked before the insert.
@@ -356,15 +364,26 @@ func (s *sharingService) requireUsableDeclaredID(
 	return withDetail(ErrorDeclaredPolicyIDConflict, id)
 }
 
-// requireUnusedStoredID refuses a replay that names an id some other policy already holds, so the
-// collision is answered as a conflict rather than as a failed insert.
-func (s *sharingService) requireUnusedStoredID(ctx context.Context, id string) *tidcommon.ServiceError {
-	if _, svcErr := s.GetPolicy(ctx, id); svcErr == nil {
-		return withDetail(ErrorPolicyExists, id)
-	} else if svcErr.Code != ErrorPolicyNotFound.Code {
-		return svcErr
+// replayableStoredID decides the id a replayed policy is stored under. A free id is kept, so a
+// round trip reproduces the policy it exported. An id another resource's policy holds means the
+// document was copied to make a new resource, and nothing in it depends on that id, since a
+// reshare's parent is worked out again on replay; the policy gets a fresh one, signaled by an
+// empty id. An id another policy of the same resource holds is a real conflict, answered as one
+// rather than as a failed insert.
+func (s *sharingService) replayableStoredID(
+	ctx context.Context, id string, rt ResourceType, resourceID string,
+) (string, *tidcommon.ServiceError) {
+	holder, svcErr := s.GetPolicy(ctx, id)
+	switch {
+	case svcErr == nil && (holder.ResourceType != rt || holder.ResourceID != resourceID):
+		return "", nil
+	case svcErr == nil:
+		return "", withDetail(ErrorPolicyExists, id)
+	case svcErr.Code == ErrorPolicyNotFound.Code:
+		return id, nil
+	default:
+		return "", svcErr
 	}
-	return nil
 }
 
 // buildPolicy validates a request and materializes its rules against what the initiator holds.
@@ -394,8 +413,7 @@ func (s *sharingService) buildPolicy(
 
 	// A request carrying an id is a replay of one that already existed, so it keeps it: a reshare
 	// beneath it points at that id, and an import that minted a new one would orphan it. A request
-	// carrying none is a fresh create and is given one. The version it was exported at travels the
-	// same way, so an export of the replayed policy matches the document it came from.
+	// carrying none is a fresh create and is given one.
 	id := req.ID
 	if id == "" {
 		generated, err := utils.GenerateUUIDv7()
@@ -1058,16 +1076,10 @@ func (s *sharingService) initiatorEffectiveRules(
 	return resolved.Rules, resolved.Visible, nil
 }
 
-// ReplacePoliciesForResource applies the policies a document carries for one resource.
-//
-// Policies are keyed on the organization unit that issues each one rather than on the policy id,
-// because one unit holds at most one policy per resource. That is what lets a document whose policy
-// was rewritten replace the existing one instead of colliding with it.
-//
-// The document is one decision, so a refusal partway undoes what the replay already wrote: policies
-// it created are deleted, and policies it replaced are put back. A policy already in place for an
-// organization unit the document does not name is left alone, because the document says nothing
-// about it.
+// ReplacePoliciesForResource applies the policies a document carries for one resource, matched by
+// issuing organization unit: a missing policy is created, an existing one is edited under the API's
+// update rules. The document applies as a whole or not at all, and policies it does not name are
+// kept unless a narrowing edit removes them.
 func (s *sharingService) ReplacePoliciesForResource(
 	ctx context.Context, rt ResourceType, resourceID, owningOUID string, requests []PolicyRequest,
 ) (PolicyReplay, *PolicyReplayError) {
@@ -1168,6 +1180,11 @@ func (s *sharingService) replayPolicies(
 		}
 		req.Version = current.Version
 		if _, svcErr := s.UpdatePolicy(ctx, current.ID, req); svcErr != nil {
+			// These refusals name deleting the policy as the way through, which an import cannot do.
+			if svcErr.Code == ErrorScopeFamilyChange.Code || svcErr.Code == ErrorBlanketNarrowOnly.Code {
+				svcErr = withDetail(*svcErr, "an import edits an existing policy and cannot delete it; "+
+					"delete the policy through the sharing policies API, then import again")
+			}
 			return &PolicyReplayError{Index: i, InitiatingOUID: initiator, Err: svcErr}
 		}
 	}

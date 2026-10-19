@@ -728,9 +728,11 @@ paths:
         this application. Exactly one policy exists per application per initiating organization
         unit; a second create is refused.
 
-        Sharing an application grants one thing: a named organization unit may be given as the
-        accessing organization unit on a token request. It does not place the application in that
-        unit's listings, nor make it readable, editable, or deletable there.
+        An application declared in a resource file declares its owner's policy there too, so this
+        endpoint refuses one for it. An organization unit the declared policy shares with can still
+        record its own reshare here, unless applications are configured to load from resource files
+        only: then all of their sharing, reshares included, is declared, and this endpoint refuses
+        every policy.
       requestBody:
         required: true
         content:
@@ -909,19 +911,14 @@ paths:
         - Application Sharing
       summary: Replace a sharing policy
       description: |
-        Replaces the policy's sections. The request carries the `version` the caller believes it is
-        editing; an edit against a stale version is refused rather than silently flattening another
-        write.
+        Replaces the policy's sections. `version` must be the policy's current version; a stale one
+        is refused.
 
-        Each section is held to the rule on its own. A section that reaches a whole group (`mode:
-        all`, or `allUnits`) keeps that reach: it can be narrowed by excluding organization units
-        from it, but it cannot be dropped or turned into one that names units. A section that names
-        units may add or drop them, and cannot become one that reaches a whole group.
+        A section reaching a whole group (`mode: all`, or `allUnits`) keeps that reach and can only
+        change its `excludedOuIds`. A section naming units can add or drop them, but cannot become
+        one that reaches a whole group.
 
-        This holds for `allUnits` and for `otherTreeRoots` with `mode: all` too, which a create may
-        not state. A policy that was imported with one keeps it: restate the section here and
-        rewrite its `excludedOuIds` to withhold units from it or hand them back. Editing a narrower
-        policy into one of those is refused, so the edit cannot reach where the create could not.
+        Refused for applications that load from resource files only.
       requestBody:
         required: true
         content:
@@ -988,7 +985,8 @@ paths:
         the per-organization-unit state of every unit that loses sight of the application.
 
         A declared policy cannot be deleted here. Its existence belongs to the resource file that
-        declares it, so it goes away by being removed from that file.
+        declares it, so it goes away by being removed from that file. Where applications load from
+        resource files only, no policy is deleted here.
       responses:
         "204":
           description: |
@@ -1007,7 +1005,7 @@ paths:
     get:
       tags:
         - Application Sharing
-      summary: Resolve what an organization unit may do with the application
+      summary: Overlay rules for an organization unit
       description: |
         Answers for one organization unit, named in the `ouId` query parameter: whether it owns the
         application, and which policies reached it.
@@ -1117,6 +1115,16 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
           examples:
+            declaredApplication:
+              summary: The owner's policy of an application declared in a resource file
+              value:
+                code: "APP-1030"
+                message:
+                  key: "error.applicationservice.cannot_modify_declarative_resource"
+                  defaultValue: "Cannot modify declarative resource"
+                description:
+                  key: "error.applicationservice.cannot_modify_declarative_resource_description"
+                  defaultValue: "The application is declarative and cannot be modified or deleted"
             noSection:
               summary: No section stated
               value:
@@ -2491,7 +2499,8 @@ components:
       additionalProperties: false
       required: [version]
       description: |
-        A replacement for a policy's sections. It differs from a create in what it may state: a
+        A replacement for a policy's sections. Whose decision the policy is cannot change, so an
+        edit names no `initiatingOuId`. It differs from a create in what it may state: a
         policy that already reaches every organization unit, or the root of every other tree, keeps
         that reach here.
 
@@ -2503,10 +2512,6 @@ components:
         - required: [childUnits]
         - required: [otherTreeRoots]
       properties:
-        initiatingOuId:
-          type: string
-          description: The organization unit whose decision this is. Omitted means the owner.
-          example: "acme-root"
         allUnits:
           $ref: '#/components/schemas/AllUnits'
         childUnits:
@@ -2677,9 +2682,10 @@ components:
     SharingPolicy:
       type: object
       description: |
-        A recorded sharing policy. Its sections come back in the shape a request states them in,
-        so what is read here is what is sent back to edit the policy. A section the policy does not
-        state is left out.
+        A recorded sharing policy. Its sections come back in the shape a request states them in, so
+        an edit copies them, with `version`, into a `SharingPolicyUpdateRequest`. The other fields
+        are set by the server and are refused in a request body. A section the policy does not state
+        is left out.
       properties:
         id:
           type: string

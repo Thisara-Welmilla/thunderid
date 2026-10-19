@@ -30,11 +30,6 @@ const (
 	identifierSourceSystem = "system"
 	// identifierSourceAttribute marks an ENTITY_IDENTIFIER row derived from schema attributes.
 	identifierSourceAttribute = "attribute"
-
-	// linkedIDIndexName is the unique index that holds a linked subject to one entity, and
-	// linkedIDIndexColumns is its column list as SQLite reports it.
-	linkedIDIndexName    = "idx_entity_identifier_linked_id"
-	linkedIDIndexColumns = "ENTITY_IDENTIFIER.DEPLOYMENT_ID, ENTITY_IDENTIFIER.NAME, ENTITY_IDENTIFIER.VALUE"
 )
 
 var (

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
@@ -108,14 +109,24 @@ func (c *entityCompositeStore) LockEntity(ctx context.Context, id string) (provi
 	return c.dbStore.LockEntity(ctx, id)
 }
 
-// ResolveLinkedAccount resolves a linked account from either store (DB first, then file fallback).
-func (c *entityCompositeStore) ResolveLinkedAccount(ctx context.Context,
-	idpID, sub string) (*string, error) {
-	return declarativeresource.CompositeGetHelper(
-		func() (*string, error) { return c.dbStore.ResolveLinkedAccount(ctx, idpID, sub) },
-		func() (*string, error) { return c.fileStore.ResolveLinkedAccount(ctx, idpID, sub) },
-		ErrEntityNotFound,
-	)
+// ResolveLinkedAccounts returns the entities linked to a subject at a connection in both stores. An
+// entity in both stores is returned once, so it does not read as several holders.
+func (c *entityCompositeStore) ResolveLinkedAccounts(ctx context.Context,
+	idpID, sub string) ([]string, error) {
+	dbIDs, err := c.dbStore.ResolveLinkedAccounts(ctx, idpID, sub)
+	if err != nil {
+		return nil, err
+	}
+	fileIDs, err := c.fileStore.ResolveLinkedAccounts(ctx, idpID, sub)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range fileIDs {
+		if !slices.Contains(dbIDs, id) {
+			dbIDs = append(dbIDs, id)
+		}
+	}
+	return dbIDs, nil
 }
 
 // IdentifyEntity identifies an entity from either store (DB first, then file fallback).

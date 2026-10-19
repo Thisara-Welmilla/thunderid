@@ -70,7 +70,7 @@ const (
 	CustomPropKeyURL = "url"
 	// CustomPropKeyHTTPMethod is the property key for the HTTP method.
 	CustomPropKeyHTTPMethod = "http_method"
-	// CustomPropKeyHTTPHeaders is the property key for the HTTP headers.
+	// CustomPropKeyHTTPHeaders is the property key for custom-provider HTTP headers.
 	CustomPropKeyHTTPHeaders = "http_headers"
 	// CustomPropKeyContentType is the property key for the content type.
 	CustomPropKeyContentType = "content_type"

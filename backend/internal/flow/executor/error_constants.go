@@ -1369,21 +1369,6 @@ var (
 		},
 	}
 
-	// ErrFederatedIdentityAlreadyLinked is returned when the federated identity a new user is
-	// provisioned with is already linked to another user.
-	ErrFederatedIdentityAlreadyLinked = tidcommon.ServiceError{
-		Type: tidcommon.ClientErrorType,
-		Code: "FET-1097",
-		Error: tidcommon.I18nMessage{
-			Key:          "flows.executor.errors.federated_identity_already_linked",
-			DefaultValue: "Account already linked",
-		},
-		ErrorDescription: tidcommon.I18nMessage{
-			Key:          "flows.executor.errors.federated_identity_already_linked_desc",
-			DefaultValue: "The federated identity is already linked to another user",
-		},
-	}
-
 	// ErrRoleAssignmentRemovalNotAllowed is returned when the role assignment cannot be removed.
 	ErrRoleAssignmentRemovalNotAllowed = tidcommon.ServiceError{
 		Type: tidcommon.ClientErrorType,
