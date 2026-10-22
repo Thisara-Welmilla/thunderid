@@ -15,6 +15,8 @@ export const ConnectionTypes = {
   VONAGE: 'vonage',
   SMS_GATEWAY: 'sms-gateway',
   AUTHZEN_PDP: 'authzen-pdp',
+  SMTP: 'email-smtp',
+  HTTP: 'http',
 } as const;
 
 export type ConnectionType = (typeof ConnectionTypes)[keyof typeof ConnectionTypes];
@@ -43,6 +45,8 @@ export const ConnectionInstanceCategories = {
   IDENTITY_PROVIDER: 'identity-provider',
   SMS_PROVIDER: 'sms-provider',
   AUTHORIZATION_PDP: 'authorization-pdp',
+  EMAIL_PROVIDER: 'email-provider',
+  HTTP: 'http',
 } as const;
 
 export type ConnectionInstanceCategory =
@@ -312,6 +316,36 @@ export interface VonageConnectionRequest {
 }
 
 /**
+ * How ThunderID authenticates itself on an outbound call. `type` selects the method and
+ * `properties` carries that method's field values, so a method the console was not built
+ * against still round-trips. The fields each method takes come from GET /connections/meta.
+ *
+ * A field the method marks as a credential is write-only: returned masked as "******", and
+ * omitted on update to keep the stored value.
+ */
+export interface OutboundAuthConfig {
+  type: string;
+  properties?: Record<string, string>;
+}
+
+/**
+ * Request payload for an SMTP email connection.
+ */
+export interface SMTPConnectionRequest {
+  name: string;
+  description?: string;
+  host: string;
+  port: number;
+  fromAddress: string;
+  /** Display name shown beside the address in the From header. Omit for the bare address. */
+  fromName?: string;
+  /** Defaults to starttls when omitted. `none` cannot carry credentials. */
+  tls?: 'none' | 'starttls' | 'implicit';
+  /** Omit to send no credentials. */
+  authentication?: OutboundAuthConfig;
+}
+
+/**
  * Request payload for a generic HTTP SMS gateway connection — a webhook ThunderID calls to
  * deliver the message, for SMS providers without a dedicated vendor integration.
  */
@@ -322,8 +356,9 @@ export interface SMSGatewayConnectionRequest {
   url: string;
   httpMethod: string;
   contentType: string;
-  /** Comma-separated "Key: value" pairs sent with every request. */
   httpHeaders?: string;
+  /** Omit to send no credentials. A method other than `none` requires an HTTPS URL. */
+  authentication?: OutboundAuthConfig;
 }
 
 export interface AuthZENPDPConnectionRequest {
@@ -333,24 +368,32 @@ export interface AuthZENPDPConnectionRequest {
   batchEndpoint?: string;
   timeoutMs?: number;
   retryCount?: number;
-  authentication?: OutboundAuthentication;
+  authentication?: OutboundAuthConfig;
   subjectAttributeMappings?: AuthZENPDPSubjectAttributeMapping[];
 }
 
-export interface APIKeyHeader {
+export type OutboundAuthentication = OutboundAuthConfig;
+export type OutboundAuthenticationResponse = OutboundAuthConfig;
+
+/**
+ * Request payload for an HTTP endpoint connection, a service that flow steps call.
+ */
+export interface HTTPConnectionRequest {
+  name: string;
+  description?: string;
+  /** Must be https when authentication is set. */
+  url: string;
+  /** 1 to 20000. Omit for the 10000 default. */
+  timeoutMs?: number;
+  /** Plain headers sent with every request. A PUT replaces the whole list. */
+  headers?: HTTPHeader[];
+  /** Omit to send no credentials. A method other than `none` requires an https URL. */
+  authentication?: OutboundAuthConfig;
+}
+
+export interface HTTPHeader {
   name: string;
   value: string;
-}
-
-export interface OutboundAuthentication {
-  scheme: 'NONE' | 'BEARER' | 'BASIC' | 'API_KEY';
-  bearer?: {token: string};
-  basic?: {username: string; password: string};
-  apiKey?: {headers: APIKeyHeader[]};
-}
-
-export interface OutboundAuthenticationResponse extends Omit<OutboundAuthentication, 'apiKey'> {
-  apiKey?: {headers: APIKeyHeader[] | null};
 }
 
 export interface AuthZENPDPSubjectAttributeMapping {
@@ -374,15 +417,18 @@ export type ConnectionRequest =
   | TwilioConnectionRequest
   | VonageConnectionRequest
   | SMSGatewayConnectionRequest
-  | AuthZENPDPConnectionRequest;
+  | AuthZENPDPConnectionRequest
+  | SMTPConnectionRequest
+  | HTTPConnectionRequest;
 
 /**
  * Vendor response — secrets are never returned. A superset carrying every vendor's
  * fields (IdP + SMS); the shared form mapping reads only the fields relevant to each type.
  */
-export interface ConnectionResponse extends OIDCConnectionRequest {
+export interface ConnectionResponse extends Partial<OIDCConnectionRequest> {
   id: string;
   type: ConnectionType;
+  name: string;
   /** SMS (Twilio) fields. */
   accountSid?: string;
   authToken?: string;
@@ -394,15 +440,24 @@ export interface ConnectionResponse extends OIDCConnectionRequest {
   /** SMS gateway fields. */
   url?: string;
   httpMethod?: string;
-  contentType?: string;
   httpHeaders?: string;
+  contentType?: string;
   /** AuthZEN PDP fields. */
   endpoint?: string;
   batchEndpoint?: string;
   timeoutMs?: number | string;
   retryCount?: number | string;
-  authentication?: OutboundAuthenticationResponse;
   subjectAttributeMappings?: AuthZENPDPSubjectAttributeMapping[];
+  /** Email (SMTP) fields. */
+  host?: string;
+  port?: number;
+  fromAddress?: string;
+  fromName?: string;
+  tls?: string;
+  /** HTTP endpoint plain headers. The URL and timeout share the fields above. */
+  headers?: HTTPHeader[] | null;
+  /** Outbound authentication returned with credential values masked. */
+  authentication?: OutboundAuthenticationResponse;
 }
 
 /**
@@ -433,6 +488,8 @@ export interface ConnectionVendorMeta {
   supportsAttributeMapping?: boolean;
   /** Whether this connection exposes outbound service authentication settings. */
   supportsAuthentication?: boolean;
+  /** Changing the `url` origin requires the stored credentials to be entered again. */
+  reentersCredentialsOnOriginChange?: boolean;
   /** Whether this connection exposes subject attribute mappings for authorization requests. */
   supportsSubjectMapping?: boolean;
   /** Copy variant for the General tab settings card. */
@@ -457,4 +514,57 @@ export interface ConnectionCardModel {
   comingSoon: boolean;
   /** Route to navigate to when the card is activated; null for coming-soon. */
   navTarget: string | null;
+}
+
+/**
+ * One field of an authentication method, as the server describes it. It uses the same
+ * vocabulary as an entity type's property schema, so the console can render a method it was
+ * never compiled against.
+ */
+export interface OutboundAuthField {
+  key: string;
+  type: string;
+  required?: boolean;
+  /** A secret: rendered write-only, omitted on update to keep the stored value. */
+  credential?: boolean;
+  /** When present, the value must be one of these choices. */
+  enum?: string[];
+  /** When present, the pattern the value must match. Compiled client-side. */
+  regex?: string;
+  /** Plain text, or an i18n template pattern of the form "{{t(namespace:key)}}". */
+  displayName: string;
+}
+
+/**
+ * One authentication method a vendor supports, with its fields in render order.
+ */
+export interface OutboundAuthMethod {
+  type: string;
+  displayName: string;
+  /** The method's fields, in render order. Absent for a method that takes none. */
+  fields?: OutboundAuthField[];
+  /**
+   * Describes properties whose names the administrator chooses, such as API-key header names.
+   * Its `key` is unused; each entered name becomes a property.
+   */
+  additionalProperties?: OutboundAuthField;
+}
+
+/**
+ * One entry of GET /connections/meta: what a vendor can be configured with. Only authentication
+ * is described today; the rest of the form is still statically known to the console.
+ */
+export interface ConnectionMetaVendor {
+  vendor: string;
+  authentication: {
+    methods: OutboundAuthMethod[];
+  };
+}
+
+/**
+ * Response of GET /connections/meta. It is a list in both modes: without a vendor filter it
+ * describes every registered vendor, and with one it holds that vendor alone.
+ */
+export interface ConnectionMetaResponse {
+  vendors: ConnectionMetaVendor[];
 }

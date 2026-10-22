@@ -108,9 +108,9 @@ types, `user_type` and `agent_type`, as they are in `content`.
   no-op, and a request that failed because the removal already happened would make retrying
   impossible. Where the service reports not found, the outcome carries the message
   `resource already absent` and does not add to `summary.deleted`.
-- **A type with no runtime delete is reported, not skipped.** `translation` and `server_config` are
-  reported as an unsupported outcome, because a configuration that dropped one would otherwise look
-  reconciled when it is not.
+- **A type with no runtime delete is reported, not skipped.** `translation`, `server_config`, and
+  `notification_template` are reported as an unsupported outcome, because a configuration that dropped
+  one would otherwise look reconciled when it is not.
 - **A removal the owning service refuses is reported with its reason.** An `agent_type` deletion
   fails with `USRS-1015`, because agent creation depends on the default agent type.
 - **A dry run reports what it would remove and removes nothing.**
@@ -200,6 +200,7 @@ The following handle fields are supported:
 | Agent | `authFlowHandle` | `authFlowId` |
 | Agent | `registrationFlowHandle` | `registrationFlowId` |
 | User type | `ouHandle` | `ouId` |
+| Notification template | `ouHandle` | `ouId` |
 
 If you provide both a handle field and the corresponding ID field, the ID takes precedence and the handle is ignored.
 
@@ -222,6 +223,105 @@ isRegistrationFlowEnabled: true
 ### Dry-Run Behavior
 
 When `dryRun` is `true`, the importer validates documents and reports what would be created or updated, but does not write any changes to runtime stores. Handle resolution is also skipped in dry-run mode: the importer accepts handle fields without attempting to look up their target resources. Use dry-run to validate YAML structure before applying it.
+
+## Notification Templates
+
+A `notification_template` document defines a channel-specific message template. Templates are keyed by `(channel, handle)`: the handle is unique within a channel and is immutable after creation. With `upsert` enabled, an existing template with the same handle is updated; otherwise a duplicate handle fails with a conflict.
+
+| Field | Required | Description |
+|---|---|---|
+| `channel` | Yes | The delivery channel. One of `email` or `sms`. |
+| `handle` | Yes | Stable identifier, unique within the channel. Lowercase alphanumeric with dashes or underscores (kebab or snake case). Immutable after creation. |
+| `displayName` | Yes | Human-readable name. |
+| `description` | No | Optional description. |
+| `content.subject` | Email only | Subject line. Required for `email`, not allowed for `sms`. |
+| `content.body` | Yes | Message body. |
+| `design.colorScheme` | Email only | Optional color scheme, `light` or `dark`. Not allowed for `sms`. |
+
+Channel rules are enforced on both apply and dry-run:
+
+- `email` requires `content.subject`, and may set `design`.
+- `sms` must not set `content.subject` or `design`.
+
+### Example: Email Template
+
+```yaml
+resource_type: notification_template
+channel: email
+handle: user-invite
+ouHandle: default
+displayName: User Invitation Email
+description: Sent when a user is invited.
+content:
+  subject: You are invited
+  body: "<p>{{ctx(inviteLink)}}</p>"
+design:
+  colorScheme: light
+```
+
+### Example: SMS Template
+
+```yaml
+resource_type: notification_template
+channel: sms
+handle: otp-verification
+ouHandle: default
+displayName: OTP Verification SMS
+content:
+  body: "Your verification code is {{ctx(otpCode)}}"
+```
+
+### Default Templates
+
+<ProductName /> ships a default bundle of notification templates. Importing your own document with the same `(channel, handle)` and `upsert` enabled replaces the default.
+
+| Handle | Channels | Purpose |
+|---|---|---|
+| `user-invite` | email, sms | Invite a new user to complete their registration. |
+| `self-registration` | email, sms | Complete a self-service registration. |
+| `magic-link` | email | Sign in through a secure link. |
+| `password-recovery` | email | Reset an account password. |
+| `ciba-notification` | email, sms | Approve a backchannel (CIBA) authentication request. |
+| `otp` | email, sms | Verify an email address or phone number with a one-time passcode. |
+
+## Resource Servers
+
+A `resource_server` document declares a resource server with its resources and actions. A resource's permission joins the handles from the top-level resource down to that resource with the resource server's `delimiter`. An action's permission appends the action handle.
+
+### Delimiter and Handles
+
+- `delimiter` is optional and defaults to `resource.default_delimiter`. It must be one of `.`, `_`, `:`, `-`, or `/`.
+- A handle can contain letters, digits, `.`, `_`, `:`, `-`, and `/`, up to 100 characters, but not the resource server's delimiter.
+
+### Parent References
+
+A handle must be unique under its parent. Set `parent` to the full path of the parent resource, such as `parent: app:team:member`.
+
+### Example
+
+```yaml
+resource_type: resource_server
+id: 01900000-0000-7000-8000-0000000009ff
+name: Team Workspace
+identifier: "urn:example:workspace"
+ouHandle: default
+delimiter: ":"
+resources:
+  - { name: App, handle: app }
+  - { name: Project, handle: project, parent: app }
+  - name: Project Member
+    handle: member
+    parent: "app:project"
+    actions:
+      - { name: Read, handle: read }
+  - { name: Team, handle: team, parent: app }
+  - name: Team Member
+    handle: member
+    parent: "app:team"
+    actions:
+      - { name: Read, handle: read }
+  - { name: Lead, handle: lead, parent: "app:team:member" }
+```
 
 ## Delete File-Backed Declarative Resource
 

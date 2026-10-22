@@ -1,6 +1,7 @@
 // Copyright 2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import {DocumentTitle} from '@thunderid/components';
 import {useToast, useConfig} from '@thunderid/contexts';
 import {useLogger} from '@thunderid/logger/react';
 import {getErrorMessage} from '@thunderid/utils';
@@ -46,6 +47,7 @@ import useImportConfiguration from '../api/useImportConfiguration';
 import EnvVariablesViewer from '../components/EnvVariablesViewer';
 import ResourceSummaryTable from '../components/ResourceSummaryTable';
 import TemplateVariableDisplay from '../components/TemplateVariableDisplay';
+import useAgentLabels from '../hooks/useAgentLabels';
 import useImportExportRoutes from '../hooks/useImportExportRoutes';
 import type {ConfigSummaryItem, ImportItemOutcome, ProductConfig} from '../models/import-configuration';
 import getEnvFileName from '../utils/getEnvFileName';
@@ -148,7 +150,7 @@ interface ResourceItem {
   displayName?: string;
   vct?: string;
   display?: {name?: string};
-  attributes?: {username?: string; email?: string; name?: string};
+  attributes?: {username?: string; email?: string; name?: string; [key: string]: unknown};
   inbound_auth_config?: {type?: string; config?: {client_id?: string}}[];
 }
 
@@ -158,7 +160,12 @@ interface ResourceView {
   icon: ComponentType<{size?: number}>;
   getLabel: (t: TFunction) => string;
   getKey: (item: ResourceItem, idx: number) => string;
-  getName: (item: ResourceItem, t: TFunction, idx: number) => string;
+  getName: (
+    item: ResourceItem,
+    t: TFunction,
+    idx: number,
+    getAgentLabel: (agent: ResourceItem) => string | undefined,
+  ) => string;
   renderChip?: (item: ResourceItem, t: TFunction) => JSX.Element | null;
   renderDetails?: (item: ResourceItem, t: TFunction, envData: string | null) => JSX.Element | null;
 }
@@ -325,7 +332,8 @@ const RESOURCE_VIEWS: ResourceView[] = [
     icon: UserRoundCog,
     getLabel: (t) => t('configureExport.labels.userTypes'),
     getKey: (item, idx) => item.handle ?? item.name ?? `schema-${idx}`,
-    getName: (item, t, idx) => item.name ?? item.handle ?? t('summary.fallback.schema', {index: idx + 1}),
+    getName: (item, t, idx) =>
+      item.displayName ?? item.name ?? item.handle ?? t('summary.fallback.schema', {index: idx + 1}),
     renderChip: (item, t) =>
       item.allow_self_registration ? (
         <Chip
@@ -343,7 +351,8 @@ const RESOURCE_VIEWS: ResourceView[] = [
     icon: Bot,
     getLabel: (t) => t('configureExport.labels.agentTypes'),
     getKey: (item, idx) => item.handle ?? item.name ?? `agent-type-${idx}`,
-    getName: (item, t, idx) => item.name ?? item.handle ?? t('summary.fallback.agentType', {index: idx + 1}),
+    getName: (item, t, idx) =>
+      item.displayName ?? item.name ?? item.handle ?? t('summary.fallback.agentType', {index: idx + 1}),
     renderChip: (item, t) =>
       item.allow_self_registration ? (
         <Chip
@@ -360,8 +369,8 @@ const RESOURCE_VIEWS: ResourceView[] = [
     id: 'agents',
     icon: Bot,
     getLabel: (t) => t('configureExport.labels.agents'),
-    getKey: (item, idx) => item.id ?? item.name ?? `agent-${idx}`,
-    getName: (item, t) => item.name ?? t('configureExport.fallback.unnamedAgent'),
+    getKey: (item, idx) => item.id ?? `agent-${idx}`,
+    getName: (item, t, _idx, getAgentLabel) => getAgentLabel(item) ?? t('configureExport.fallback.unnamedAgent'),
     renderDetails: (item, t, envData) => {
       const clientId = getClientId(item);
       return (
@@ -641,6 +650,7 @@ export default function ImportConfigurationSummaryPage(): JSX.Element {
   ]);
 
   const summaryItems: ConfigSummaryItem[] = [];
+  const getAgentLabel = useAgentLabels(configData);
 
   const buildSummaryItem = (view: ResourceView, items: ResourceItem[]): ConfigSummaryItem => {
     const isExpanded = expandedTypes[view.type] ?? false;
@@ -662,7 +672,7 @@ export default function ImportConfigurationSummaryPage(): JSX.Element {
                   <Stack direction="row" alignItems="center" spacing={1}>
                     <Icon size={14} />
                     <Typography variant="body2" fontWeight={600}>
-                      {view.getName(item, t, idx)}
+                      {view.getName(item, t, idx, getAgentLabel)}
                     </Typography>
                     {view.renderChip?.(item, t)}
                   </Stack>
@@ -737,6 +747,7 @@ export default function ImportConfigurationSummaryPage(): JSX.Element {
 
   return (
     <Box sx={{minHeight: '100vh', display: 'flex', flexDirection: 'column'}}>
+      <DocumentTitle title={t('summary.title', 'Configuration summary')} />
       <LinearProgress variant="determinate" value={100} sx={{height: 6}} />
 
       <Box

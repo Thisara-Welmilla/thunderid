@@ -205,7 +205,7 @@ export default function EditTokenSettings({
       return [];
     }
 
-    return userTypesData.types.filter((schema) => allowedUserTypes.includes(schema.name)).map((schema) => schema.id);
+    return userTypesData.types.filter((schema) => allowedUserTypes.includes(schema.handle)).map((schema) => schema.id);
   }, [userTypesData, allowedUserTypes]);
 
   // Determine if this is OAuth/OIDC mode (has separate token configs) or Native mode

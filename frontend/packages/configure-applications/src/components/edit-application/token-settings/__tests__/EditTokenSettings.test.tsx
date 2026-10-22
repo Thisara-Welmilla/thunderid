@@ -23,7 +23,8 @@ const {mockHttp, mockGetServerUrl, mockLogger} = vi.hoisted(() => {
         types: [
           {
             id: 'schema-1',
-            name: 'default',
+            handle: 'default',
+            displayName: 'Default',
           },
         ],
       },
@@ -766,7 +767,8 @@ describe('EditTokenSettings', () => {
           return Promise.resolve({
             data: {
               id: 'schema-1',
-              name: 'default',
+              handle: 'default',
+              displayName: 'Default',
               ouId: 'org-1',
               allowSelfRegistration: false,
               schema,
@@ -775,7 +777,12 @@ describe('EditTokenSettings', () => {
         }
 
         return Promise.resolve({
-          data: {totalResults: 1, startIndex: 0, count: 1, types: [{id: 'schema-1', name: 'default'}]},
+          data: {
+            totalResults: 1,
+            startIndex: 0,
+            count: 1,
+            types: [{id: 'schema-1', handle: 'default', displayName: 'Default'}],
+          },
         });
       });
     };

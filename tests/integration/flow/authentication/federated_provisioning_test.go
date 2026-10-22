@@ -193,13 +193,13 @@ func (ts *FederatedProvisioningTestSuite) SetupSuite() {
 	// distinguishable from the one scenario 11 selects.
 	ts.primaryTypeName = "fedprov-selfreg-primary"
 	ts.primaryTypeID, err = testutils.CreateUserType(testutils.UserType{
-		Name: ts.primaryTypeName, OUID: ts.ouAID, AllowSelfRegistration: true, Schema: fedProvSchema,
+		Handle: ts.primaryTypeName, DisplayName: "Primary Type", OUID: ts.ouAID, AllowSelfRegistration: true, Schema: fedProvSchema,
 	})
 	ts.Require().NoError(err, "Failed to create the primary self-registration type")
 
 	ts.altTypeName = "fedprov-selfreg-secondary"
 	ts.altTypeID, err = testutils.CreateUserType(testutils.UserType{
-		Name: ts.altTypeName, OUID: ts.ouBID, AllowSelfRegistration: true, Schema: fedProvSchema,
+		Handle: ts.altTypeName, DisplayName: "Alt Type", OUID: ts.ouBID, AllowSelfRegistration: true, Schema: fedProvSchema,
 	})
 	ts.Require().NoError(err, "Failed to create the secondary self-registration type")
 
@@ -240,7 +240,8 @@ func (ts *FederatedProvisioningTestSuite) SetupSuite() {
 func (ts *FederatedProvisioningTestSuite) createUserTypeWithSelfRegDisabled(
 	name, ouID string) string {
 	payload := map[string]interface{}{
-		"name":                  name,
+		"handle":                name,
+		"displayName":           name,
 		"ouId":                  ouID,
 		"allowSelfRegistration": false,
 		"schema":                fedProvSchema,
@@ -292,7 +293,7 @@ func (ts *FederatedProvisioningTestSuite) appForFlow(
 		AllowedUserTypes: allowedTypes,
 		AuthFlowID:       flowID,
 		AssertionConfig: map[string]interface{}{
-			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
+			"userAttributes": []string{"userTypeHandle", "ouId", "ouName", "ouHandle"},
 		},
 	})
 	ts.Require().NoError(err, "Failed to create app %s", appName)

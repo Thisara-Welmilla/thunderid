@@ -344,7 +344,7 @@ export class UsersPage extends BasePage {
 
   /**
    * Select a user type and advance past the (optional) org unit step. Picks the first available
-   * option when `userTypeName` is omitted; matches by exact visible text otherwise (e.g. "Staff",
+   * option when `userTypeName` is omitted; matches by exact visible text otherwise (e.g. "staff",
    * for the Wayfinder staff-onboarding flow).
    */
   async selectUserTypeAndContinue(userTypeName?: string) {
@@ -499,8 +499,13 @@ export class UsersPage extends BasePage {
         values[id] = await input.inputValue();
         continue;
       }
-      // The email field is validated against a regex, so a generic unique string won't pass.
-      const value = id === "email" ? `${prefix}_${index}@example.com` : `${prefix}_${id}_${index}`;
+      // email and mobile_number are validated against a regex, so a generic unique string won't pass.
+      let value = `${prefix}_${id}_${index}`;
+      if (id === "email") {
+        value = `${prefix}_${index}@example.com`;
+      } else if (id === "mobile_number") {
+        value = `+1555${String(index).padStart(7, "0")}`;
+      }
       await input.fill(value);
       values[id] = value;
     }

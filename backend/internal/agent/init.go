@@ -8,6 +8,8 @@ import (
 	"net/http"
 
 	"github.com/thunder-id/thunderid/internal/entity"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/identitygovernance"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	oupkg "github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/role"
@@ -18,6 +20,9 @@ import (
 )
 
 // Initialize wires the agent service, registers HTTP routes and returns the service and exporter.
+//
+// valueCapturer is optional. Given one, the service hands it every agent it creates or changes, so the
+// values the agent's export refers to are kept where a reference finds them.
 func Initialize(
 	mux *http.ServeMux,
 	entityService entity.EntityServiceInterface,
@@ -25,8 +30,16 @@ func Initialize(
 	ouService oupkg.OrganizationUnitServiceInterface,
 	roleService role.RoleServiceInterface,
 	authzService sysauthz.SystemAuthorizationServiceInterface,
+	governance identitygovernance.IdentityGovernanceServiceInterface,
+	valueCapturer declarativeresource.ValueCapturer,
+	entityTypeService entitytype.EntityTypeServiceInterface,
 ) (AgentServiceInterface, declarativeresource.ResourceExporter, error) {
-	service := newAgentService(authzService, entityService, inboundClientService, ouService, roleService)
+	service := newAgentService(authzService, entityService, inboundClientService, ouService, roleService,
+		governance, valueCapturer, entityTypeService)
+
+	if err := entityService.LoadIndexedAttributes(getAgentIndexedAttributes()); err != nil {
+		return nil, nil, err
+	}
 
 	storeMode := getAgentStoreMode()
 	if storeMode == serverconst.StoreModeComposite || storeMode == serverconst.StoreModeDeclarative {

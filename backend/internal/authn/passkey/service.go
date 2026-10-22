@@ -509,7 +509,7 @@ func (w *passkeyService) getEntity(
 ) (*providers.Entity, *tidcommon.ServiceError) {
 	logger := w.logger.With(log.String(log.LoggerKeyComponentName, loggerComponentName))
 
-	e, err := w.entityService.GetEntity(ctx, entityID)
+	e, err := w.entityService.GetEntityProfile(ctx, entityID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			logger.Debug(ctx, "Entity not found", log.MaskedString("entityID", entityID))

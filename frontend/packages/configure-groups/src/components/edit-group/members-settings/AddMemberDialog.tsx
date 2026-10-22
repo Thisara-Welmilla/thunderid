@@ -3,8 +3,10 @@
 
 import {QueryErrorNotice} from '@thunderid/components';
 import type {BasicApplication} from '@thunderid/configure-applications';
+import {useGetUserTypes} from '@thunderid/configure-users';
 import {useDataGridLocaleText} from '@thunderid/hooks';
 import type {User} from '@thunderid/types';
+import {getUserTypeLabel} from '@thunderid/utils';
 import {
   Dialog,
   DialogTitle,
@@ -58,6 +60,7 @@ export default function AddMemberDialog({
   groupId = undefined,
 }: AddMemberDialogProps): JSX.Element {
   const {t} = useTranslation();
+  const {data: userTypesData} = useGetUserTypes();
   const dataGridLocaleText = useDataGridLocaleText();
 
   const [activeTab, setActiveTab] = useState(0);
@@ -211,11 +214,11 @@ export default function AddMemberDialog({
         headerName: t('groups:addMember.columns.userType'),
         width: 150,
         renderCell: (params: DataGrid.GridRenderCellParams<User>): JSX.Element => (
-          <Chip label={params.row.type} size="small" variant="outlined" sx={{textTransform: 'capitalize'}} />
+          <Chip label={getUserTypeLabel(userTypesData?.types ?? [], params.row.type)} size="small" variant="outlined" />
         ),
       },
     ],
-    [t],
+    [t, userTypesData],
   );
 
   const agentColumns: DataGrid.GridColDef<BasicAgent>[] = useMemo(
@@ -251,10 +254,11 @@ export default function AddMemberDialog({
         ),
       },
       {
-        field: 'name',
+        field: 'display',
         headerName: t('groups:addMember.columns.displayName'),
         flex: 1,
         minWidth: 200,
+        valueGetter: (_value, row): string => row.display ?? row.id,
       },
       {
         field: 'id',
@@ -597,7 +601,7 @@ export default function AddMemberDialog({
           onClick={handleAdd}
           disabled={totalSelected === 0 || isSubmitting || membershipUnavailable}
         >
-          {t('groups:addMember.add', 'Add Selected')}
+          {t('groups:addMember.add', 'Add selected')}
         </Button>
       </DialogActions>
     </Dialog>

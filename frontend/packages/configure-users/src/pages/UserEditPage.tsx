@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  DocumentTitle,
   PageLoadingAnimation,
   QueryErrorNotice,
   ResourceAvatar,
@@ -95,7 +96,7 @@ export default function UserEditPage() {
   const {data: user, isLoading: isUserLoading, error: userError, refetch} = useGetUser(userId);
   const updateUserMutation = useUpdateUser();
 
-  // Get all schemas to find the schema ID from the schema name
+  // Get all schemas to find the schema ID from the schema handle
   const {
     data: userTypeList,
     isLoading: isUserTypeListLoading,
@@ -103,8 +104,8 @@ export default function UserEditPage() {
     refetch: refetchUserTypeList,
   } = useGetUserTypes();
 
-  // Find the schema ID based on the user's type (which is the schema name)
-  const matchedSchema = userTypeList?.types?.find((s) => s.name === user?.type);
+  // Find the schema ID based on the user's type (which is the schema handle)
+  const matchedSchema = userTypeList?.types?.find((s) => s.handle === user?.type);
 
   const schemaId = matchedSchema?.id;
 
@@ -215,13 +216,19 @@ export default function UserEditPage() {
 
   // Loading state
   if (isUserLoading || isUserTypeListLoading || isSchemaLoading) {
-    return <PageLoadingAnimation />;
+    return (
+      <>
+        <DocumentTitle title={t('navigation:pages.users', 'Users')} />
+        <PageLoadingAnimation />
+      </>
+    );
   }
 
   // Error state
   if (userError ?? userTypeListError ?? schemaError) {
     return (
       <PageContent>
+        <DocumentTitle title={t('navigation:pages.users', 'Users')} />
         <QueryErrorNotice
           error={(userError ?? userTypeListError ?? schemaError)!}
           t={(key, options) => t(key.includes(':') ? key : `users:${key}`, options)}
@@ -241,7 +248,7 @@ export default function UserEditPage() {
               }}
               startIcon={<ArrowLeft size={16} />}
             >
-              {t('users:manageUser.back', 'Back to Users')}
+              {t('users:manageUser.back', 'Back to users')}
             </Button>
           }
         />
@@ -253,6 +260,7 @@ export default function UserEditPage() {
   if (!user) {
     return (
       <PageContent>
+        <DocumentTitle title={t('navigation:pages.users', 'Users')} />
         <Alert severity="warning" sx={{mb: 2}}>
           {t('users:manageUser.notFound', 'User not found')}
         </Alert>
@@ -282,7 +290,7 @@ export default function UserEditPage() {
 
           {/* Organization Unit */}
           <SettingsCard
-            title={t('users:manageUser.sections.organizationUnit.title', 'Organization Unit')}
+            title={t('users:manageUser.sections.organizationUnit.title', 'Organization unit')}
             description={t(
               'users:manageUser.sections.organizationUnit.description',
               'The organization unit this user belongs to.',
@@ -309,14 +317,14 @@ export default function UserEditPage() {
                                 ? t('common:actions.copied')
                                 : t(
                                     'users:manageUser.sections.organizationUnit.copyHandle',
-                                    'Copy Organization Unit Handle',
+                                    'Copy organization unit handle',
                                   )
                             }
                           >
                             <IconButton
                               aria-label={t(
                                 'users:manageUser.sections.organizationUnit.copyHandle',
-                                'Copy Organization Unit Handle',
+                                'Copy organization unit handle',
                               )}
                               onClick={() => {
                                 handleCopyToClipboard(user.ouHandle!, 'ouHandle').catch(() => null);
@@ -351,13 +359,13 @@ export default function UserEditPage() {
                             title={
                               copiedField === 'ouId'
                                 ? t('common:actions.copied')
-                                : t('users:manageUser.sections.organizationUnit.copyId', 'Copy Organization Unit ID')
+                                : t('users:manageUser.sections.organizationUnit.copyId', 'Copy organization unit ID')
                             }
                           >
                             <IconButton
                               aria-label={t(
                                 'users:manageUser.sections.organizationUnit.copyId',
-                                'Copy Organization Unit ID',
+                                'Copy organization unit ID',
                               )}
                               onClick={() => {
                                 handleCopyToClipboard(user.ouId, 'ouId').catch(() => null);
@@ -408,11 +416,11 @@ export default function UserEditPage() {
       render: () => (
         <Stack spacing={3}>
           <SettingsCard
-            title={t('users:manageUser.sections.dangerZone.title', 'Danger Zone')}
+            title={t('users:manageUser.sections.dangerZone.title', 'Danger zone')}
             description={t('users:manageUser.sections.dangerZone.description', 'Irreversible and destructive actions.')}
           >
             <Typography variant="h6" gutterBottom color="error">
-              {t('users:manageUser.sections.dangerZone.deleteUser', 'Delete User')}
+              {t('users:manageUser.sections.dangerZone.deleteUser', 'Delete user')}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{mb: 3}}>
               {t(
@@ -433,6 +441,7 @@ export default function UserEditPage() {
 
   return (
     <PageContent>
+      <DocumentTitle title={displayName} />
       {user.isReadOnly && (
         <Alert severity="info" sx={{mb: 2}}>
           {t('common:messages.readOnlyResource', 'This resource is read-only and cannot be modified.')}
@@ -441,7 +450,7 @@ export default function UserEditPage() {
       {/* Header */}
       <PageTitle>
         <PageTitle.BackButton component={<Link to={routes.list()} />}>
-          {t('users:manageUser.back', 'Back to Users')}
+          {t('users:manageUser.back', 'Back to users')}
         </PageTitle.BackButton>
         <PageTitle.Avatar>
           <ResourceAvatar
@@ -455,7 +464,7 @@ export default function UserEditPage() {
         </PageTitle.Header>
         <PageTitle.SubHeader>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <Chip label={user.type} size="small" sx={{px: 0.5}} />
+            <Chip label={matchedSchema?.displayName ?? user.type} size="small" sx={{px: 0.5}} />
           </Stack>
         </PageTitle.SubHeader>
       </PageTitle>

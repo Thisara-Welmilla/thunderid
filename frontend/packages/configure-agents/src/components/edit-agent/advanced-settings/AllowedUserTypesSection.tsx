@@ -4,6 +4,7 @@
 import {SettingsCard} from '@thunderid/components';
 import {deriveOAuth2Flags} from '@thunderid/configure-applications';
 import {useGetUserTypes} from '@thunderid/configure-user-types';
+import {getUserTypeLabel} from '@thunderid/utils';
 import {Autocomplete, FormControl, FormLabel, TextField} from '@wso2/oxygen-ui';
 import type {JSX} from 'react';
 import {useTranslation} from 'react-i18next';
@@ -36,11 +37,12 @@ export default function AllowedUserTypesSection({
 
   if (!isApplicable) return null;
 
-  const userTypeOptions = userTypesData?.types?.map((schema) => schema.name) ?? [];
+  // Options and stored values are handles; the label shows the display name, falling back to the handle.
+  const userTypeOptions = userTypesData?.types?.map((schema) => schema.handle) ?? [];
 
   return (
     <SettingsCard
-      title={t('agents:edit.flows.allowedUserTypes.title', 'Allowed User Types')}
+      title={t('agents:edit.flows.allowedUserTypes.title', 'Allowed user types')}
       description={t(
         'agents:edit.flows.allowedUserTypes.description',
         'Restrict which user types can sign up through this agent.',
@@ -48,14 +50,15 @@ export default function AllowedUserTypesSection({
     >
       <FormControl fullWidth>
         <FormLabel htmlFor="agent-allowed-user-types">
-          {t('agents:edit.flows.allowedUserTypes.label', 'User Types')}
+          {t('agents:edit.flows.allowedUserTypes.label', 'User types')}
         </FormLabel>
         <Autocomplete
           multiple
-          freeSolo
+          freeSolo={false}
           fullWidth
           loading={isLoading}
           options={userTypeOptions}
+          getOptionLabel={(option) => getUserTypeLabel(userTypesData?.types ?? [], option)}
           value={value}
           onChange={(_event, newValue) => onFieldChange('allowedUserTypes', newValue)}
           disabled={agent.isReadOnly}
@@ -63,7 +66,7 @@ export default function AllowedUserTypesSection({
             <TextField
               {...params}
               id="agent-allowed-user-types"
-              placeholder={t('agents:edit.flows.allowedUserTypes.placeholder', 'Select or add user types')}
+              placeholder={t('agents:edit.flows.allowedUserTypes.placeholder', 'Select user types')}
               error={isMissingRequiredType}
               helperText={
                 isMissingRequiredType

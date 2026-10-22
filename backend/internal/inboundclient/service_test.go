@@ -19,24 +19,31 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/thunder-id/thunderid/internal/cert"
+	"github.com/thunder-id/thunderid/internal/cimd"
 	"github.com/thunder-id/thunderid/internal/entityprovider"
 	entitytypepkg "github.com/thunder-id/thunderid/internal/entitytype"
+	entitytypemodel "github.com/thunder-id/thunderid/internal/entitytype/model"
 	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	sysconfig "github.com/thunder-id/thunderid/internal/system/config"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	syscontext "github.com/thunder-id/thunderid/internal/system/context"
 	joseconfig "github.com/thunder-id/thunderid/internal/system/jose/config"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwe"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
+	"github.com/thunder-id/thunderid/internal/system/security"
 	"github.com/thunder-id/thunderid/internal/system/transaction"
 	"github.com/thunder-id/thunderid/tests/mocks/certmock"
+	"github.com/thunder-id/thunderid/tests/mocks/cimdmock"
 	"github.com/thunder-id/thunderid/tests/mocks/crypto/cryptomock"
 	"github.com/thunder-id/thunderid/tests/mocks/design/layoutmock"
 	"github.com/thunder-id/thunderid/tests/mocks/design/thememock"
 	"github.com/thunder-id/thunderid/tests/mocks/entityprovidermock"
 	"github.com/thunder-id/thunderid/tests/mocks/entitytypemock"
 	"github.com/thunder-id/thunderid/tests/mocks/flow/flowmgtmock"
+	"github.com/thunder-id/thunderid/tests/mocks/sharingmock"
 )
 
 type InboundClientServiceTestSuite struct {
@@ -70,22 +77,32 @@ func (suite *InboundClientServiceTestSuite) SetupTest() {
 	suite.jweService, _ = jwe.Initialize(suite.cryptoMock, joseconfig.Config{})
 }
 
+// noopCIMDService accepts every OAuth profile, for tests that don't exercise the CIMD rules.
+type noopCIMDService struct{ cimd.CIMDServiceInterface }
+
+func (noopCIMDService) ValidateOAuthProfile(string, *providers.OAuthProfile, bool, string,
+	*providers.OAuthProfile) *tidcommon.ServiceError {
+	return nil
+}
+
 func newServiceForTest(store inboundClientStoreInterface) InboundClientServiceInterface {
-	return newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, nil, nil, nil)
+	return newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, nil, nil, nil, noopCIMDService{}, nil, nil)
 }
 
 func newServiceWithCert(certService cert.CertificateServiceInterface) *inboundClientService {
 	svc := newInboundClientService(
 		nil, transaction.NewNoOpTransactioner(), certService, nil, nil, nil, nil, nil, nil, nil,
+		noopCIMDService{}, nil, nil,
 	)
-	return svc.(*inboundClientService)
+	return svc
 }
 
 func newServiceWithEntityType(et entitytypepkg.EntityTypeServiceInterface) *inboundClientService {
 	svc := newInboundClientService(
-		nil, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, et, nil, nil,
+		nil, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, et, nil, nil, noopCIMDService{}, nil, nil,
 	)
-	return svc.(*inboundClientService)
+	return svc
 }
 
 // userAttrProfile builds an OAuth profile with the three user attribute allow-lists populated.
@@ -195,14 +212,15 @@ func (suite *InboundClientServiceTestSuite) TestCreateInboundClient_PrunesSeeded
 		GetEntityTypeList(mock.Anything, entitytypepkg.TypeCategoryUser, mock.Anything, mock.Anything, false).
 		Return(&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "users"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "users"}},
 		}, nil)
 	et.EXPECT().
 		GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "users",
 			entitytypepkg.AttributeFilter{AllowNonCredential: true}).
 		Return([]entitytypepkg.AttributeInfo{{Attribute: "email"}, {Attribute: "given_name"}}, nil)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, et, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, et, nil, nil, noopCIMDService{}, nil, nil)
 
 	client := ptrInboundClient()
 	client.AllowedUserTypes = []string{"users"}
@@ -305,6 +323,7 @@ func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_RefusesDecla
 func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_CertificateRequiresClientID() {
 	store := newInboundClientStoreInterfaceMock(suite.T())
 	store.EXPECT().IsDeclarative(mock.Anything, "p1").Return(false)
+	store.EXPECT().GetOAuthProfileByEntityID(mock.Anything, "p1").Return(nil, ErrInboundClientNotFound)
 	svc := newServiceForTest(store)
 
 	p := &providers.OAuthProfile{
@@ -420,7 +439,7 @@ func (suite *InboundClientServiceTestSuite) TestValidateCertificateInput_Invalid
 func (suite *InboundClientServiceTestSuite) TestCreateCertificate_Nil() {
 	svc := newServiceWithCert(certmock.NewCertificateServiceInterfaceMock(suite.T()))
 
-	out, vErr, opErr := svc.createCertificate(context.Background(), "ref-1", nil)
+	out, opErr, vErr := svc.createCertificate(context.Background(), "ref-1", nil)
 
 	suite.Nil(out)
 	suite.Nil(vErr)
@@ -434,7 +453,7 @@ func (suite *InboundClientServiceTestSuite) TestCreateCertificate_Success() {
 	svc := newServiceWithCert(mockCert)
 
 	in := &inboundmodel.Certificate{Type: cert.CertificateTypeJWKS, Value: `{}`}
-	out, vErr, opErr := svc.createCertificate(context.Background(), "ref-1", in)
+	out, opErr, vErr := svc.createCertificate(context.Background(), "ref-1", in)
 
 	suite.Nil(vErr)
 	suite.Nil(opErr)
@@ -446,7 +465,7 @@ func (suite *InboundClientServiceTestSuite) TestCreateCertificate_InvalidInput()
 	svc := newServiceWithCert(certmock.NewCertificateServiceInterfaceMock(suite.T()))
 
 	in := &inboundmodel.Certificate{Type: cert.CertificateTypeJWKSURI, Value: "not-a-uri"}
-	out, vErr, opErr := svc.createCertificate(context.Background(), "ref-1", in)
+	out, opErr, vErr := svc.createCertificate(context.Background(), "ref-1", in)
 
 	suite.Nil(out)
 	suite.Nil(opErr)
@@ -460,7 +479,7 @@ func (suite *InboundClientServiceTestSuite) TestCreateCertificate_ServiceError()
 	svc := newServiceWithCert(mockCert)
 
 	in := &inboundmodel.Certificate{Type: cert.CertificateTypeJWKS, Value: `{}`}
-	out, vErr, opErr := svc.createCertificate(context.Background(), "ref-1", in)
+	out, opErr, vErr := svc.createCertificate(context.Background(), "ref-1", in)
 
 	suite.Nil(out)
 	suite.Nil(vErr)
@@ -550,7 +569,7 @@ func (suite *InboundClientServiceTestSuite) TestSyncCertificate_NoOp_NoExistingN
 		Return(nil, &cert.ErrorCertificateNotFound)
 	svc := newServiceWithCert(mockCert)
 
-	out, vErr, opErr := svc.syncCertificate(context.Background(), "ref-1", nil)
+	out, opErr, vErr := svc.syncCertificate(context.Background(), "ref-1", nil)
 
 	suite.Nil(out)
 	suite.Nil(vErr)
@@ -566,7 +585,7 @@ func (suite *InboundClientServiceTestSuite) TestSyncCertificate_CreateWhenAbsent
 		Return(&cert.Certificate{}, nil)
 	svc := newServiceWithCert(mockCert)
 
-	out, vErr, opErr := svc.syncCertificate(context.Background(), "ref-1",
+	out, opErr, vErr := svc.syncCertificate(context.Background(), "ref-1",
 		&inboundmodel.Certificate{Type: cert.CertificateTypeJWKS, Value: `{}`})
 
 	suite.Nil(vErr)
@@ -583,7 +602,7 @@ func (suite *InboundClientServiceTestSuite) TestSyncCertificate_UpdateWhenPresen
 		Return(&cert.Certificate{}, nil)
 	svc := newServiceWithCert(mockCert)
 
-	out, vErr, opErr := svc.syncCertificate(context.Background(), "ref-1",
+	out, opErr, vErr := svc.syncCertificate(context.Background(), "ref-1",
 		&inboundmodel.Certificate{Type: cert.CertificateTypeJWKS, Value: `{}`})
 
 	suite.Nil(vErr)
@@ -601,7 +620,7 @@ func (suite *InboundClientServiceTestSuite) TestSyncCertificate_DeleteWhenInputE
 		Return(nil)
 	svc := newServiceWithCert(mockCert)
 
-	out, vErr, opErr := svc.syncCertificate(context.Background(), "ref-1", nil)
+	out, opErr, vErr := svc.syncCertificate(context.Background(), "ref-1", nil)
 
 	suite.Nil(out)
 	suite.Nil(vErr)
@@ -615,7 +634,7 @@ func (suite *InboundClientServiceTestSuite) TestSyncCertificate_ValidationError(
 		Return(nil, &cert.ErrorCertificateNotFound)
 	svc := newServiceWithCert(mockCert)
 
-	out, vErr, opErr := svc.syncCertificate(context.Background(), "ref-1",
+	out, opErr, vErr := svc.syncCertificate(context.Background(), "ref-1",
 		&inboundmodel.Certificate{Type: "bogus", Value: "x"})
 
 	suite.Nil(out)
@@ -650,6 +669,7 @@ func (suite *InboundClientServiceTestSuite) TestGetOAuthProfileByEntityID_Delega
 func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_ValidationFails() {
 	store := newInboundClientStoreInterfaceMock(suite.T())
 	store.EXPECT().IsDeclarative(mock.Anything, "p1").Return(false)
+	store.EXPECT().GetOAuthProfileByEntityID(mock.Anything, "p1").Return(nil, ErrInboundClientNotFound)
 	svc := newServiceForTest(store)
 
 	p := validOAuthProfile()
@@ -657,6 +677,19 @@ func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_ValidationFa
 
 	err := svc.UpdateInboundClient(context.Background(), ptrInboundClient(), p, false, "")
 	assert.ErrorIs(suite.T(), err, ErrOAuthInvalidGrantType)
+}
+
+func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_IDJAGWithoutTokenExchangeFails() {
+	store := newInboundClientStoreInterfaceMock(suite.T())
+	store.EXPECT().IsDeclarative(mock.Anything, "p1").Return(false)
+	store.EXPECT().GetOAuthProfileByEntityID(mock.Anything, "p1").Return(nil, ErrInboundClientNotFound)
+	svc := newServiceForTest(store)
+
+	p := validOAuthProfile()
+	p.Token = &providers.OAuthTokenConfig{IDJAG: &providers.IDJAGConfig{Enabled: true}}
+
+	err := svc.UpdateInboundClient(context.Background(), ptrInboundClient(), p, true, "")
+	assert.ErrorIs(suite.T(), err, ErrOAuthClientIDJAGRequiresTokenExchange)
 }
 
 func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_Succeeds() {
@@ -667,7 +700,8 @@ func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_Succeeds() {
 	store.EXPECT().GetOAuthProfileByEntityID(mock.Anything, "p1").Return(nil, ErrInboundClientNotFound)
 	store.EXPECT().CreateOAuthProfile(mock.Anything, "p1", mock.Anything).Return(nil)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, nil, nil, nil, noopCIMDService{}, nil, nil)
 	err := svc.UpdateInboundClient(context.Background(), ptrInboundClient(), validOAuthProfile(), true, "")
 	assert.NoError(suite.T(), err)
 }
@@ -753,7 +787,7 @@ func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_StripsUndecl
 		GetEntityTypeList(mock.Anything, entitytypepkg.TypeCategoryUser, mock.Anything, mock.Anything, false).
 		Return(&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "users"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "users"}},
 		}, nil)
 	// Exactly one schema lookup per allowed user type on the update path.
 	et.EXPECT().
@@ -762,7 +796,8 @@ func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_StripsUndecl
 		Return([]entitytypepkg.AttributeInfo{{Attribute: "email"}}, nil).
 		Once()
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, et, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, et, nil, nil, noopCIMDService{}, nil, nil)
 
 	client := ptrInboundClient()
 	client.AllowedUserTypes = []string{"users"}
@@ -799,14 +834,15 @@ func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_PrunesScopeC
 		GetEntityTypeList(mock.Anything, entitytypepkg.TypeCategoryUser, mock.Anything, mock.Anything, false).
 		Return(&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "users"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "users"}},
 		}, nil)
 	et.EXPECT().
 		GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "users",
 			entitytypepkg.AttributeFilter{AllowNonCredential: true}).
 		Return([]entitytypepkg.AttributeInfo{{Attribute: "email"}}, nil)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, et, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, et, nil, nil, noopCIMDService{}, nil, nil)
 
 	client := ptrInboundClient()
 	client.AllowedUserTypes = []string{"users"}
@@ -839,7 +875,7 @@ func (suite *InboundClientServiceTestSuite) TestCreateInboundClient_SeedsAttribu
 		GetEntityTypeList(mock.Anything, entitytypepkg.TypeCategoryUser, mock.Anything, mock.Anything, false).
 		Return(&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "users"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "users"}},
 		}, nil)
 	et.EXPECT().
 		GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "users",
@@ -848,7 +884,8 @@ func (suite *InboundClientServiceTestSuite) TestCreateInboundClient_SeedsAttribu
 			{Attribute: "email"}, {Attribute: "given_name"}, {Attribute: "family_name"},
 		}, nil)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, et, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, et, nil, nil, noopCIMDService{}, nil, nil)
 
 	client := ptrInboundClient()
 	client.AllowedUserTypes = []string{"users"}
@@ -879,14 +916,15 @@ func (suite *InboundClientServiceTestSuite) TestCreateInboundClient_NoAttributes
 		GetEntityTypeList(mock.Anything, entitytypepkg.TypeCategoryUser, mock.Anything, mock.Anything, false).
 		Return(&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "users"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "users"}},
 		}, nil)
 	et.EXPECT().
 		GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "users",
 			entitytypepkg.AttributeFilter{AllowNonCredential: true}).
 		Return([]entitytypepkg.AttributeInfo{{Attribute: "email"}, {Attribute: "given_name"}}, nil)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, et, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, et, nil, nil, noopCIMDService{}, nil, nil)
 
 	client := ptrInboundClient()
 	client.AllowedUserTypes = []string{"users"}
@@ -910,14 +948,15 @@ func (suite *InboundClientServiceTestSuite) TestCreateInboundClient_KeepsSupplie
 		GetEntityTypeList(mock.Anything, entitytypepkg.TypeCategoryUser, mock.Anything, mock.Anything, false).
 		Return(&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "users"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "users"}},
 		}, nil)
 	et.EXPECT().
 		GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "users",
 			entitytypepkg.AttributeFilter{AllowNonCredential: true}).
 		Return([]entitytypepkg.AttributeInfo{{Attribute: "email"}, {Attribute: "given_name"}}, nil)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, et, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, et, nil, nil, noopCIMDService{}, nil, nil)
 
 	client := ptrInboundClient()
 	client.AllowedUserTypes = []string{"users"}
@@ -959,8 +998,75 @@ func (suite *InboundClientServiceTestSuite) TestValidate_ValidProfile() {
 	store := newInboundClientStoreInterfaceMock(suite.T())
 	svc := newServiceForTest(store)
 
-	err := svc.Validate(context.Background(), ptrInboundClient(), validOAuthProfile(), true)
+	err := svc.Validate(context.Background(), ptrInboundClient(), validOAuthProfile(), true, "")
 	assert.NoError(suite.T(), err)
+}
+
+const testCIMDClientID = "https://client.example.com/oauth/client.json"
+
+// cimdEntityProvider resolves the entity "p1" to the given OAuth client ID.
+func (suite *InboundClientServiceTestSuite) cimdEntityProvider(
+	clientID string) *entityprovidermock.EntityProviderInterfaceMock {
+	ep := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	ep.EXPECT().GetEntityProfile("p1").Return(&providers.Entity{
+		ID: "p1", SystemAttributes: json.RawMessage(`{"clientId":"` + clientID + `"}`),
+	}, nil)
+	return ep
+}
+
+func (suite *InboundClientServiceTestSuite) TestCreateInboundClient_CIMDRuleViolation() {
+	store := newInboundClientStoreInterfaceMock(suite.T())
+	store.EXPECT().IsDeclarative(mock.Anything, "p1").Return(false)
+	p := validOAuthProfile()
+	p.ClientIDMetadataDocument = true
+	cimdService := cimdmock.NewCIMDServiceInterfaceMock(suite.T())
+	cimdService.EXPECT().ValidateOAuthProfile(testCIMDClientID, p, false, "", (*providers.OAuthProfile)(nil)).
+		Return(&cimd.ErrorInvalidRedirectURI)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil,
+		suite.cimdEntityProvider(testCIMDClientID), nil, nil, nil, nil, nil, nil, cimdService, nil, nil)
+
+	err := svc.CreateInboundClient(context.Background(), ptrInboundClient(), p, false)
+
+	var cimdErr *CIMDValidationError
+	suite.Require().ErrorAs(err, &cimdErr)
+	assert.Equal(suite.T(), &cimd.ErrorInvalidRedirectURI, cimdErr.Underlying)
+}
+
+func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_CIMDChecksStoredProfile() {
+	const newClientID = "https://client.example.com/oauth/other.json"
+	stored := &providers.OAuthProfile{ClientIDMetadataDocument: true}
+	store := newInboundClientStoreInterfaceMock(suite.T())
+	store.EXPECT().IsDeclarative(mock.Anything, "p1").Return(false)
+	store.EXPECT().GetOAuthProfileByEntityID(mock.Anything, "p1").Return(stored, nil)
+	p := validOAuthProfile()
+	p.ClientIDMetadataDocument = true
+	cimdService := cimdmock.NewCIMDServiceInterfaceMock(suite.T())
+	cimdService.EXPECT().ValidateOAuthProfile(newClientID, p, false, testCIMDClientID, stored).
+		Return(&cimd.ErrorImmutable)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil,
+		suite.cimdEntityProvider(testCIMDClientID), nil, nil, nil, nil, nil, nil, cimdService, nil, nil)
+
+	err := svc.UpdateInboundClient(context.Background(), ptrInboundClient(), p, false, newClientID)
+
+	var cimdErr *CIMDValidationError
+	suite.Require().ErrorAs(err, &cimdErr)
+	assert.Equal(suite.T(), &cimd.ErrorImmutable, cimdErr.Underlying)
+}
+
+func (suite *InboundClientServiceTestSuite) TestValidate_CIMDRuleViolation() {
+	p := validOAuthProfile()
+	p.ClientIDMetadataDocument = true
+	cimdService := cimdmock.NewCIMDServiceInterfaceMock(suite.T())
+	cimdService.EXPECT().ValidateOAuthProfile(testCIMDClientID, p, false, "", (*providers.OAuthProfile)(nil)).
+		Return(&cimd.ErrorInvalidRedirectURI)
+	svc := newInboundClientService(newInboundClientStoreInterfaceMock(suite.T()),
+		transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, nil, nil, nil, cimdService, nil, nil)
+
+	err := svc.Validate(context.Background(), ptrInboundClient(), p, false, testCIMDClientID)
+
+	var cimdErr *CIMDValidationError
+	suite.Require().ErrorAs(err, &cimdErr)
+	assert.Equal(suite.T(), &cimd.ErrorInvalidRedirectURI, cimdErr.Underlying)
 }
 
 func (suite *InboundClientServiceTestSuite) TestValidate_DefaultAudienceTooLong() {
@@ -974,7 +1080,7 @@ func (suite *InboundClientServiceTestSuite) TestValidate_DefaultAudienceTooLong(
 		},
 	}
 
-	err := svc.Validate(context.Background(), ptrInboundClient(), p, false)
+	err := svc.Validate(context.Background(), ptrInboundClient(), p, false, "")
 	assert.ErrorIs(suite.T(), err, ErrOAuthDefaultAudienceTooLong)
 }
 
@@ -985,7 +1091,7 @@ func (suite *InboundClientServiceTestSuite) TestValidate_InvalidGrantType() {
 	p := validOAuthProfile()
 	p.GrantTypes = []string{"bogus_grant"}
 
-	err := svc.Validate(context.Background(), ptrInboundClient(), p, false)
+	err := svc.Validate(context.Background(), ptrInboundClient(), p, false, "")
 	assert.ErrorIs(suite.T(), err, ErrOAuthInvalidGrantType)
 }
 
@@ -1628,6 +1734,98 @@ func (suite *InboundClientServiceTestSuite) TestValidateOAuthProfile_PropagatesU
 		ErrOAuthUserInfoUnsupportedSigningAlg)
 }
 
+func (suite *InboundClientServiceTestSuite) TestValidateOAuthProfile_IDJAGRequiresTokenExchange() {
+	p := &providers.OAuthProfile{
+		RedirectURIs:            []string{"https://app.example.com/cb"},
+		GrantTypes:              []string{"authorization_code"},
+		ResponseTypes:           []string{"code"},
+		TokenEndpointAuthMethod: "client_secret_basic",
+		Token: &providers.OAuthTokenConfig{
+			IDJAG: &providers.IDJAGConfig{Enabled: true},
+		},
+	}
+	assert.ErrorIs(suite.T(), validateOAuthProfile(context.Background(), p, true, suite.cryptoMock, suite.jweService),
+		ErrOAuthClientIDJAGRequiresTokenExchange)
+}
+
+func (suite *InboundClientServiceTestSuite) TestValidateIDJAGConfig() {
+	tokenExchange := string(providers.GrantTypeTokenExchange)
+	audiences := []string{"https://target-rs.example.com"}
+	cases := []struct {
+		name       string
+		grantTypes []string
+		token      *providers.OAuthTokenConfig
+		wantErr    error
+	}{
+		{name: "no token config", grantTypes: []string{"client_credentials"}},
+		{
+			name: "no ID-JAG config", grantTypes: []string{"client_credentials"},
+			token: &providers.OAuthTokenConfig{},
+		},
+		{
+			name: "ID-JAG disabled without token exchange or audiences", grantTypes: []string{"client_credentials"},
+			token: &providers.OAuthTokenConfig{IDJAG: &providers.IDJAGConfig{Enabled: false}},
+		},
+		{
+			name:       "ID-JAG enabled with token exchange and audiences",
+			grantTypes: []string{"client_credentials", tokenExchange},
+			token: &providers.OAuthTokenConfig{
+				IDJAG: &providers.IDJAGConfig{Enabled: true, AllowedAudiences: audiences},
+			},
+		},
+		{
+			name:       "ID-JAG enabled with token exchange and no audiences",
+			grantTypes: []string{"client_credentials", tokenExchange},
+			token:      &providers.OAuthTokenConfig{IDJAG: &providers.IDJAGConfig{Enabled: true}},
+			wantErr:    ErrOAuthClientIDJAGRequiresAllowedAudience,
+		},
+		{
+			name:       "ID-JAG enabled with token exchange and empty audiences",
+			grantTypes: []string{"client_credentials", tokenExchange},
+			token: &providers.OAuthTokenConfig{
+				IDJAG: &providers.IDJAGConfig{Enabled: true, AllowedAudiences: []string{}},
+			},
+			wantErr: ErrOAuthClientIDJAGRequiresAllowedAudience,
+		},
+		{
+			name:       "ID-JAG enabled with a blank audience",
+			grantTypes: []string{"client_credentials", tokenExchange},
+			token: &providers.OAuthTokenConfig{
+				IDJAG: &providers.IDJAGConfig{Enabled: true, AllowedAudiences: []string{audiences[0], "  "}},
+			},
+			wantErr: ErrOAuthClientIDJAGRequiresAllowedAudience,
+		},
+		{
+			name:       "ID-JAG enabled with only an empty audience",
+			grantTypes: []string{"client_credentials", tokenExchange},
+			token: &providers.OAuthTokenConfig{
+				IDJAG: &providers.IDJAGConfig{Enabled: true, AllowedAudiences: []string{""}},
+			},
+			wantErr: ErrOAuthClientIDJAGRequiresAllowedAudience,
+		},
+		{
+			name: "ID-JAG enabled without token exchange", grantTypes: []string{"client_credentials"},
+			token:   &providers.OAuthTokenConfig{IDJAG: &providers.IDJAGConfig{Enabled: true}},
+			wantErr: ErrOAuthClientIDJAGRequiresTokenExchange,
+		},
+		{
+			name: "ID-JAG enabled with jwt-bearer only", grantTypes: []string{string(providers.GrantTypeJWTBearer)},
+			token:   &providers.OAuthTokenConfig{IDJAG: &providers.IDJAGConfig{Enabled: true}},
+			wantErr: ErrOAuthClientIDJAGRequiresTokenExchange,
+		},
+	}
+	for _, tc := range cases {
+		suite.Run(tc.name, func() {
+			err := validateIDJAGConfig(&providers.OAuthProfile{GrantTypes: tc.grantTypes, Token: tc.token})
+			if tc.wantErr != nil {
+				assert.ErrorIs(suite.T(), err, tc.wantErr)
+				return
+			}
+			assert.NoError(suite.T(), err)
+		})
+	}
+}
+
 func (suite *InboundClientServiceTestSuite) TestValidateOAuthProfile_NilProfile() {
 	assert.NoError(suite.T(),
 		validateOAuthProfile(context.Background(), nil, false, suite.cryptoMock, suite.jweService))
@@ -1823,6 +2021,38 @@ func (suite *InboundClientServiceTestSuite) TestResolveOAuthTokens_CarriesDefaul
 }
 
 // ----- validateRedirectURIs error branches -----
+
+// A redirect URI that is wholly a variable reference is no address, so a deployment that resolves
+// references refuses one typed in.
+func (suite *InboundClientServiceTestSuite) TestValidateRedirectURIs_VariableReferenceRefused() {
+	p := &providers.OAuthProfile{
+		RedirectURIs: []string{"var:APPLICATION_ORDERS_REDIRECT_URIS"},
+		GrantTypes:   []string{"authorization_code"},
+	}
+	service := &inboundClientService{}
+	assert.ErrorIs(suite.T(), validateRedirectURIs(service.profileToValidate(p)), ErrOAuthInvalidRedirectURI)
+}
+
+// A control plane keeps a reference to the redirect URIs each deployment holds, so it checks the
+// reference as a valid address and leaves the profile it stores as it was. A secret reference, or one
+// inside a longer value, is still checked as an address.
+func (suite *InboundClientServiceTestSuite) TestValidateRedirectURIs_ControlPlaneKeepsAVariableReference() {
+	service := &inboundClientService{}
+	KeepingValueReferences()(service)
+	p := &providers.OAuthProfile{
+		RedirectURIs: []string{"var:APPLICATION_ORDERS_REDIRECT_URIS", "https://app/cb"},
+		GrantTypes:   []string{"authorization_code"},
+	}
+
+	assert.NoError(suite.T(), validateRedirectURIs(service.profileToValidate(p)))
+	assert.Equal(suite.T(), "var:APPLICATION_ORDERS_REDIRECT_URIS", p.RedirectURIs[0], "the stored profile changed")
+
+	for _, uri := range []string{"sec:APPLICATION_ORDERS_REDIRECT_URIS", "var:NOT A NAME"} {
+		p.RedirectURIs = []string{uri}
+		assert.ErrorIs(suite.T(), validateRedirectURIs(service.profileToValidate(p)), ErrOAuthInvalidRedirectURI, uri)
+	}
+	assert.Nil(suite.T(), service.profileToValidate(nil))
+}
 
 func (suite *InboundClientServiceTestSuite) TestValidateRedirectURIs_SchemeWildcardRejected() {
 	p := &providers.OAuthProfile{
@@ -2068,7 +2298,7 @@ func (suite *InboundClientServiceTestSuite) TestValidateAllowedUserTypes_AllExis
 	us.EXPECT().GetEntityTypeList(mock.Anything, mock.Anything, mock.Anything, 0, false).Return(
 		&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "person"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "person"}},
 		}, nil)
 	svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
 	assert.NoError(suite.T(), svc.validateAllowedUserTypes(context.Background(), []string{"person"}))
@@ -2079,7 +2309,7 @@ func (suite *InboundClientServiceTestSuite) TestValidateAllowedUserTypes_Missing
 	us.EXPECT().GetEntityTypeList(mock.Anything, mock.Anything, mock.Anything, 0, false).Return(
 		&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "person"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "person"}},
 		}, nil)
 	svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
 	err := svc.validateAllowedUserTypes(context.Background(), []string{"ghost"})
@@ -2113,7 +2343,7 @@ func (suite *InboundClientServiceTestSuite) TestValidateAllowedAgentTypes_AllExi
 	us.EXPECT().GetEntityTypeList(mock.Anything, entitytypepkg.TypeCategoryAgent, mock.Anything, 0, false).Return(
 		&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "default"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "default"}},
 		}, nil)
 	svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
 	assert.NoError(suite.T(), svc.validateAllowedAgentTypes(context.Background(), []string{"default"}))
@@ -2124,7 +2354,7 @@ func (suite *InboundClientServiceTestSuite) TestValidateAllowedAgentTypes_Missin
 	us.EXPECT().GetEntityTypeList(mock.Anything, entitytypepkg.TypeCategoryAgent, mock.Anything, 0, false).Return(
 		&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "default"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "default"}},
 		}, nil)
 	svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
 	err := svc.validateAllowedAgentTypes(context.Background(), []string{"ghost"})
@@ -2418,7 +2648,8 @@ func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_DisabledReco
 	})).Return(nil)
 	store.EXPECT().GetOAuthProfileByEntityID(mock.Anything, "p1").Return(nil, ErrInboundClientNotFound)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, nil, nil, nil, noopCIMDService{}, nil, nil)
 	client := ptrInboundClient()
 	client.RecoveryFlowID = "rec-stale"
 	client.IsRecoveryFlowEnabled = false
@@ -2453,7 +2684,8 @@ func (suite *InboundClientServiceTestSuite) TestUpdateInboundClient_WithRecovery
 	})).Return(nil)
 	store.EXPECT().GetOAuthProfileByEntityID(mock.Anything, "p1").Return(nil, ErrInboundClientNotFound)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, nil, nil, nil, noopCIMDService{}, nil, nil)
 	client := ptrInboundClient()
 	client.RecoveryFlowID = "recovery-1"
 	client.IsRecoveryFlowEnabled = true
@@ -2756,7 +2988,7 @@ func (suite *InboundClientServiceTestSuite) TestRevalidateFKs_FlowMismatchSurfac
 	flowMgt.EXPECT().GetReachableCallTargets(mock.Anything, "auth").Return(
 		[]flowmgt.CallTarget{{FlowID: "reg-b", FlowType: providers.FlowTypeRegistration}}, nil)
 	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
-		nil, nil, nil, nil, flowMgt, nil, nil, nil).(*inboundClientService)
+		nil, nil, nil, nil, flowMgt, nil, nil, nil, noopCIMDService{}, nil, nil)
 
 	err := svc.RevalidateFKs(context.Background(), "app-1")
 	var fm *FlowMismatchError
@@ -2847,7 +3079,7 @@ func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByClientID_GetEnti
 	id := testServiceEntityID
 	ep := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
 	ep.EXPECT().IdentifyEntity(mock.Anything).Return(&id, nil)
-	ep.EXPECT().GetEntity(id).Return(nil, &entityprovider.EntityProviderError{
+	ep.EXPECT().GetEntityProfile(id).Return(nil, &entityprovider.EntityProviderError{
 		Code: entityprovider.ErrorCodeEntityNotFound,
 	})
 	svc := &inboundClientService{entityProvider: ep, store: newInboundClientStoreInterfaceMock(suite.T())}
@@ -2860,7 +3092,7 @@ func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByClientID_OAuthPr
 	id := testServiceEntityID
 	ep := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
 	ep.EXPECT().IdentifyEntity(mock.Anything).Return(&id, nil)
-	ep.EXPECT().GetEntity(id).Return(&providers.Entity{ID: id, OUID: "ou-1"}, nil)
+	ep.EXPECT().GetEntityProfile(id).Return(&providers.Entity{ID: id, OUID: "ou-1"}, nil)
 
 	store := newInboundClientStoreInterfaceMock(suite.T())
 	store.EXPECT().GetOAuthProfileByEntityID(mock.Anything, id).Return(nil, ErrInboundClientNotFound)
@@ -2871,11 +3103,36 @@ func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByClientID_OAuthPr
 	assert.Nil(suite.T(), got)
 }
 
+// A registered CIMD client resolves like any application.
+func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByClientID_CIMDClient() {
+	clientID := "https://client.example.com/client.json"
+	id := testServiceEntityID
+	ep := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	ep.EXPECT().IdentifyEntity(mock.Anything).Return(&id, nil)
+	ep.EXPECT().GetEntityProfile(id).Return(&providers.Entity{ID: id, OUID: "ou-1"}, nil)
+	store := newInboundClientStoreInterfaceMock(suite.T())
+	store.EXPECT().GetOAuthProfileByEntityID(mock.Anything, id).Return(&providers.OAuthProfile{
+		ClientIDMetadataDocument: true,
+		TokenEndpointAuthMethod:  string(providers.TokenEndpointAuthMethodNone),
+		PublicClient:             true,
+	}, nil)
+	certSvc := certmock.NewCertificateServiceInterfaceMock(suite.T())
+	certSvc.EXPECT().GetCertificateByReference(mock.Anything, cert.CertificateReferenceTypeOAuthApp,
+		clientID).Return(nil, &cert.ErrorCertificateNotFound)
+	svc := &inboundClientService{entityProvider: ep, store: store, certService: certSvc}
+
+	got, err := svc.GetOAuthClientByClientID(context.Background(), clientID)
+
+	suite.NoError(err)
+	suite.Require().NotNil(got)
+	suite.True(got.ClientIDMetadataDocument)
+}
+
 func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByClientID_StoreErrorPropagated() {
 	id := testServiceEntityID
 	ep := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
 	ep.EXPECT().IdentifyEntity(mock.Anything).Return(&id, nil)
-	ep.EXPECT().GetEntity(id).Return(&providers.Entity{ID: id, OUID: "ou-1"}, nil)
+	ep.EXPECT().GetEntityProfile(id).Return(&providers.Entity{ID: id, OUID: "ou-1"}, nil)
 
 	storeErr := errors.New("db down")
 	store := newInboundClientStoreInterfaceMock(suite.T())
@@ -2908,7 +3165,7 @@ func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByEntityID_EmptyEn
 
 func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByEntityID_EntityNotFound() {
 	ep := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
-	ep.EXPECT().GetEntity(testServiceEntityID).Return(nil, &entityprovider.EntityProviderError{
+	ep.EXPECT().GetEntityProfile(testServiceEntityID).Return(nil, &entityprovider.EntityProviderError{
 		Code: entityprovider.ErrorCodeEntityNotFound,
 	})
 	svc := &inboundClientService{entityProvider: ep, store: newInboundClientStoreInterfaceMock(suite.T())}
@@ -2919,7 +3176,7 @@ func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByEntityID_EntityN
 
 func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByEntityID_NoClientIDReturnsNil() {
 	ep := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
-	ep.EXPECT().GetEntity(testServiceEntityID).Return(&providers.Entity{ID: testServiceEntityID}, nil)
+	ep.EXPECT().GetEntityProfile(testServiceEntityID).Return(&providers.Entity{ID: testServiceEntityID}, nil)
 	svc := &inboundClientService{entityProvider: ep, store: newInboundClientStoreInterfaceMock(suite.T())}
 	got, err := svc.GetOAuthClientByEntityID(context.Background(), testServiceEntityID)
 	assert.NoError(suite.T(), err)
@@ -2928,7 +3185,7 @@ func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByEntityID_NoClien
 
 func (suite *InboundClientServiceTestSuite) TestGetOAuthClientByEntityID_BuildsClient() {
 	ep := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
-	ep.EXPECT().GetEntity(testServiceEntityID).Return(&providers.Entity{
+	ep.EXPECT().GetEntityProfile(testServiceEntityID).Return(&providers.Entity{
 		ID:               testServiceEntityID,
 		OUID:             "ou-1",
 		SystemAttributes: json.RawMessage(`{"clientId":"client-1"}`),
@@ -3218,13 +3475,14 @@ func (suite *InboundClientServiceTestSuite) TestCreateInboundClient_RejectsInval
 	us.EXPECT().GetEntityTypeList(mock.Anything, mock.Anything, mock.Anything, 0, false).Return(
 		&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "employee"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "employee"}},
 		}, nil)
 	us.EXPECT().GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "employee",
 		entitytypepkg.AttributeFilter{AllowNonCredential: true}).
 		Return([]entitytypepkg.AttributeInfo{{Attribute: "email"}}, nil)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, us, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, us, nil, nil, noopCIMDService{}, nil, nil)
 
 	c := validInboundClient()
 	c.AllowedUserTypes = []string{"employee"}
@@ -3242,13 +3500,14 @@ func (suite *InboundClientServiceTestSuite) TestValidate_RejectsInvalidUserAttri
 	us.EXPECT().GetEntityTypeList(mock.Anything, mock.Anything, mock.Anything, 0, false).Return(
 		&entitytypepkg.EntityTypeListResponse{
 			TotalResults: 1,
-			Types:        []entitytypepkg.EntityTypeListItem{{Name: "employee"}},
+			Types:        []entitytypepkg.EntityTypeListItem{{Handle: "employee"}},
 		}, nil)
 	us.EXPECT().GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "employee",
 		entitytypepkg.AttributeFilter{AllowNonCredential: true}).
 		Return([]entitytypepkg.AttributeInfo{{Attribute: "email"}}, nil)
 
-	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(), nil, nil, nil, nil, nil, us, nil, nil)
+	svc := newInboundClientService(store, transaction.NewNoOpTransactioner(),
+		nil, nil, nil, nil, nil, us, nil, nil, noopCIMDService{}, nil, nil)
 
 	c := validInboundClient()
 	c.AllowedUserTypes = []string{"employee"}
@@ -3259,7 +3518,7 @@ func (suite *InboundClientServiceTestSuite) TestValidate_RejectsInvalidUserAttri
 		},
 	}
 
-	err := svc.Validate(context.Background(), &c, p, true)
+	err := svc.Validate(context.Background(), &c, p, true, "")
 	assert.ErrorIs(suite.T(), err, ErrInvalidUserAttribute)
 }
 
@@ -3702,7 +3961,7 @@ func (suite *InboundClientServiceTestSuite) TestValidateReferencedFlows_WalkerSe
 
 func subjectAttrFilter() entitytypepkg.AttributeFilter {
 	return entitytypepkg.AttributeFilter{
-		AllowNonCredential: true, RequiredOnly: true, UniqueOnly: true, Type: "string",
+		AllowNonCredential: true, RequiredOnly: true, UniqueOnly: true,
 	}
 }
 
@@ -3745,13 +4004,40 @@ func (suite *InboundClientServiceTestSuite) TestValidateSubjectAttributeMapping_
 }
 
 func (suite *InboundClientServiceTestSuite) TestValidateSubjectAttributeMapping_Valid() {
-	us := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
-	us.EXPECT().GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "employee", subjectAttrFilter()).
-		Return([]entitytypepkg.AttributeInfo{
-			{Attribute: "email", Unique: true, Required: true, Type: "string"}}, nil)
-	svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
-	assert.NoError(suite.T(), svc.validateSubjectAttributeMapping(
-		context.Background(), map[string]string{"employee": "email"}, []string{"employee"}))
+	for _, kind := range []string{entitytypemodel.TypeString, entitytypemodel.TypeEmail, entitytypemodel.TypeMobile} {
+		suite.Run(kind, func() {
+			schema, err := entitytypemodel.CompileSchema(
+				json.RawMessage(`{"contact":{"type":"` + kind + `","required":true,"unique":true}}`))
+			suite.Require().NoError(err)
+			us := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
+			us.EXPECT().GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "employee", subjectAttrFilter()).
+				Return(schema.GetAttributes(subjectAttrFilter()), nil)
+			svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
+			assert.NoError(suite.T(), svc.validateSubjectAttributeMapping(
+				context.Background(), map[string]string{"employee": "contact"}, []string{"employee"}))
+		})
+	}
+}
+
+func (suite *InboundClientServiceTestSuite) TestValidateSubjectAttributeMapping_RejectsIneligibleTypesAndConstraints() {
+	for _, definition := range []string{
+		`{"type":"number","required":true,"unique":true}`,
+		`{"type":"email","required":false,"unique":true}`,
+		`{"type":"mobile","required":true,"unique":false}`,
+		`{"type":"string","required":true,"unique":true,"credential":true}`,
+	} {
+		suite.Run(definition, func() {
+			schema, err := entitytypemodel.CompileSchema(json.RawMessage(`{"contact":` + definition + `}`))
+			suite.Require().NoError(err)
+			us := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
+			us.EXPECT().GetAttributes(mock.Anything, entitytypepkg.TypeCategoryUser, "employee", subjectAttrFilter()).
+				Return(schema.GetAttributes(subjectAttrFilter()), nil)
+			svc := &inboundClientService{entityType: us, logger: log.GetLogger()}
+			assert.ErrorIs(suite.T(), svc.validateSubjectAttributeMapping(
+				context.Background(), map[string]string{"employee": "contact"}, []string{"employee"}),
+				ErrFKInvalidSubjectAttributeMapping)
+		})
+	}
 }
 
 func (suite *InboundClientServiceTestSuite) TestValidateSubjectAttributeMapping_SchemaLookupError() {
@@ -3828,4 +4114,132 @@ func (suite *InboundClientServiceTestSuite) TestValidateBackchannelLogoutURI_Gua
 		p := &providers.OAuthProfile{BackchannelLogoutURI: uri}
 		assert.NoError(suite.T(), validateBackchannelLogoutURI(p), uri)
 	}
+}
+
+const (
+	admittedClientID = "m2m-client"
+	admittedAppID    = "m2m-app"
+	ownerOUID        = "m2m-root"
+	otherOUID        = "m2m-child-a"
+	appSharingType   = sharing.ResourceType("application")
+)
+
+// AccessingOUTestSuite covers the rule that decides which organization units a client may be used
+// on behalf of. The caller asks it explicitly; resolution itself stays global.
+type AccessingOUTestSuite struct {
+	suite.Suite
+	sharingSvc *sharingmock.SharingServiceInterfaceMock
+}
+
+func TestAccessingOUTestSuite(t *testing.T) {
+	suite.Run(t, new(AccessingOUTestSuite))
+}
+
+func (s *AccessingOUTestSuite) SetupTest() {
+	s.sharingSvc = sharingmock.NewSharingServiceInterfaceMock(s.T())
+}
+
+// check asks the rule about a client owned by ownerOUID, for the unit named on ctx.
+func (s *AccessingOUTestSuite) check(
+	ctx context.Context, sharingSvc sharing.SharingServiceInterface, category providers.EntityCategory,
+) (bool, *tidcommon.ServiceError) {
+	svc := &inboundClientService{
+		sharingService: sharingSvc,
+		sharedTypes:    map[providers.EntityCategory]sharing.ResourceType{providers.EntityCategoryApp: appSharingType},
+		logger:         log.GetLogger(),
+	}
+	return svc.IsClientAccessibleFromOU(ctx, &providers.OAuthClient{
+		ID: admittedAppID, ClientID: admittedClientID, OUID: ownerOUID, EntityCategory: category,
+	}, syscontext.GetAccessingOUID(ctx))
+}
+
+// admits asserts the rule answered yes without failing.
+func (s *AccessingOUTestSuite) admits(accessible bool, svcErr *tidcommon.ServiceError) {
+	s.Require().Nil(svcErr)
+	s.True(accessible)
+}
+
+// refuses asserts the rule answered no, which is a decision rather than a failure.
+func (s *AccessingOUTestSuite) refuses(accessible bool, svcErr *tidcommon.ServiceError) {
+	s.Require().Nil(svcErr, "a refusal is an answer, not an error")
+	s.False(accessible)
+}
+
+// A request naming no organization unit is the ordinary one, and the rule stays out of its way
+// entirely: nothing is asked of the sharing framework.
+func (s *AccessingOUTestSuite) TestNoAccessingOULeavesResolutionUntouched() {
+	s.admits(s.check(context.Background(), s.sharingSvc, providers.EntityCategoryApp))
+	s.sharingSvc.AssertNotCalled(s.T(), "IsVisible", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A client's own organization unit needs no policy. The framework would answer the same, but only
+// after resolving ownership, and this is the common case on the token path.
+func (s *AccessingOUTestSuite) TestOwnOrganizationUnitNeedsNoPolicy() {
+	ctx := syscontext.WithAccessingOUID(context.Background(), ownerOUID)
+
+	s.admits(s.check(ctx, s.sharingSvc, providers.EntityCategoryApp))
+	s.sharingSvc.AssertNotCalled(s.T(), "IsVisible", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A runtime context must NOT skip the check. The token endpoint is a public path, and the security
+// layer marks every public request as an internal runtime caller so the authorization layer lets it
+// through; treating that as "trusted, skip" would disable admission on exactly the requests it
+// exists for, admitting every organization unit that merely exists.
+func (s *AccessingOUTestSuite) TestARuntimeContextStillGetsAccessChecked() {
+	ctx := security.WithRuntimeContext(syscontext.WithAccessingOUID(context.Background(), otherOUID))
+	s.sharingSvc.EXPECT().IsVisible(mock.Anything, appSharingType, admittedAppID, otherOUID).
+		Return(false, nil).Once()
+
+	s.refuses(s.check(ctx, s.sharingSvc, providers.EntityCategoryApp))
+}
+
+// Another organization unit resolves exactly when a sharing policy reached it.
+func (s *AccessingOUTestSuite) TestReachedOrganizationUnitResolves() {
+	ctx := syscontext.WithAccessingOUID(context.Background(), otherOUID)
+	s.sharingSvc.EXPECT().IsVisible(mock.Anything, appSharingType, admittedAppID, otherOUID).
+		Return(true, nil).Once()
+
+	s.admits(s.check(ctx, s.sharingSvc, providers.EntityCategoryApp))
+}
+
+// An organization unit no policy reached does not resolve the client at all. Refusing in resolution
+// rather than at a grant handler is what keeps one registration usable everywhere it is allowed and
+// nowhere else.
+func (s *AccessingOUTestSuite) TestUnreachedOrganizationUnitIsRefused() {
+	ctx := syscontext.WithAccessingOUID(context.Background(), otherOUID)
+	s.sharingSvc.EXPECT().IsVisible(mock.Anything, appSharingType, admittedAppID, otherOUID).
+		Return(false, nil).Once()
+
+	s.refuses(s.check(ctx, s.sharingSvc, providers.EntityCategoryApp))
+}
+
+// Outside the server there is no sharing framework, so nothing can say a client was shared. That
+// refuses every organization unit but the client's own, rather than admitting on the strength of a
+// check that cannot run.
+func (s *AccessingOUTestSuite) TestMissingFrameworkRefusesEveryOtherOrganizationUnit() {
+	ctx := syscontext.WithAccessingOUID(context.Background(), otherOUID)
+
+	s.refuses(s.check(ctx, nil, providers.EntityCategoryApp))
+}
+
+// A kind of client no resource type is registered for cannot be shared, so it is usable in its own
+// organization unit alone. Agents become shareable by gaining an entry, not by changing this.
+func (s *AccessingOUTestSuite) TestAnUnshareableKindIsRefusedElsewhere() {
+	ctx := syscontext.WithAccessingOUID(context.Background(), otherOUID)
+
+	s.refuses(s.check(ctx, s.sharingSvc, providers.EntityCategoryAgent))
+	s.sharingSvc.AssertNotCalled(s.T(), "IsVisible", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A failed lookup is not an answer. Reporting it as "not shared" would turn a broken dependency
+// into a refusal the caller would spend time trying to fix in its own configuration.
+func (s *AccessingOUTestSuite) TestLookupFailureIsNotARefusal() {
+	ctx := syscontext.WithAccessingOUID(context.Background(), otherOUID)
+	s.sharingSvc.EXPECT().IsVisible(mock.Anything, appSharingType, admittedAppID, otherOUID).
+		Return(false, &tidcommon.InternalServerError).Once()
+
+	accessible, svcErr := s.check(ctx, s.sharingSvc, providers.EntityCategoryApp)
+
+	s.Require().NotNil(svcErr, "a broken dependency must not read as a policy decision")
+	s.False(accessible)
 }

@@ -8,15 +8,16 @@ import (
 	"errors"
 
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	systemconst "github.com/thunder-id/thunderid/internal/system/constants"
 )
 
 // OAuth2 request parameters.
 const (
 	RequestParamGrantType           string = "grant_type"
 	RequestParamClientID            string = "client_id"
-	RequestParamClientSecret        string = "client_secret"
-	RequestParamClientAssertion     string = "client_assertion"
-	RequestParamClientAssertionType string = "client_assertion_type"
+	RequestParamClientSecret        string = systemconst.ClientSecretParamName
+	RequestParamClientAssertion     string = systemconst.ClientAssertionParamName
+	RequestParamClientAssertionType string = systemconst.ClientAssertionTypeParamName
 	RequestParamRedirectURI         string = "redirect_uri"
 	RequestParamUsername            string = "username"
 	RequestParamPassword            string = "password"
@@ -250,18 +251,27 @@ const (
 	ClaimExp      string = "exp"
 	ClaimIat      string = "iat"
 	ClaimJTI      string = "jti"
+	ClaimNbf      string = "nbf"
+	ClaimNonce    string = "nonce"
+	ClaimAtHash   string = "at_hash"
+	ClaimCHash    string = "c_hash"
 	ClaimAuthTime string = "auth_time"
 	ClaimACR      string = "acr"
+	ClaimScope    string = "scope"
 )
 
 // Custom JWT claim names.
 const (
-	ClaimUserType string = "userType"
-	ClaimOUID     string = "ouId"
-	ClaimOUName   string = "ouName"
-	ClaimOUHandle string = "ouHandle"
-	// ClaimName and ClaimOwner carry an agent's system-attribute name/owner on its client token.
-	ClaimName                   string = "name"
+	// ClaimUserType is retained so apps that already list "userType" in their configured user
+	// attributes keep receiving the user type's display name on tokens and userinfo.
+	// TODO: Remove with the next major version bump. Use ClaimUserTypeHandle or ClaimUserTypeName instead.
+	ClaimUserType       string = "userType"
+	ClaimUserTypeHandle string = "userTypeHandle"
+	ClaimUserTypeName   string = "userTypeName"
+	ClaimOUID           string = "ouId"
+	ClaimOUName         string = "ouName"
+	ClaimOUHandle       string = "ouHandle"
+	// ClaimOwner carries an agent's system-attribute owner on its client token.
 	ClaimOwner                  string = "owner"
 	ClaimClaimsRequest          string = "claims_req"
 	ClaimClaimsLocales          string = "claims_locales"
@@ -271,6 +281,8 @@ const (
 	ClaimAuthorizationRequestID string = "authorization_request_id"
 	ClaimClientID               string = "client_id"
 	ClaimAccessTokenSubject     string = "access_token_sub"
+	// ClaimAccessTokenAudience carries the audience of a refresh token's access tokens.
+	ClaimAccessTokenAudience string = "access_token_aud"
 	// ClaimIDP identifies the source identity provider (by issuer) that authenticated the subject of a
 	// jwt-bearer-grant (ID-JAG) access token, so downstream consumers can distinguish a federated
 	// principal from a local one.
@@ -314,7 +326,6 @@ const (
 // SurfaceableClientSystemClaims is the fixed set of entity system-attribute keys that may be
 // surfaced as client-token claims.
 var SurfaceableClientSystemClaims = map[string]bool{
-	ClaimName:  true,
 	ClaimOwner: true,
 }
 
@@ -382,3 +393,12 @@ func GetStandardClaims() []string {
 		ClaimAuthTime,
 	}
 }
+
+// Refusals an organization-unit-scoped token request can receive. OUAccessRefusal is deliberately
+// the same answer whether the unit does not exist or the client has no standing in it.
+const (
+	OUAccessRefusal = "Client is not authorized for the requested organization unit"
+
+	OUScopedGrantRefusal = "The grant type is not supported on the organization unit scoped " +
+		"token endpoint"
+)

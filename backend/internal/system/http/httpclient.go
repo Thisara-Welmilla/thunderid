@@ -9,6 +9,8 @@
 //   - NewHTTPClientWithCheckRedirect(policy) - creates a client with a redirect policy and an SSRF dial guard
 //   - NewHTTPClientWithoutRedirects(duration, rejectPrivate) - creates a client with a custom timeout that never
 //     follows redirects, optionally with the SSRF dial guard
+//   - NewHTTPClientWithRootCAs(duration, rootCAs, rejectPrivate) - creates a client with a custom timeout that never
+//     follows redirects and trusts the given certificate authorities, optionally with the SSRF dial guard
 //
 // Usage examples:
 //
@@ -22,6 +24,7 @@ package http
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -105,6 +108,31 @@ func NewHTTPClientWithoutRedirects(timeout time.Duration, rejectPrivate bool) HT
 		// #nosec G402 -- Min TLS version is TLS 1.2 or higher based on config
 		TLSClientConfig: &tls.Config{
 			MinVersion: GetTLSVersion(config.GetServerRuntime().Config),
+		},
+	}
+	if rejectPrivate {
+		transport.DialContext = ssrfSafeDialContext
+	}
+	return &HTTPClient{
+		client: &http.Client{
+			Timeout:       timeout,
+			Transport:     transport,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
+	}
+}
+
+// NewHTTPClientWithRootCAs creates an HTTPClient with the given timeout that trusts the given certificate
+// authorities and returns a 3xx response instead of following it. Use it to reach a server whose
+// certificate a private authority issued, with verification kept on. With rejectPrivate it dials
+// through the SSRF-safe dialer, refusing any host that resolves to a loopback, link-local, private
+// or unspecified address.
+func NewHTTPClientWithRootCAs(timeout time.Duration, rootCAs *x509.CertPool, rejectPrivate bool) HTTPClientInterface {
+	transport := &http.Transport{
+		// #nosec G402 -- Min TLS version is TLS 1.2 or higher based on config
+		TLSClientConfig: &tls.Config{
+			MinVersion: GetTLSVersion(config.GetServerRuntime().Config),
+			RootCAs:    rootCAs,
 		},
 	}
 	if rejectPrivate {
@@ -230,6 +258,12 @@ func IsSSRFSafeURL(rawURL string) error {
 		}
 	}
 	return nil
+}
+
+// CloseIdleConnections closes the connections the client keeps open for reuse, so a client built for
+// one call releases them once the call is done.
+func (c *HTTPClient) CloseIdleConnections() {
+	c.client.CloseIdleConnections()
 }
 
 // Do executes an HTTP request and returns an HTTP response.

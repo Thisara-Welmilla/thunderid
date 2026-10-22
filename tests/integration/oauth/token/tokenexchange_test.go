@@ -43,7 +43,8 @@ type TokenExchangeTestSuite struct {
 
 var (
 	testUserType = testutils.UserType{
-		Name: "token-test-person",
+		Handle:      "token-test-person",
+		DisplayName: "Token Test Person",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
@@ -119,16 +120,16 @@ func (ts *TokenExchangeTestSuite) TearDownSuite() {
 		testutils.DeleteUser(ts.userID)
 	}
 
-	// Clean up organization unit
-	if ts.oUID != "" {
-		ts.deleteOrganizationUnit(ts.oUID)
-	}
-
 	// Clean up user type
 	if ts.entityTypeID != "" {
 		if err := testutils.DeleteUserType(ts.entityTypeID); err != nil {
 			ts.T().Logf("Failed to delete user type during teardown: %v", err)
 		}
+	}
+
+	// Clean up organization unit
+	if ts.oUID != "" {
+		ts.deleteOrganizationUnit(ts.oUID)
 	}
 }
 

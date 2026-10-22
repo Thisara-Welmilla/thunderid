@@ -55,9 +55,9 @@ describe('ImportConfigurationUploadPage', () => {
 
   it('renders upload title', () => {
     render(<ImportConfigurationUploadPage />);
-    // "Import Configuration" is used both as the page title and the (non-clickable) trailing
+    // "Import configuration" is used both as the page title and the (non-clickable) trailing
     // breadcrumb crumb; disambiguate via heading level (h2 title vs h5 breadcrumb item).
-    expect(screen.getByRole('heading', {level: 2, name: 'Import Configuration'})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {level: 2, name: 'Import configuration'})).toBeInTheDocument();
   });
 
   it('renders the file drop area', () => {
@@ -67,7 +67,7 @@ describe('ImportConfigurationUploadPage', () => {
 
   it('renders the env file drop area', () => {
     render(<ImportConfigurationUploadPage />);
-    expect(screen.getByText('Environment Variables')).toBeInTheDocument();
+    expect(screen.getByText('Environment variables')).toBeInTheDocument();
   });
 
   it('renders cancel and continue buttons', () => {
@@ -282,9 +282,10 @@ describe('ImportConfigurationUploadPage', () => {
       '---\n' +
       'resource_type: agent\n' +
       'id: claims-demo-agent\n' +
-      'name: Claims Demo Agent\n' +
       'ouHandle: default\n' +
-      'type: default\n';
+      'type: default\n' +
+      'attributes:\n' +
+      '  name: Claims Demo Agent\n';
     const yamlFile = new File([yamlContent], 'config.yaml', {type: 'text/yaml'});
     Object.defineProperty(yamlFile, 'text', {value: () => Promise.resolve(yamlContent)});
 
@@ -366,7 +367,7 @@ describe('ImportConfigurationUploadPage', () => {
   it('handles drag and drop events on env file area', () => {
     render(<ImportConfigurationUploadPage />);
 
-    const envLabel = screen.getByText('Environment Variables');
+    const envLabel = screen.getByText('Environment variables');
     const dropZone = envLabel.closest('div')?.nextElementSibling;
     expect(dropZone).toBeInTheDocument();
 

@@ -13,6 +13,7 @@ import "strings"
 // The Direct API paths (/auth/**, /register/passkey/**, /access/**) are public here; their Direct
 // Auth Secret gating is owned by the authn service (internal/authn).
 var publicPaths = []string{
+	"/ou/*/oauth2/token",
 	"/health/**",
 	"/flow/execute/**",
 	"/flow/meta",
@@ -295,6 +296,7 @@ func InitSystemPermissions(handle string) {
 		{"GET /users", p.UserView},
 		{"POST /users", p.User},
 		{"GET /users/**", p.UserView},
+		{"POST /users/*/sharing-policies", p.User},
 		{"PUT /users/**", p.User},
 		{"DELETE /users/**", p.User},
 

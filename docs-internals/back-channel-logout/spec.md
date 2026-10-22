@@ -1,7 +1,7 @@
 # OIDC Back-Channel Logout Specification
 
 - **Status:** Final
-- **Version:** 0.2
+- **Version:** 0.3
 - **Related documents:** [threat-model.md](threat-model.md), [#5233](https://github.com/thunder-id/thunderid/issues/5233), [#5258](https://github.com/thunder-id/thunderid/discussions/5258), [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html), [OpenID Connect RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html), [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html), [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
 
 ## Summary
@@ -298,7 +298,7 @@ A dedicated validation error is raised for a rejected URI and translated in both
 
 Two boolean fields join the OIDC provider metadata: `backchannel_logout_supported` and `backchannel_logout_session_supported`. Both are always present rather than omitted when false, because the specification defines their default as false and an explicit false is the honest advertisement.
 
-Both are set from the back-channel enablement flag, inside the existing block that is conditional on logout being enabled. Session identifier issuance is unconditional, so `backchannel_logout_session_supported` is true whenever delivery is.
+Both are set from the back-channel enablement flag alone, not from whether the logout endpoint is enabled. Sessions also end without that endpoint, such as on subject revocation, so delivery and the flags depend only on the back-channel flag. Session identifier issuance is unconditional, so `backchannel_logout_session_supported` is true whenever delivery is.
 
 ### Delivery outcomes and observability
 
@@ -487,7 +487,7 @@ With the defaults, a delivery is settled within two waits, 2 and 4 seconds, plus
 
 **Acceptance criteria:**
 
-- **AC5.1:** Given logout and back-channel logout are enabled, when the OIDC discovery document is fetched, then `backchannel_logout_supported` and `backchannel_logout_session_supported` are both `true`.
+- **AC5.1:** Given back-channel logout is enabled, whether or not the logout endpoint is, when the OIDC discovery document is fetched, then `backchannel_logout_supported` and `backchannel_logout_session_supported` are both `true`.
 - **AC5.2:** Given back-channel logout is disabled, when the discovery document is fetched, then both flags are present and `false` rather than omitted.
 - **AC5.3:** Given the discovery document, when the two flags are compared with delivery behaviour, then they match what the deployment will actually do.
 
@@ -539,3 +539,4 @@ With the defaults, a delivery is settled within two waits, 2 and 4 seconds, plus
 |---|---|---|
 | 0.1 | 2026-10-01 | Initial specification, from design discussion #5258. |
 | 0.2 | 2026-10-02 | Aligned with the dispatcher as reviewed in #5608. |
+| 0.3 | 2026-10-05 | Delivery and the discovery flags depend only on the back-channel flag, not on the logout endpoint, as reviewed in #5630. |

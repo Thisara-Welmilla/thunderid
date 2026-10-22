@@ -1,4 +1,4 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package export
@@ -30,6 +30,7 @@ import (
 	"github.com/thunder-id/thunderid/tests/mocks/flow/flowmgtmock"
 	"github.com/thunder-id/thunderid/tests/mocks/idp/idpmock"
 	"github.com/thunder-id/thunderid/tests/mocks/notification/notificationmock"
+	"github.com/thunder-id/thunderid/tests/mocks/sharingmock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -88,7 +89,7 @@ func (suite *ExportServiceTestSuite) SetupTest() {
 
 	// Create exporters
 	exporters := []declarativeresource.ResourceExporter{
-		application.NewApplicationExporterForTest(suite.appServiceMock),
+		application.NewApplicationExporterForTest(suite.appServiceMock, sharingWithNoPolicies(suite.T())),
 		connection.NewConnectionExporterForTest(suite.idpServiceMock, suite.mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(suite.mockEntityTypeService, entitytype.TypeCategoryUser),
 		flowmgt.NewFlowGraphExporterForTest(suite.mockFlowService),
@@ -280,6 +281,18 @@ func (suite *ExportServiceTestSuite) TestExportResources_CompleteOAuthApplicatio
 
 	assert.Equal(suite.T(), 1, result.Summary.ResourceTypes["application"])
 	assert.Equal(suite.T(), int64(len(file.Content)), file.Size)
+}
+
+// A list the resource does not have is still a range in its document, so the .env gives it as an
+// empty list an import can range over rather than as no value.
+func (suite *ExportServiceTestSuite) TestGenerateEnvFile_AbsentListIsAnEmptyList() {
+	envFile := (&exportService{}).generateEnvFile([]ExportFile{{Content: "clientId: {{.APP_CLIENT_ID}}\n" +
+		"redirectUris:\n{{- range .APP_REDIRECT_URIS}}\n  - {{.}}\n{{- end}}\n" +
+		"scopes:\n{{- range .APP_SCOPES}}\n  - {{.}}\n{{- end}}\n"}},
+		map[string]string{"APP_SCOPES": `["openid"]`})
+
+	suite.Require().NotNil(envFile)
+	suite.Equal("APP_CLIENT_ID=\nAPP_REDIRECT_URIS=[]\nAPP_SCOPES=[\"openid\"]\n", envFile.Content)
 }
 
 // TestExportResources_HyphenatedApplicationName tests that a resource name containing a hyphen
@@ -1237,6 +1250,14 @@ func (m *MockParameterizer) ToParameterizedYAML(_ context.Context, obj interface
 	return "id: test\nname: test\n", nil, nil, nil
 }
 
+func (m *MockParameterizer) PlaceholderValues(_ context.Context, _ interface{}, _ string, _ string,
+	_ *declarativeresource.ResourceRules) (map[string]string, map[string]string, error) {
+	if m.shouldFail {
+		return nil, nil, fmt.Errorf("%s", m.errorMsg)
+	}
+	return map[string]string{}, map[string]string{}, nil
+}
+
 func (m *MockParameterizer) VarPrefix(resourceName string) string {
 	return newParameterizer(templatingRules{}, TemplatePlaceholders).VarPrefix(resourceName)
 }
@@ -1271,7 +1292,7 @@ func (suite *ExportServiceTestSuite) TestExportResources_TemplateGenerationError
 
 	// Create exporters with the test services
 	exporters := []declarativeresource.ResourceExporter{
-		application.NewApplicationExporterForTest(suite.appServiceMock),
+		application.NewApplicationExporterForTest(suite.appServiceMock, sharingWithNoPolicies(suite.T())),
 		connection.NewConnectionExporterForTest(suite.idpServiceMock, suite.mockNotificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(suite.mockEntityTypeService, entitytype.TypeCategoryUser),
 	}
@@ -1365,10 +1386,11 @@ func (suite *ExportServiceTestSuite) TestExportResources_WithGroupByTypeStructur
 	appFiles := 0
 	idpFiles := 0
 	for _, file := range result.Files {
-		if file.ResourceType == "application" {
+		switch file.ResourceType {
+		case "application":
 			assert.Equal(suite.T(), "applications", file.FolderPath)
 			appFiles++
-		} else if file.ResourceType == "connection" {
+		case "connection":
 			assert.Equal(suite.T(), "connections", file.FolderPath)
 			idpFiles++
 		}
@@ -1645,7 +1667,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Success() {
 
 	mockSchema := &entitytype.EntityType{
 		ID:                    "schema1",
-		Name:                  "Test Schema",
+		Handle:                "test-schema",
+		DisplayName:           "Test Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object","properties":{"email":{"type":"string"}}}`),
@@ -1664,7 +1687,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Success() {
 	assert.Contains(suite.T(), result.Summary.ResourceTypes, "user_type")
 	assert.Equal(suite.T(), "Test_Schema.yaml", result.Files[0].FileName)
 	assert.Equal(suite.T(), "user_type", result.Files[0].ResourceType)
-	assert.Contains(suite.T(), result.Files[0].Content, "name: Test Schema")
+	assert.Contains(suite.T(), result.Files[0].Content, "handle: test-schema")
+	assert.Contains(suite.T(), result.Files[0].Content, "displayName: Test Schema")
 }
 
 // TestExportEntityTypes_Multiple tests exporting multiple entity types.
@@ -1678,7 +1702,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Multiple() {
 
 	mockSchema1 := &entitytype.EntityType{
 		ID:                    "schema1",
-		Name:                  "Customer Schema",
+		Handle:                "customer-schema",
+		DisplayName:           "Customer Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object","properties":{"email":{"type":"string"}}}`),
@@ -1686,7 +1711,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Multiple() {
 
 	mockSchema2 := &entitytype.EntityType{
 		ID:                    "schema2",
-		Name:                  "Employee Schema",
+		Handle:                "employee-schema",
+		DisplayName:           "Employee Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: false,
 		Schema:                []byte(`{"type":"object","properties":{"empId":{"type":"string"}}}`),
@@ -1719,7 +1745,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Wildcard() {
 
 	mockSchema1 := &entitytype.EntityType{
 		ID:                    "schema1",
-		Name:                  "Customer Schema",
+		Handle:                "customer-schema",
+		DisplayName:           "Customer Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object","properties":{"email":{"type":"string"}}}`),
@@ -1727,7 +1754,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Wildcard() {
 
 	mockSchema2 := &entitytype.EntityType{
 		ID:                    "schema2",
-		Name:                  "Employee Schema",
+		Handle:                "employee-schema",
+		DisplayName:           "Employee Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: false,
 		Schema:                []byte(`{"type":"object","properties":{"empId":{"type":"string"}}}`),
@@ -1737,8 +1765,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_Wildcard() {
 		TotalResults: 2,
 		Count:        2,
 		Types: []entitytype.EntityTypeListItem{
-			{ID: "schema1", Name: "Customer Schema", OUID: "ou1"},
-			{ID: "schema2", Name: "Employee Schema", OUID: "ou1"},
+			{ID: "schema1", Handle: "customer-schema", DisplayName: "Customer Schema", OUID: "ou1"},
+			{ID: "schema2", Handle: "employee-schema", DisplayName: "Employee Schema", OUID: "ou1"},
 		},
 	}
 
@@ -1799,7 +1827,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_EmptyName() {
 
 	mockSchema := &entitytype.EntityType{
 		ID:                    "schema-no-name",
-		Name:                  "", // Empty name
+		Handle:                "schema-no-name",
+		DisplayName:           "", // Empty name
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object"}`),
@@ -1828,7 +1857,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_NoSchema() {
 
 	mockSchema := &entitytype.EntityType{
 		ID:                    "schema-no-def",
-		Name:                  "Empty Schema",
+		Handle:                "empty-schema",
+		DisplayName:           "Empty Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte{}, // Empty schema
@@ -1846,7 +1876,7 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_NoSchema() {
 	assert.NotNil(suite.T(), result)
 	assert.Len(suite.T(), result.Files, 1)
 	assert.Equal(suite.T(), 1, result.Summary.TotalFiles)
-	assert.Contains(suite.T(), result.Files[0].Content, "name: Empty Schema")
+	assert.Contains(suite.T(), result.Files[0].Content, "displayName: Empty Schema")
 }
 
 // TestExportEntityTypes_WildcardPartialFailure tests wildcard export with partial failures.
@@ -1860,7 +1890,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_WildcardPartialFailur
 
 	mockSchema1 := &entitytype.EntityType{
 		ID:                    "schema1",
-		Name:                  "Customer Schema",
+		Handle:                "customer-schema",
+		DisplayName:           "Customer Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object"}`),
@@ -1868,7 +1899,8 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_WildcardPartialFailur
 
 	mockSchema3 := &entitytype.EntityType{
 		ID:                    "schema3",
-		Name:                  "Partner Schema",
+		Handle:                "partner-schema",
+		DisplayName:           "Partner Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: false,
 		Schema:                []byte(`{"type":"object"}`),
@@ -1878,9 +1910,9 @@ func (suite *ExportServiceTestSuite) TestExportEntityTypes_WildcardPartialFailur
 		TotalResults: 3,
 		Count:        3,
 		Types: []entitytype.EntityTypeListItem{
-			{ID: "schema1", Name: "Customer Schema"},
-			{ID: "schema2", Name: "Employee Schema"},
-			{ID: "schema3", Name: "Partner Schema"},
+			{ID: "schema1", Handle: "customer-schema", DisplayName: "Customer Schema"},
+			{ID: "schema2", Handle: "employee-schema", DisplayName: "Employee Schema"},
+			{ID: "schema3", Handle: "partner-schema", DisplayName: "Partner Schema"},
 		},
 	}
 
@@ -2277,7 +2309,8 @@ func (suite *ExportServiceTestSuite) TestExportResourcesWithExporter_EntityType(
 	schemaID := "schema-test-id"
 	mockSchema := &entitytype.EntityType{
 		ID:                    schemaID,
-		Name:                  "Test Schema",
+		Handle:                "test-schema",
+		DisplayName:           "Test Schema",
 		OUID:                  "ou1",
 		AllowSelfRegistration: true,
 		Schema:                []byte(`{"type":"object","properties":{"email":{"type":"string"}}}`),
@@ -2821,4 +2854,15 @@ func TestExport_DistinctVariablesDoNotClash(t *testing.T) {
 	if clash != "" {
 		t.Fatalf("expected no clash between distinct variables, got %q", clash)
 	}
+}
+
+// sharingWithNoPolicies is a sharing service holding no policy for any application, which is what
+// every export test here starts from.
+func sharingWithNoPolicies(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *sharingmock.SharingServiceInterfaceMock {
+	m := sharingmock.NewSharingServiceInterfaceMock(t)
+	m.EXPECT().ExportPolicies(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	return m
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	"github.com/thunder-id/thunderid/internal/system/error/apierror"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 	"github.com/thunder-id/thunderid/internal/system/security"
@@ -1295,7 +1296,7 @@ func TestHandleSelfUserMetadataGetRequest_Success(t *testing.T) {
 
 	mockSvc := NewUserServiceInterfaceMock(t)
 	expectedSchema := &entitytype.EntityType{
-		Name:   "employee",
+		Handle: "employee",
 		Schema: json.RawMessage(`{"email":{"type":"string"}}`),
 	}
 	mockSvc.On("GetUserMetadata", mock.Anything, userID).Return(expectedSchema, nil)
@@ -1341,4 +1342,175 @@ func TestHandleSelfUserMetadataGetRequest_ServiceError(t *testing.T) {
 	handler.HandleSelfUserMetadataGetRequest(rr, req)
 
 	require.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestHandleSharingPolicyPostRequest_RefusesFieldsTheSchemaDoesNotList(t *testing.T) {
+	bodies := map[string]string{
+		"MisspelledExclusion": `{"childUnits":{"mode":"all","excludeOuIds":["ou-1"]}}`,
+		"UnknownTopLevel":     `{"childUnits":{"mode":"all"},"extra":true}`,
+		"FlatTargets":         `{"targets":[{"scope":"child","ouId":"ou-1"}]}`,
+		"PolicyID":            `{"id":"policy-1","childUnits":{"mode":"all"}}`,
+		"SectionTerms":        `{"childUnits":{"mode":"all","overlayRules":{"roles":{"editable":false}}}}`,
+		"UnitTerms": `{"childUnits":{"mode":"selected","units":[` +
+			`{"ouId":"ou-1","reach":"unit","overlayRules":{"roles":{"editable":true}}}]}}`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			handler := newUserHandler(NewUserServiceInterfaceMock(t))
+			req := httptest.NewRequest(http.MethodPost, "/users/user-1/sharing-policies", strings.NewReader(body))
+			req.SetPathValue("id", "user-1")
+			rr := httptest.NewRecorder()
+
+			handler.HandleSharingPolicyPostRequest(rr, req)
+
+			require.Equal(t, http.StatusBadRequest, rr.Code)
+			var errResp apierror.ErrorResponse
+			require.NoError(t, json.NewDecoder(rr.Body).Decode(&errResp))
+			require.Equal(t, ErrorInvalidRequestFormat.Code, errResp.Code)
+		})
+	}
+}
+
+func TestHandleSharingPolicyPostRequest_RefusesADeploymentWideReach(t *testing.T) {
+	bodies := map[string]string{
+		"AllUnits":               `{"allUnits":{}}`,
+		"AllUnitsWithExclusions": `{"allUnits":{"excludedOuIds":["ou-1"]}}`,
+		"AllOtherTreeRoots":      `{"otherTreeRoots":{"mode":"all"}}`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			handler := newUserHandler(NewUserServiceInterfaceMock(t))
+			req := httptest.NewRequest(http.MethodPost, "/users/user-1/sharing-policies", strings.NewReader(body))
+			req.SetPathValue("id", "user-1")
+			rr := httptest.NewRecorder()
+
+			handler.HandleSharingPolicyPostRequest(rr, req)
+
+			require.Equal(t, http.StatusBadRequest, rr.Code)
+			var errResp apierror.ErrorResponse
+			require.NoError(t, json.NewDecoder(rr.Body).Decode(&errResp))
+			require.Equal(t, ErrorDeploymentWideSharingNotAllowed.Code, errResp.Code)
+		})
+	}
+}
+
+func TestHandleSharingPolicyPostRequest_PassesTheWireShapeToTheService(t *testing.T) {
+	expected := sharing.PolicyRequest{
+		InitiatingOUID: "ou-child",
+		ChildUnits: &sharing.ChildUnitsRequest{
+			Mode: sharing.ChildUnitsSelected,
+			Units: []sharing.ChildUnitRequest{
+				{OUID: "ou-a", Reach: sharing.ReachUnit},
+				{OUID: "ou-b", Reach: sharing.ReachSubtree},
+			},
+		},
+	}
+	mockSvc := NewUserServiceInterfaceMock(t)
+	mockSvc.On("CreateSharingPolicy", mock.Anything, "user-1", expected).
+		Return(sharing.Policy{ID: "policy-1", Version: 1}, (*tidcommon.ServiceError)(nil)).Once()
+	handler := newUserHandler(mockSvc)
+	body := `{"initiatingOuId":"ou-child","childUnits":{"mode":"selected","units":[` +
+		`{"ouId":"ou-a","reach":"unit"},{"ouId":"ou-b","reach":"subtree"}]}}`
+	req := httptest.NewRequest(http.MethodPost, "/users/user-1/sharing-policies", strings.NewReader(body))
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	handler.HandleSharingPolicyPostRequest(rr, req)
+
+	require.Equal(t, http.StatusCreated, rr.Code)
+}
+
+func TestHandleSharingPolicyPutRequest_RefusesAChangeOfIssuer(t *testing.T) {
+	handler := newUserHandler(NewUserServiceInterfaceMock(t))
+	body := `{"initiatingOuId":"ou-child","childUnits":{"mode":"all"},"version":1}`
+	req := httptest.NewRequest(http.MethodPut, "/users/user-1/sharing-policies/policy-1", strings.NewReader(body))
+	req.SetPathValue("id", "user-1")
+	req.SetPathValue("policyId", "policy-1")
+	rr := httptest.NewRecorder()
+
+	handler.HandleSharingPolicyPutRequest(rr, req)
+
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	var errResp apierror.ErrorResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&errResp))
+	require.Equal(t, ErrorInvalidRequestFormat.Code, errResp.Code)
+}
+
+func TestHandleSharingPolicyPutRequest_PassesTheSectionsToTheService(t *testing.T) {
+	expected := sharing.PolicyRequest{
+		ChildUnits: &sharing.ChildUnitsRequest{Mode: sharing.ChildUnitsAll, ExcludedOUIDs: []string{"ou-a"}},
+		Version:    3,
+	}
+	mockSvc := NewUserServiceInterfaceMock(t)
+	mockSvc.On("UpdateSharingPolicy", mock.Anything, "user-1", "policy-1", expected).
+		Return(sharing.Policy{ID: "policy-1", Version: 4}, (*tidcommon.ServiceError)(nil)).Once()
+	handler := newUserHandler(mockSvc)
+	body := `{"childUnits":{"mode":"all","excludedOuIds":["ou-a"]},"version":3}`
+	req := httptest.NewRequest(http.MethodPut, "/users/user-1/sharing-policies/policy-1", strings.NewReader(body))
+	req.SetPathValue("id", "user-1")
+	req.SetPathValue("policyId", "policy-1")
+	rr := httptest.NewRecorder()
+
+	handler.HandleSharingPolicyPutRequest(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestHandleSharingPolicy_StatusPerError(t *testing.T) {
+	cases := []struct {
+		svcErr tidcommon.ServiceError
+		status int
+	}{
+		{ErrorSharingPolicyNotFound, http.StatusNotFound},
+		{ErrorUserNotFound, http.StatusNotFound},
+		{ErrorUserNotSharedToOU, http.StatusNotFound},
+		{ErrorSharingPolicyExists, http.StatusConflict},
+		{ErrorSharingPolicyVersionMismatch, http.StatusConflict},
+		{ErrorInvalidSharingPolicy, http.StatusBadRequest},
+		{ErrorSharingPolicyDeclared, http.StatusBadRequest},
+		{ErrorMissingOUIDParameter, http.StatusBadRequest},
+		{tidcommon.ErrorUnauthorized, http.StatusForbidden},
+		{tidcommon.InternalServerError, http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.svcErr.Code, func(t *testing.T) {
+			svcErr := tc.svcErr
+			mockSvc := NewUserServiceInterfaceMock(t)
+			mockSvc.On("GetSharingPolicy", mock.Anything, "user-1", "policy-1").
+				Return(sharing.Policy{}, &svcErr).Once()
+			handler := newUserHandler(mockSvc)
+			req := httptest.NewRequest(http.MethodGet, "/users/user-1/sharing-policies/policy-1", nil)
+			req.SetPathValue("id", "user-1")
+			req.SetPathValue("policyId", "policy-1")
+			rr := httptest.NewRecorder()
+
+			handler.HandleSharingPolicyGetRequest(rr, req)
+
+			require.Equal(t, tc.status, rr.Code)
+		})
+	}
+}
+
+func TestHandleSharingPolicyListRequest_Pagination(t *testing.T) {
+	t.Run("DefaultsThePageSize", func(t *testing.T) {
+		mockSvc := NewUserServiceInterfaceMock(t)
+		mockSvc.On("ListSharingPolicies", mock.Anything, "user-1", 30, 0).
+			Return(sharing.PolicyList{}, (*tidcommon.ServiceError)(nil)).Once()
+		req := httptest.NewRequest(http.MethodGet, "/users/user-1/sharing-policies", nil)
+		req.SetPathValue("id", "user-1")
+		rr := httptest.NewRecorder()
+
+		newUserHandler(mockSvc).HandleSharingPolicyListRequest(rr, req)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+	t.Run("RefusesAMalformedLimit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/users/user-1/sharing-policies?limit=abc", nil)
+		req.SetPathValue("id", "user-1")
+		rr := httptest.NewRecorder()
+
+		newUserHandler(NewUserServiceInterfaceMock(t)).HandleSharingPolicyListRequest(rr, req)
+
+		require.Equal(t, http.StatusBadRequest, rr.Code)
+	})
 }

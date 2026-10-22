@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import userEvent from '@testing-library/user-event';
 import {fireEvent, render, screen, waitFor} from '@thunderid/test-utils';
-import type {ReactNode} from 'react';
+import type {ComponentProps, ReactNode} from 'react';
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import AgentConstants from '../../constants/agent-constants';
 import AgentEditPage from '../AgentEditPage';
@@ -19,7 +19,10 @@ const {
   mockUseGetAgentType,
   mockUseLocation,
   stagingCallbackIdentities,
+  advancedSettings,
 } = vi.hoisted(() => ({
+  // Switches the Advanced tab from its stub to the real component for the tests that need it.
+  advancedSettings: {real: false},
   // Every distinct onFieldChange the Attributes tab is handed.
   stagingCallbackIdentities: new Set<unknown>(),
   mockNavigate: vi.fn(),
@@ -155,14 +158,38 @@ vi.mock('../../components/edit-agent/access/EditAccessSettings', () => ({
   default: () => <div data-testid="edit-access" />,
 }));
 
-vi.mock('../../components/edit-agent/advanced-settings/EditAdvancedSettings', () => ({
-  default: ({onDeleteSuccess}: {onDeleteSuccess?: () => void}) => (
-    <div data-testid="edit-advanced">
-      <button type="button" onClick={() => onDeleteSuccess?.()}>
-        Delete Successful
-      </button>
-    </div>
-  ),
+vi.mock('../../components/edit-agent/advanced-settings/EditAdvancedSettings', async (importOriginal) => {
+  const {default: RealEditAdvancedSettings} =
+    await importOriginal<typeof import('../../components/edit-agent/advanced-settings/EditAdvancedSettings')>();
+  return {
+    default: (props: ComponentProps<typeof RealEditAdvancedSettings>) => {
+      if (advancedSettings.real) return <RealEditAdvancedSettings {...props} />;
+      const {onDeleteSuccess, onBackchannelLogoutUriValidationChange} = props;
+      return (
+        <div data-testid="edit-advanced">
+          <button type="button" onClick={() => onDeleteSuccess?.()}>
+            Delete Successful
+          </button>
+          <button type="button" onClick={() => onBackchannelLogoutUriValidationChange?.(true)}>
+            Type an invalid back-channel logout URI
+          </button>
+        </div>
+      );
+    },
+  };
+});
+
+// The real Advanced tab's other sections fetch data the back-channel logout tests do not need.
+vi.mock('../../components/edit-agent/advanced-settings/OwnerSection', () => ({default: () => null}));
+vi.mock('../../components/edit-agent/advanced-settings/AllowedUserTypesSection', () => ({default: () => null}));
+vi.mock('../../components/edit-agent/advanced-settings/AgentSignInSection', () => ({default: () => null}));
+vi.mock('../../components/AgentDeleteDialog', () => ({default: () => null}));
+
+vi.mock('@thunderid/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@thunderid/react')>()),
+  useThunderID: () => ({
+    discovery: {wellKnown: {token_endpoint_auth_methods_supported: ['client_secret_basic', 'none']}},
+  }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -180,6 +207,7 @@ vi.mock('react-i18next', () => ({
       return result;
     },
   }),
+  Trans: ({defaults = ''}: {defaults?: string}) => <span>{defaults}</span>,
 }));
 
 describe('AgentEditPage', () => {
@@ -187,7 +215,7 @@ describe('AgentEditPage', () => {
     id: 'agent-1',
     ouId: 'ou-1',
     type: 'default',
-    name: 'Test Agent',
+    display: 'Test Agent',
     description: 'Test description',
     inboundAuthConfig: [
       {
@@ -204,6 +232,7 @@ describe('AgentEditPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stagingCallbackIdentities.clear();
+    advancedSettings.real = false;
     mockUseGetAgent.mockReturnValue({
       data: baseAgent,
       isLoading: false,
@@ -219,12 +248,12 @@ describe('AgentEditPage', () => {
     mockMutateAsync.mockResolvedValue(undefined);
     mockRefetch.mockResolvedValue({});
     mockUseGetAgentTypes.mockReturnValue({
-      data: {types: [{id: 'default-type', name: 'default'}]},
+      data: {types: [{id: 'default-type', handle: 'default', displayName: 'Default'}]},
       isLoading: false,
       error: null,
     });
     mockUseGetAgentType.mockReturnValue({
-      data: {id: 'default-type', name: 'default', schema: {}},
+      data: {id: 'default-type', handle: 'default', displayName: 'Default', schema: {}},
       isLoading: false,
       error: null,
     });
@@ -354,20 +383,19 @@ describe('AgentEditPage', () => {
       expect(screen.getByText('Test description')).toBeInTheDocument();
     });
 
-    it('shows the edit name input when its edit icon is clicked', async () => {
-      const user = userEvent.setup();
+    it('falls back to the agent ID when the agent has no display value', () => {
+      mockUseGetAgent.mockReturnValue({data: {...baseAgent, display: undefined}, isLoading: false, error: null});
       render(<AgentEditPage />);
 
-      // Find and click the first edit icon (next to the name)
-      const editIcons = screen.getAllByRole('button').filter((b) => b.querySelector('svg'));
-      // The first edit-pencil button next to the name
-      const nameEditButton = editIcons.find((btn) => btn.parentElement?.textContent?.includes('Test Agent'));
-      if (!nameEditButton) throw new Error('name edit button not found');
-      await user.click(nameEditButton);
+      expect(screen.getAllByRole('heading', {name: 'agent-1'}).length).toBeGreaterThan(0);
+      expect(screen.queryByText('Test Agent')).not.toBeInTheDocument();
+    });
 
-      // After clicking, the heading text becomes a text input
-      const inputs = screen.getAllByRole('textbox');
-      expect(inputs.length).toBeGreaterThan(0);
+    it('does not offer an inline rename, since the name is a schema attribute', () => {
+      render(<AgentEditPage />);
+
+      const editIcons = screen.getAllByRole('button').filter((b) => b.querySelector('svg'));
+      expect(editIcons.find((btn) => btn.parentElement?.textContent?.includes('Test Agent'))).toBeUndefined();
     });
 
     it('does not raise an unsaved-changes diff when description editor is opened and closed without changes', async () => {
@@ -406,7 +434,7 @@ describe('AgentEditPage', () => {
     it('offers the logo picker for a writable agent', () => {
       renderWithLogo();
 
-      expect(screen.getByRole('button', {name: 'Update Logo'})).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Update logo'})).toBeInTheDocument();
     });
 
     it('does not offer the logo picker for a read-only agent', () => {
@@ -420,7 +448,7 @@ describe('AgentEditPage', () => {
 
       render(<AgentEditPage />);
 
-      expect(screen.queryByRole('button', {name: 'Update Logo'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Update logo'})).not.toBeInTheDocument();
       // ResourceAvatar opens its picker from the avatar itself whenever onSelect is set, so the
       // callback has to be withheld rather than just hiding the pencil.
       expect(screen.queryByRole('button', {name: 'Pick logo B'})).not.toBeInTheDocument();
@@ -539,68 +567,45 @@ describe('AgentEditPage', () => {
   });
 
   describe('Unsaved-changes bar', () => {
-    const editName = async (user: ReturnType<typeof userEvent.setup>, from: string, to: string): Promise<void> => {
+    const editDescription = async (
+      user: ReturnType<typeof userEvent.setup>,
+      from: string,
+      to: string,
+    ): Promise<void> => {
       const editIcons = screen.getAllByRole('button').filter((b) => b.querySelector('svg'));
-      const nameEditButton = editIcons.find((btn) => btn.parentElement?.textContent?.includes(from));
-      if (!nameEditButton) throw new Error(`name edit button for "${from}" not found`);
-      await user.click(nameEditButton);
-      const input = screen.getByRole('textbox');
+      const editButton = editIcons.find((btn) => btn.parentElement?.textContent?.includes(from));
+      if (!editButton) throw new Error(`description edit button for "${from}" not found`);
+      await user.click(editButton);
+      const input = screen.getAllByRole('textbox').find((el) => (el as HTMLTextAreaElement).value === from);
+      if (!input) throw new Error(`description textarea for "${from}" not found`);
       await user.clear(input);
-      await user.type(input, `${to}{Enter}`);
+      await user.type(input, to);
+      fireEvent.blur(input);
     };
 
     it('hides the bar when a field is manually retyped back to its original value', async () => {
       const user = userEvent.setup();
       render(<AgentEditPage />);
 
-      await editName(user, 'Test Agent', 'Renamed Agent');
+      await editDescription(user, 'Test description', 'Changed description');
       expect(screen.getByText('You have unsaved changes')).toBeInTheDocument();
 
-      await editName(user, 'Renamed Agent', 'Test Agent');
+      await editDescription(user, 'Changed description', 'Test description');
       await waitFor(() => {
         expect(screen.queryByText('You have unsaved changes')).not.toBeInTheDocument();
       });
-    });
-
-    it('discards a rename that exceeds the maximum length', async () => {
-      const user = userEvent.setup();
-      render(<AgentEditPage />);
-
-      const editIcons = screen.getAllByRole('button').filter((button) => button.querySelector('svg'));
-      const nameEditButton = editIcons.find((button) => button.parentElement?.textContent?.includes('Test Agent'));
-      if (!nameEditButton) throw new Error('name edit button for "Test Agent" not found');
-      await user.click(nameEditButton);
-      const input = screen.getByRole('textbox');
-      fireEvent.change(input, {target: {value: 'a'.repeat(AgentConstants.NAME_MAX_LENGTH + 1)}});
-      fireEvent.keyDown(input, {key: 'Enter'});
-
-      expect(screen.queryByText('You have unsaved changes')).not.toBeInTheDocument();
-      expect(screen.getByText('Test Agent')).toBeInTheDocument();
     });
 
     it('keeps the bar visible when only one of two edited fields is reverted', async () => {
       const user = userEvent.setup();
       render(<AgentEditPage />);
 
-      // Edit description
-      const editIcons = screen.getAllByRole('button').filter((b) => b.querySelector('svg'));
-      const descEditButton = editIcons.find((btn) => btn.parentElement?.textContent?.includes('Test description'));
-      if (!descEditButton) throw new Error('description edit button not found');
-      await user.click(descEditButton);
-      const descInput = screen
-        .getAllByRole('textbox')
-        .find((el) => (el as HTMLTextAreaElement).value === 'Test description');
-      if (!descInput) throw new Error('description textarea not found');
-      await user.clear(descInput);
-      await user.type(descInput, 'Changed description');
-      descInput.dispatchEvent(new FocusEvent('blur', {bubbles: true}));
+      await editDescription(user, 'Test description', 'Changed description');
+      await user.click(screen.getByRole('tab', {name: 'Attributes'}));
+      await user.click(screen.getByText('Edit an attribute'));
+      await editDescription(user, 'Changed description', 'Test description');
 
-      // Edit name, then revert only the name
-      await editName(user, 'Test Agent', 'Renamed Agent');
-      expect(screen.getByText('You have unsaved changes')).toBeInTheDocument();
-      await editName(user, 'Renamed Agent', 'Test Agent');
-
-      // Description is still changed, so the bar must stay visible
+      // The staged attribute edit is still pending, so the bar must stay visible
       expect(screen.getByText('You have unsaved changes')).toBeInTheDocument();
     });
   });
@@ -694,6 +699,31 @@ describe('AgentEditPage', () => {
       expect(screen.queryByText('raw backend update failure detail')).not.toBeInTheDocument();
     });
 
+    it('names the back-channel logout URI field when the server refuses a private address', async () => {
+      const user = userEvent.setup();
+      mockUseUpdateAgent.mockReturnValue({
+        mutateAsync: mockMutateAsync,
+        isPending: false,
+        error: {
+          response: {
+            data: {
+              code: 'AGT-1021',
+              description: {key: 'error.agentservice.backchannel_logout_uri_private_host_description'},
+            },
+          },
+        } as unknown as Error,
+        isError: true,
+        reset: vi.fn(),
+      });
+
+      render(<AgentEditPage />);
+
+      await user.click(screen.getByRole('tab', {name: 'Attributes'}));
+      await user.click(screen.getByText('Edit an attribute'));
+
+      expect(screen.getByText(/The server refused the back-channel logout URI/)).toBeInTheDocument();
+    });
+
     it('resets a failed save mutation as soon as another field changes', async () => {
       const user = userEvent.setup();
       const mockReset = vi.fn();
@@ -739,16 +769,16 @@ describe('AgentEditPage', () => {
   });
 
   describe('Save validation', () => {
-    // Any field edit is enough to surface the Save bar — renaming is the simplest one available
-    // without depending on any of the (mocked) tab content components.
+    // Any field edit is enough to surface the Save bar — editing the description is the simplest
+    // one available without depending on any of the (mocked) tab content components.
     const triggerAChange = async (user: ReturnType<typeof userEvent.setup>) => {
       const editIcons = screen.getAllByRole('button').filter((b) => b.querySelector('svg'));
-      const nameEditButton = editIcons.find((btn) => btn.parentElement?.textContent?.includes('Test Agent'));
-      if (!nameEditButton) throw new Error('name edit button not found');
-      await user.click(nameEditButton);
+      const editButton = editIcons.find((btn) => btn.parentElement?.textContent?.includes('Test description'));
+      if (!editButton) throw new Error('description edit button not found');
+      await user.click(editButton);
       const input = screen.getAllByRole('textbox')[0];
-      await user.type(input, ' Renamed');
-      await user.keyboard('{Enter}');
+      await user.type(input, ' updated');
+      fireEvent.blur(input);
     };
 
     it('disables Save when authorization_code is selected but no redirect URI or allowed user type is set, even without visiting those tabs', async () => {
@@ -892,6 +922,158 @@ describe('AgentEditPage', () => {
       expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
     });
 
+    it('disables Save when the back-channel logout URI is http on a public client, even without visiting the advanced tab', async () => {
+      const user = userEvent.setup();
+      mockUseGetAgent.mockReturnValue({
+        data: {
+          ...baseAgent,
+          allowedUserTypes: ['person'],
+          inboundAuthConfig: [
+            {
+              type: 'oauth2' as const,
+              config: {
+                grantTypes: ['client_credentials', 'authorization_code'],
+                responseTypes: ['code'],
+                redirectUris: ['https://agent.example.com/cb'],
+                publicClient: true,
+                backchannelLogoutUri: 'http://agent.example.com/bcl',
+                clientId: 'client-id-xyz',
+              },
+            },
+          ],
+        },
+        isLoading: false,
+        error: null,
+        isError: false,
+        refetch: mockRefetch,
+      });
+
+      render(<AgentEditPage />);
+      await triggerAChange(user);
+
+      expect(screen.getByText('Before saving, fix the back-channel logout URI.')).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+    });
+
+    it('disables Save while the back-channel logout URI field holds an invalid typed value', async () => {
+      const user = userEvent.setup();
+      mockUseGetAgent.mockReturnValue({
+        data: {
+          ...baseAgent,
+          allowedUserTypes: ['person'],
+          inboundAuthConfig: [
+            {
+              type: 'oauth2' as const,
+              config: {
+                grantTypes: ['client_credentials', 'authorization_code'],
+                responseTypes: ['code'],
+                redirectUris: ['https://agent.example.com/cb'],
+                clientId: 'client-id-xyz',
+              },
+            },
+          ],
+        },
+        isLoading: false,
+        error: null,
+        isError: false,
+        refetch: mockRefetch,
+      });
+
+      render(<AgentEditPage />);
+      await triggerAChange(user);
+      expect(screen.getByRole('button', {name: 'Save'})).not.toBeDisabled();
+
+      await user.click(screen.getByRole('tab', {name: /Advanced/i}));
+      await user.click(screen.getByText('Type an invalid back-channel logout URI'));
+
+      expect(screen.getByText('Before saving, fix the back-channel logout URI.')).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+    });
+
+    it('blocks Save, without a render loop, when an invalid back-channel logout URI is typed in the real Advanced tab', async () => {
+      advancedSettings.real = true;
+      // Silenced, so a loop cannot flood the output, and restored in finally, so it cannot leak.
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const user = userEvent.setup();
+      mockUseGetAgent.mockReturnValue({
+        data: {
+          ...baseAgent,
+          allowedUserTypes: ['person'],
+          inboundAuthConfig: [
+            {
+              type: 'oauth2' as const,
+              config: {
+                grantTypes: ['client_credentials', 'authorization_code'],
+                responseTypes: ['code'],
+                redirectUris: ['https://agent.example.com/cb'],
+                clientId: 'client-id-xyz',
+              },
+            },
+          ],
+        },
+        isLoading: false,
+        error: null,
+        isError: false,
+        refetch: mockRefetch,
+      });
+
+      try {
+        render(<AgentEditPage />);
+        await triggerAChange(user);
+        await user.click(screen.getByRole('tab', {name: /Advanced/i}));
+        await user.type(screen.getByPlaceholderText('https://example.com/backchannel-logout'), 'x');
+        await user.tab();
+
+        expect(screen.getByText('Before saving, fix the back-channel logout URI.')).toBeInTheDocument();
+        expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+        expect(consoleError.mock.calls.flat().join(' ')).not.toContain('Maximum update depth exceeded');
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it('stops blocking Save once the Advanced tab, and the invalid value typed in it, is left behind', async () => {
+      advancedSettings.real = true;
+      const user = userEvent.setup();
+      mockUseGetAgent.mockReturnValue({
+        data: {
+          ...baseAgent,
+          allowedUserTypes: ['person'],
+          inboundAuthConfig: [
+            {
+              type: 'oauth2' as const,
+              config: {
+                grantTypes: ['client_credentials', 'authorization_code'],
+                responseTypes: ['code'],
+                redirectUris: ['https://agent.example.com/cb'],
+                backchannelLogoutUri: 'https://agent.example.com/bcl',
+                clientId: 'client-id-xyz',
+              },
+            },
+          ],
+        },
+        isLoading: false,
+        error: null,
+        isError: false,
+        refetch: mockRefetch,
+      });
+
+      render(<AgentEditPage />);
+      await triggerAChange(user);
+      await user.click(screen.getByRole('tab', {name: /Advanced/i}));
+      await user.type(screen.getByDisplayValue('https://agent.example.com/bcl'), '#frag');
+      await user.tab();
+      expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+
+      // The typed value was never committed and is dropped with the tab, so the saved URI stands.
+      await user.click(screen.getByRole('tab', {name: 'Overview'}));
+      expect(screen.getByRole('button', {name: 'Save'})).not.toBeDisabled();
+
+      await user.click(screen.getByRole('tab', {name: /Advanced/i}));
+      expect(screen.getByDisplayValue('https://agent.example.com/bcl')).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Save'})).not.toBeDisabled();
+    });
+
     it('enables Save once a certificate is configured for private_key_jwt', async () => {
       const user = userEvent.setup();
       mockUseGetAgent.mockReturnValue({
@@ -923,7 +1105,7 @@ describe('AgentEditPage', () => {
     });
   });
 
-  describe('Client Secret Popup (just created)', () => {
+  describe('Client secret Popup (just created)', () => {
     afterEach(() => {
       mockUseLocation.mockReturnValue({state: null});
     });

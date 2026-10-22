@@ -15,6 +15,9 @@ import (
 	"github.com/thunder-id/thunderid/internal/entity"
 	"github.com/thunder-id/thunderid/internal/entitytype"
 	"github.com/thunder-id/thunderid/internal/group"
+	resourcepkg "github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/revocation"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 	"github.com/thunder-id/thunderid/internal/system/sysauthz"
@@ -31,6 +34,9 @@ type RoleAssignmentServiceInterface interface {
 		includeDisplay bool, assigneeType string) (*AssignmentList, *tidcommon.ServiceError)
 	AddAssignments(ctx context.Context, id string, assignments []RoleAssignment) *tidcommon.ServiceError
 	RemoveAssignments(ctx context.Context, id string, assignments []RoleAssignment) *tidcommon.ServiceError
+	// ValidateRemoveAssignment reports whether the assignee may be unassigned and what that revokes.
+	ValidateRemoveAssignment(ctx context.Context, id, assigneeID string) (
+		*revocation.AccessRevocationTarget, *tidcommon.ServiceError)
 	AddAssigneesToRoles(ctx context.Context, assignments []RoleAssignment,
 		roleIDs []string) *tidcommon.ServiceError
 	GetResourceDependencies(
@@ -44,6 +50,7 @@ type roleAssignmentService struct {
 	entityService     entity.EntityServiceInterface
 	groupService      group.GroupServiceInterface
 	entityTypeService entitytype.EntityTypeServiceInterface
+	resourceService   resourcepkg.ResourceServiceInterface
 	transactioner     providers.Transactioner
 	authzService      sysauthz.SystemAuthorizationServiceInterface
 }
@@ -54,6 +61,7 @@ func newRoleAssignmentService(
 	entityService entity.EntityServiceInterface,
 	groupService group.GroupServiceInterface,
 	entityTypeService entitytype.EntityTypeServiceInterface,
+	resourceService resourcepkg.ResourceServiceInterface,
 	transactioner providers.Transactioner,
 	authzService sysauthz.SystemAuthorizationServiceInterface,
 ) RoleAssignmentServiceInterface {
@@ -62,6 +70,7 @@ func newRoleAssignmentService(
 		entityService:     entityService,
 		groupService:      groupService,
 		entityTypeService: entityTypeService,
+		resourceService:   resourceService,
 		transactioner:     transactioner,
 		authzService:      authzService,
 	}
@@ -252,6 +261,54 @@ func (as *roleAssignmentService) RemoveAssignments(
 	return as.modifyAssignments(ctx, id, assignments,
 		as.roleStore.RemoveAssignments,
 		"remove assignments from role", "removed assignments from role")
+}
+
+// ValidateRemoveAssignment runs the checks RemoveAssignments runs.
+func (as *roleAssignmentService) ValidateRemoveAssignment(ctx context.Context, id, assigneeID string) (
+	*revocation.AccessRevocationTarget, *tidcommon.ServiceError) {
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, assignmentLoggerComponentName))
+
+	if assigneeID == "" {
+		return nil, &ErrorMissingAssigneeID
+	}
+	if svcErr := as.authzService.CanGrantMembership(ctx, sysauthz.PrincipalTypeRole, id); svcErr != nil {
+		return nil, svcErr
+	}
+
+	// Removing an assignment that is not there changes nothing, so it must not revoke anything.
+	assignment, svcErr := as.directAssignment(ctx, id, assigneeID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if assignment == nil {
+		return nil, &ErrorRoleAssignmentNotFound
+	}
+	if _, svcErr := as.prepareAssignments(
+		ctx, id, []RoleAssignment{{ID: assignment.ID, Type: assignment.Type}},
+	); svcErr != nil {
+		return nil, svcErr
+	}
+
+	role, err := as.roleStore.GetRole(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrRoleNotFound) {
+			return nil, &ErrorRoleNotFound
+		}
+		logger.Error(ctx, "Failed to retrieve role", log.String("id", id), log.Error(err))
+		return nil, &tidcommon.InternalServerError
+	}
+
+	scopes, svcErr := resolveScopes(ctx, as.resourceService, role.Permissions)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	entityIDs, svcErr := expandPrincipal(ctx, as.groupService, assigneeID, assignment.Type == AssigneeTypeGroup)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	return &revocation.AccessRevocationTarget{
+		EntityIDs: entityIDs, Scopes: scopes, AssigneeType: string(assignment.Type),
+	}, nil
 }
 
 // modifyAssignments is the shared implementation for AddAssignments and RemoveAssignments. Both
@@ -481,6 +538,7 @@ func (as *roleAssignmentService) resolveAssignments(
 
 	// Always batch-fetch entities to resolve their category (user vs app) for the API response type.
 	var entityMap map[string]*providers.Entity
+	var displays map[string]string
 	if len(entityIDs) > 0 {
 		entities, err := as.entityService.GetEntitiesByIDs(ctx, entityIDs)
 		if err != nil {
@@ -491,6 +549,9 @@ func (as *roleAssignmentService) resolveAssignments(
 		for i := range entities {
 			entityMap[entities[i].ID] = &entities[i]
 		}
+		if includeDisplay {
+			displays = entitytype.ResolveEntityDisplays(ctx, entities, as.entityTypeService, logger)
+		}
 	}
 
 	var groupsMap map[string]*group.Group
@@ -500,18 +561,6 @@ func (as *roleAssignmentService) resolveAssignments(
 		if svcErr != nil {
 			logger.Warn(ctx, "Failed to batch fetch groups for display names", log.Any("error", svcErr))
 		}
-	}
-
-	// Resolve display attribute paths for user-category entities.
-	var displayAttrPaths map[string]string
-	if includeDisplay && entityMap != nil {
-		var userTypes []string
-		for _, e := range entityMap {
-			if e.Category == providers.EntityCategoryUser {
-				userTypes = append(userTypes, e.Type)
-			}
-		}
-		displayAttrPaths = resolveDisplayAttributePaths(ctx, userTypes, as.entityTypeService, logger)
 	}
 
 	// Build the result slice, skipping orphaned entity assignments.
@@ -527,9 +576,10 @@ func (as *roleAssignmentService) resolveAssignments(
 			}
 			ra.Type = AssigneeType(e.Category)
 			if includeDisplay {
-				if e.Category == providers.EntityCategoryUser {
-					ra.Display = utils.ResolveDisplay(e.ID, e.Type, e.Attributes, displayAttrPaths)
-				} else {
+				switch e.Category {
+				case providers.EntityCategoryUser, providers.EntityCategoryAgent:
+					ra.Display = displays[e.ID]
+				default:
 					ra.Display = resolveAppDisplay(*e)
 				}
 			}
@@ -555,6 +605,25 @@ func (as *roleAssignmentService) resolveAssignments(
 	return result, nil
 }
 
+// directAssignment returns the role's direct assignment to the assignee, or nil when there is none.
+func (as *roleAssignmentService) directAssignment(ctx context.Context, id, assigneeID string) (
+	*RoleAssignmentWithDisplay, *tidcommon.ServiceError) {
+	for offset := 0; ; offset += serverconst.MaxPageSize {
+		page, svcErr := as.GetRoleAssignments(ctx, id, serverconst.MaxPageSize, offset, false)
+		if svcErr != nil {
+			return nil, svcErr
+		}
+		for i := range page.Assignments {
+			if page.Assignments[i].ID == assigneeID {
+				return &page.Assignments[i], nil
+			}
+		}
+		if offset+serverconst.MaxPageSize >= page.TotalResults {
+			return nil, nil
+		}
+	}
+}
+
 // resolveAppDisplay extracts a display name for an app entity from its system attributes.
 func resolveAppDisplay(e providers.Entity) string {
 	if len(e.SystemAttributes) > 0 {
@@ -566,33 +635,6 @@ func resolveAppDisplay(e providers.Entity) string {
 		}
 	}
 	return e.ID
-}
-
-// resolveDisplayAttributePaths collects unique user types and resolves their display
-// attribute paths from the entity type service.
-func resolveDisplayAttributePaths(
-	ctx context.Context, userTypes []string, schemaService entitytype.EntityTypeServiceInterface,
-	logger *log.Logger,
-) map[string]string {
-	if schemaService == nil || len(userTypes) == 0 {
-		return nil
-	}
-
-	uniqueTypes := utils.UniqueNonEmptyStrings(userTypes)
-	if len(uniqueTypes) == 0 {
-		return nil
-	}
-
-	displayPaths, svcErr := schemaService.GetDisplayAttributesByNames(ctx, entitytype.TypeCategoryUser, uniqueTypes)
-	if svcErr != nil {
-		if logger != nil {
-			logger.Warn(ctx, "Failed to resolve display attribute paths, skipping display resolution",
-				log.Any("error", svcErr))
-		}
-		return nil
-	}
-
-	return displayPaths
 }
 
 // normalizeAssignments converts public 'user'/'app'/'agent' types to the internal 'entity' type.

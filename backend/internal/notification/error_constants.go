@@ -4,6 +4,8 @@
 package notification
 
 import (
+	"errors"
+
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 )
 
@@ -193,4 +195,27 @@ var (
 				"Remove or reassign them first.",
 		},
 	}
+	// ErrorEmailSenderNotSpecified is the error returned when an email is dispatched without
+	// naming a provider. Email providers are managed as connections and selected per flow node;
+	// there is no deployment-wide default.
+	ErrorEmailSenderNotSpecified = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "MNS-1017",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.notificationservice.email_sender_not_specified",
+			DefaultValue: "Email provider not specified",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "error.notificationservice.email_sender_not_specified_description",
+			DefaultValue: "An email provider must be selected. Create an email provider connection " +
+				"and select it on the flow node.",
+		},
+	}
+)
+
+// Sentinel errors for validating the "notification" server-config section.
+var (
+	// errDeclarativeSenderLocked is returned when a declarative default sender is overridden.
+	errDeclarativeSenderLocked = errors.New(
+		"default email sender is set declaratively and cannot be overridden")
 )

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/thunder-id/thunderid/internal/actorprovider"
+	flowsession "github.com/thunder-id/thunderid/internal/flow/session"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/jti"
 	"github.com/thunder-id/thunderid/internal/runtimestore/inmemory"
 	"github.com/thunder-id/thunderid/internal/system/config"
@@ -78,9 +79,11 @@ func (suite *InitTestSuite) TestInitialize() {
 
 	service, err := Initialize(
 		mux,
-		actorprovider.Initialize(suite.mockInboundClient, suite.mockEntityProvider, noopAuthnMgr(), nil),
+		actorprovider.Initialize(suite.mockInboundClient, suite.mockEntityProvider, noopAuthnMgr(), nil, nil),
 		suite.mockResourceService,
-		suite.mockJWTService, suite.mockFlowExecService, nil, nil, nil, nil, testhelpers.OAuthConfig(),
+		suite.mockJWTService, suite.mockFlowExecService, nil, nil, nil,
+		flowsession.NewHandleTransport(flowsession.TransportConfig{}), nil,
+		testhelpers.OAuthConfig(),
 		inmemory.Initialize("test-deployment"), transaction.NewNoOpTransactioner(),
 		jti.Initialize(inmemory.Initialize("test-deployment")),
 	)
@@ -95,9 +98,11 @@ func (suite *InitTestSuite) TestInitialize_RegistersRoutes() {
 
 	_, err := Initialize(
 		mux,
-		actorprovider.Initialize(suite.mockInboundClient, suite.mockEntityProvider, noopAuthnMgr(), nil),
+		actorprovider.Initialize(suite.mockInboundClient, suite.mockEntityProvider, noopAuthnMgr(), nil, nil),
 		suite.mockResourceService,
-		suite.mockJWTService, suite.mockFlowExecService, nil, nil, nil, nil, testhelpers.OAuthConfig(),
+		suite.mockJWTService, suite.mockFlowExecService, nil, nil, nil,
+		flowsession.NewHandleTransport(flowsession.TransportConfig{}), nil,
+		testhelpers.OAuthConfig(),
 		inmemory.Initialize("test-deployment"), transaction.NewNoOpTransactioner(),
 		jti.Initialize(inmemory.Initialize("test-deployment")),
 	)
@@ -114,9 +119,11 @@ func (suite *InitTestSuite) TestRegisterRoutes_CORSConfiguration() {
 
 	_, err := Initialize(
 		mux,
-		actorprovider.Initialize(suite.mockInboundClient, suite.mockEntityProvider, noopAuthnMgr(), nil),
+		actorprovider.Initialize(suite.mockInboundClient, suite.mockEntityProvider, noopAuthnMgr(), nil, nil),
 		suite.mockResourceService,
-		suite.mockJWTService, suite.mockFlowExecService, nil, nil, nil, nil, testhelpers.OAuthConfig(),
+		suite.mockJWTService, suite.mockFlowExecService, nil, nil, nil,
+		flowsession.NewHandleTransport(flowsession.TransportConfig{}), nil,
+		testhelpers.OAuthConfig(),
 		inmemory.Initialize("test-deployment"), transaction.NewNoOpTransactioner(),
 		jti.Initialize(inmemory.Initialize("test-deployment")),
 	)

@@ -51,21 +51,21 @@ paths:
                     ouId: "456e8400-e29b-41d4-a716-446655440001"
                     ouHandle: "platform/automations"
                     type: "automation"
-                    name: "Nightly Sync Worker"
                     description: "Runs nightly data sync jobs"
                     owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                     attributes:
+                      name: "Nightly Sync Worker"
                       llmModel: "claude-3-5-sonnet"
                       team: "platform"
                   - id: "039bda67-a80d-4b7b-ac0f-36db85332089"
                     ouId: "456e8400-e29b-41d4-a716-446655440001"
                     ouHandle: "platform/automations"
                     type: "service-agent"
-                    name: "Calendar Agent"
                     description: "Agent exposing calendar tools"
                     clientId: "calendar_agent_client"
                     owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                     attributes:
+                      name: "Calendar Agent"
                       llmModel: "claude-3-5-sonnet"
                       environment: "production"
                 links:
@@ -135,10 +135,10 @@ paths:
                 value:
                   ouId: "456e8400-e29b-41d4-a716-446655440001"
                   type: "automation"
-                  name: "Nightly Sync Worker"
                   description: "Runs nightly data sync jobs"
                   owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                   attributes:
+                    name: "Nightly Sync Worker"
                     llmModel: "claude-3-5-sonnet"
                     team: "platform"
               entity-and-inbound:
@@ -146,10 +146,10 @@ paths:
                 value:
                   ouId: "456e8400-e29b-41d4-a716-446655440001"
                   type: "service-agent"
-                  name: "Calendar Agent"
                   description: "Agent exposing calendar tools"
                   owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                   attributes:
+                    name: "Calendar Agent"
                     llmModel: "claude-3-5-sonnet"
                     environment: "production"
                   authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
@@ -168,10 +168,10 @@ paths:
                 value:
                   ouId: "456e8400-e29b-41d4-a716-446655440001"
                   type: "worker"
-                  name: "Data Pipeline Worker"
                   description: "Processes ETL jobs"
                   owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                   attributes:
+                    name: "Data Pipeline Worker"
                     pipeline: "etl-daily"
                     team: "data-engineering"
                   authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
@@ -190,10 +190,10 @@ paths:
                 value:
                   ouId: "456e8400-e29b-41d4-a716-446655440001"
                   type: "service-agent"
-                  name: "Calendar Agent"
                   description: "Agent exposing calendar tools"
                   owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                   attributes:
+                    name: "Calendar Agent"
                     llmModel: "claude-3-5-sonnet"
                     environment: "production"
                   authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
@@ -257,10 +257,10 @@ paths:
                 ouId: "456e8400-e29b-41d4-a716-446655440001"
                 ouHandle: "platform/automations"
                 type: "service-agent"
-                name: "Calendar Agent"
                 description: "Agent exposing calendar tools"
                 owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                 attributes:
+                  name: "Calendar Agent"
                   llmModel: "claude-3-5-sonnet"
                   environment: "production"
                 authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
@@ -360,16 +360,6 @@ paths:
                     description:
                       key: "error.agentservice.organization_unit_not_found_description"
                       defaultValue: "The specified organization unit does not exist"
-                invalid-agent-name:
-                  summary: Missing or empty agent name
-                  value:
-                    code: "AGT-1009"
-                    message:
-                      key: "error.agentservice.invalid_agent_name"
-                      defaultValue: "Invalid agent name"
-                    description:
-                      key: "error.agentservice.invalid_agent_name_description"
-                      defaultValue: "The agent name must be provided and non-empty"
                 invalid-agent-type:
                   summary: Missing agent type
                   value:
@@ -591,16 +581,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
-                name-conflict:
-                  summary: Agent name already in use
-                  value:
-                    code: "AGT-1013"
-                    message:
-                      key: "error.agentservice.agent_already_exists_with_name"
-                      defaultValue: "Agent already exists"
-                    description:
-                      key: "error.agentservice.agent_already_exists_with_name_description"
-                      defaultValue: "An agent with the same name already exists"
                 attribute-conflict:
                   summary: Unique attribute value already in use
                   value:
@@ -652,11 +632,11 @@ paths:
                 ouId: "456e8400-e29b-41d4-a716-446655440001"
                 ouHandle: "platform/automations"
                 type: "service-agent"
-                name: "Calendar Agent"
                 description: "Agent exposing calendar tools"
                 clientId: "calendar_agent_client"
                 owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                 attributes:
+                  name: "Calendar Agent"
                   llmModel: "claude-3-5-sonnet"
                   environment: "production"
                 authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
@@ -732,7 +712,7 @@ paths:
         - Agents
       summary: Update an agent by id
       description: |
-        Full replacement update. `name` and `type` are required. All inbound auth profile
+        Full replacement update. `type` is required. All inbound auth profile
         and OAuth profile fields are applied according to the same rules as
         CreateAgentRequest. Omitting an inbound auth or OAuth field clears it.
 
@@ -757,17 +737,18 @@ paths:
                 summary: Update name and description only
                 value:
                   type: "service-agent"
-                  name: "Calendar Agent v2"
                   description: "Updated agent with v2 APIs"
+                  attributes:
+                    name: "Calendar Agent v2"
               update-full:
                 summary: Full update (all fields)
                 value:
                   ouId: "456e8400-e29b-41d4-a716-446655440001"
                   type: "service-agent"
-                  name: "Calendar Agent"
                   description: "Agent exposing calendar tools"
                   owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                   attributes:
+                    name: "Calendar Agent"
                     llmModel: "claude-3-5-sonnet"
                     environment: "production"
                   authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
@@ -823,7 +804,7 @@ paths:
                           profile: ["name", "family_name", "given_name"]
       responses:
         "200":
-          description: Agent updated
+          description: Agent updated, with its `status`
           content:
             application/json:
               schema:
@@ -833,10 +814,10 @@ paths:
                 ouId: "456e8400-e29b-41d4-a716-446655440001"
                 ouHandle: "platform/automations"
                 type: "service-agent"
-                name: "Calendar Agent"
                 description: "Agent exposing calendar tools"
                 owner: "e1b6ba6c-deb2-4d24-87b0-bbf79fa4487c"
                 attributes:
+                  name: "Calendar Agent"
                   llmModel: "claude-3-5-sonnet"
                   environment: "production"
                 authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
@@ -897,16 +878,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
-                invalid-agent-name:
-                  summary: Missing or empty agent name
-                  value:
-                    code: "AGT-1009"
-                    message:
-                      key: "error.agentservice.invalid_agent_name"
-                      defaultValue: "Invalid agent name"
-                    description:
-                      key: "error.agentservice.invalid_agent_name_description"
-                      defaultValue: "The agent name must be provided and non-empty"
                 invalid-redirect-uri:
                   summary: Invalid redirect URI
                   value:
@@ -1153,16 +1124,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
-                name-conflict:
-                  summary: Agent name already in use
-                  value:
-                    code: "AGT-1013"
-                    message:
-                      key: "error.agentservice.agent_already_exists_with_name"
-                      defaultValue: "Agent already exists"
-                    description:
-                      key: "error.agentservice.agent_already_exists_with_name_description"
-                      defaultValue: "An agent with the same name already exists"
                 client-id-conflict:
                   summary: Client ID already in use by another entity
                   value:
@@ -1400,7 +1361,8 @@ paths:
                 count: 1
                 types:
                   - id: "550e8400-e29b-41d4-a716-446655440000"
-                    name: "default"
+                    handle: "default"
+                    displayName: "Default"
                     ouId: "26eec421-f1bb-4deb-a5d3-9ab6554c2ae6"
                     allowSelfRegistration: false
                     systemAttributes:
@@ -1444,8 +1406,8 @@ paths:
         - Agent Types
       summary: Create the default agent type schema
       description: |
-        Creates the agent type schema. The `name` must be `default` — agent types are
-        restricted to a single `default` schema per deployment, so any other name is
+        Creates the agent type schema. The `handle` must be `default`. Agent types are
+        restricted to a single `default` schema per deployment, so any other handle is
         rejected with `USRS-1014`.
       requestBody:
         required: true
@@ -1454,7 +1416,8 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateAgentTypeRequest'
             example:
-              name: "default"
+              handle: "default"
+              displayName: "Default"
               ouId: "26eec421-f1bb-4deb-a5d3-9ab6554c2ae6"
               allowSelfRegistration: false
               systemAttributes:
@@ -1480,7 +1443,8 @@ paths:
                 $ref: '#/components/schemas/AgentType'
               example:
                 id: "880e8400-e29b-41d4-a716-446655440003"
-                name: "default"
+                handle: "default"
+                displayName: "Default"
                 ouId: "26eec421-f1bb-4deb-a5d3-9ab6554c2ae6"
                 allowSelfRegistration: false
                 systemAttributes:
@@ -1525,7 +1489,7 @@ paths:
                       key: "error.entitytypeservice.invalid_agent_type_request_description"
                       defaultValue: "The agent type request contains invalid or missing required fields"
                 only-default-allowed:
-                  summary: Non-default agent type name
+                  summary: Non-default agent type handle
                   value:
                     code: "USRS-1014"
                     message:
@@ -1533,7 +1497,7 @@ paths:
                       defaultValue: "Only the default agent type is allowed"
                     description:
                       key: "error.entitytypeservice.agent_type_only_default_allowed_description"
-                      defaultValue: "Agent types are restricted to a single 'default' schema; create or rename to other names is not permitted"
+                      defaultValue: "Agent types are restricted to a single 'default' schema; other handles are not permitted"
         "409":
           description: Conflict
           content:
@@ -1543,11 +1507,11 @@ paths:
               example:
                 code: "USRS-1003"
                 message:
-                  key: "error.entitytypeservice.agent_type_name_conflict"
-                  defaultValue: "Agent type name conflict"
+                  key: "error.entitytypeservice.agent_type_handle_conflict"
+                  defaultValue: "Agent type handle conflict"
                 description:
-                  key: "error.entitytypeservice.agent_type_name_conflict_description"
-                  defaultValue: "An agent type with the same name already exists"
+                  key: "error.entitytypeservice.agent_type_handle_conflict_description"
+                  defaultValue: "An agent type with the same handle already exists"
         "401":
           $ref: '#/components/responses/Unauthorized'
         "403":
@@ -1580,7 +1544,8 @@ paths:
                 $ref: '#/components/schemas/AgentType'
               example:
                 id: "660e8400-e29b-41d4-a716-446655440001"
-                name: "default"
+                handle: "default"
+                displayName: "Default"
                 ouId: "a839f4bd-39dc-4eaa-b5cc-210d8ecaee87"
                 allowSelfRegistration: false
                 systemAttributes:
@@ -1623,9 +1588,10 @@ paths:
         - Agent Types
       summary: Update the default agent type schema by ID
       description: |
-        Updates the agent type schema with new attribute definitions. The `name` must remain
-        `default` — renaming to anything else is rejected with `USRS-1014`. This operation
-        replaces the entire schema definition.
+        Updates the agent type schema with new attribute definitions. The `handle` is optional
+        and must be `default` when provided. Sending a different handle is rejected with `USRS-1014`.
+        The `displayName` can be changed at any time. This operation replaces the entire schema
+        definition.
       parameters:
         - in: path
           name: id
@@ -1641,7 +1607,8 @@ paths:
             schema:
               $ref: '#/components/schemas/UpdateAgentTypeRequest'
             example:
-              name: "default"
+              handle: "default"
+              displayName: "Default"
               ouId: "26eec421-f1bb-4deb-a5d3-9ab6554c2ae6"
               allowSelfRegistration: false
               systemAttributes:
@@ -1693,7 +1660,7 @@ paths:
                       key: "error.entitytypeservice.invalid_agent_type_request_description"
                       defaultValue: "The agent type request contains invalid or missing required fields"
                 only-default-allowed:
-                  summary: Non-default agent type name
+                  summary: Non-default agent type handle
                   value:
                     code: "USRS-1014"
                     message:
@@ -1701,7 +1668,7 @@ paths:
                       defaultValue: "Only the default agent type is allowed"
                     description:
                       key: "error.entitytypeservice.agent_type_only_default_allowed_description"
-                      defaultValue: "Agent types are restricted to a single 'default' schema; create or rename to other names is not permitted"
+                      defaultValue: "Agent types are restricted to a single 'default' schema; other handles are not permitted"
         "404":
           description: Agent type not found
           content:
@@ -1716,20 +1683,6 @@ paths:
                 description:
                   key: "error.entitytypeservice.agent_type_not_found_description"
                   defaultValue: "The agent type with the specified id does not exist"
-        "409":
-          description: Agent type name already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                code: "USRS-1003"
-                message:
-                  key: "error.entitytypeservice.agent_type_name_conflict"
-                  defaultValue: "Agent type name conflict"
-                description:
-                  key: "error.entitytypeservice.agent_type_name_conflict_description"
-                  defaultValue: "An agent type with the same name already exists"
         "401":
           $ref: '#/components/responses/Unauthorized'
         "403":
@@ -1851,18 +1804,18 @@ components:
         enum:
           - display
       description: |
-        Pass `display` to populate `ouHandle` fields in the response.
+        Pass `display` to populate the `display` and `ouHandle` fields in the response.
     filterParam:
       in: query
       name: filter
       required: false
       description: |
         Filter agents by a custom attribute value. Only keys inside the `attributes` JSON
-        object are filterable; system fields (`name`, `description`, `type`, `ouId`, `owner`,
-        `clientId`) are not supported.
+        object are filterable, including `name`; system fields (`description`, `type`, `ouId`,
+        `owner`, `clientId`) are not supported.
         Supported operators: `eq`.
         Format: `attribute operator "value"`. The value must be wrapped in double quotes.
-        Example: `region eq "us-east-1"`.
+        Example: `name eq "Calendar Agent"`.
       schema:
         type: string
 
@@ -1887,11 +1840,15 @@ components:
           example: "platform/automations"
         type:
           type: string
-          description: The agent type (matches a registered schema type).
-          example: "service-agent"
-        name:
+          description: The handle of the agent type. Only `default` is supported.
+          example: "default"
+        display:
           type: string
-          description: Display name of the agent. Stored as a system attribute.
+          readOnly: true
+          description: |
+            Human-readable label for the agent: the value of the display attribute declared by the
+            agent type's schema, or the agent ID when the schema declares none or the agent has no
+            value for it. Populated only when `include=display` is used.
           example: "Calendar Agent"
         description:
           type: string
@@ -1921,6 +1878,7 @@ components:
             uniqueness constraints are enforced. Fields marked as credentials in the schema
             are extracted and stored as hashed credentials, not returned in read responses.
           example:
+            name: "Calendar Agent"
             llmModel: "claude-3-5-sonnet"
             environment: "production"
         isReadOnly:
@@ -1930,6 +1888,8 @@ components:
             Indicates whether the agent is immutable. When `true`, update and delete
             operations are rejected. Set by the system for declaratively provisioned agents.
           example: false
+        status:
+          $ref: '#/components/schemas/AgentAccessStatus'
 
     AgentListResponse:
       type: object
@@ -1957,10 +1917,10 @@ components:
 
     CreateAgentRequest:
       type: object
-      required: [ouId, type, name]
+      required: [ouId, type]
       description: |
         Request to create an agent. What gets persisted depends on which fields are provided:
-        - Always: entity row (`id`, `ouId`, `type`, `name`, `description`, `attributes`, `owner`).
+        - Always: entity row (`id`, `ouId`, `type`, `description`, `attributes`, `owner`).
         - When any inbound auth field is set: inbound client row (`authFlowId` defaults to the
           system default when omitted).
         - When `inboundAuthConfig` is set: OAuth profile row.
@@ -1972,12 +1932,8 @@ components:
           example: "456e8400-e29b-41d4-a716-446655440001"
         type:
           type: string
-          description: The agent type. Must match a registered schema type in the OU.
-          example: "service-agent"
-        name:
-          type: string
-          description: Display name of the agent. Must be unique across all agents.
-          example: "Calendar Agent"
+          description: The handle of the agent type. Only `default` is supported.
+          example: "default"
         description:
           type: string
           description: Optional description of the agent.
@@ -2001,9 +1957,11 @@ components:
           description: |
             Key-value attributes for the agent. Validated against the schema registered
             for the given `type`: required fields, regex patterns, and uniqueness constraints
-            are enforced. Fields marked as credentials in the schema are extracted and stored
+            are enforced. The agent's name is the `name` attribute; the default agent type
+            requires it and keeps it unique across agents. Fields marked as credentials in the schema are extracted and stored
             as hashed credentials, not returned in read responses.
           example:
+            name: "Calendar Agent"
             llmModel: "claude-3-5-sonnet"
             environment: "production"
         authFlowId:
@@ -2039,13 +1997,13 @@ components:
           type: array
           items:
             type: string
-          description: User types that can sign up through this agent.
+          description: Handles of the user types that can sign up through this agent.
           example: ["employee", "contractor"]
         allowedAgentTypes:
           type: array
           items:
             type: string
-          description: Agent types allowed to sign in to this agent. An agent can authenticate only when its agent type is listed here; when the list is empty no agent can sign in.
+          description: Handles of the agent types allowed to sign in to this agent. An agent can authenticate only when its agent type handle is listed here; when the list is empty no agent can sign in.
           example: ["default"]
         inboundAuthConfig:
           type: array
@@ -2057,9 +2015,9 @@ components:
 
     UpdateAgentRequest:
       type: object
-      required: [name, type]
+      required: [type]
       description: |
-        Full replacement update for an agent. `name` and `type` are required. Other fields
+        Full replacement update for an agent. `type` is required. Other fields
         follow the same creation rules as `CreateAgentRequest`. Omitting an inbound auth or
         OAuth field removes the corresponding profile.
         If `ouId` is provided and different from the current value, the agent is moved to the
@@ -2073,9 +2031,6 @@ components:
         type:
           type: string
           example: "service-agent"
-        name:
-          type: string
-          example: "Calendar Agent"
         description:
           type: string
           example: "Agent exposing calendar tools"
@@ -2095,6 +2050,7 @@ components:
           type: object
           additionalProperties: true
           example:
+            name: "Calendar Agent"
             llmModel: "claude-3-5-sonnet"
             environment: "production"
         authFlowId:
@@ -2156,9 +2112,6 @@ components:
         type:
           type: string
           example: "service-agent"
-        name:
-          type: string
-          example: "Calendar Agent"
         description:
           type: string
           example: "Agent exposing calendar tools"
@@ -2174,8 +2127,13 @@ components:
           type: object
           additionalProperties: true
           example:
+            name: "Calendar Agent"
             llmModel: "claude-3-5-sonnet"
             environment: "production"
+        status:
+          allOf:
+            - $ref: '#/components/schemas/AgentAccessStatus'
+          description: The agent's status after the update. Present on update responses only.
         authFlowId:
           type: string
           example: "edc013d0-e893-4dc0-990c-3e1d203e005b"
@@ -2234,8 +2192,13 @@ components:
         type:
           type: string
           example: "service-agent"
-        name:
+        display:
           type: string
+          readOnly: true
+          description: |
+            Human-readable label for the agent: the value of the display attribute declared by the
+            agent type's schema, or the agent ID when the schema declares none or the agent has no
+            value for it. Populated only when `include=display` is used.
           example: "Calendar Agent"
         description:
           type: string
@@ -2256,6 +2219,7 @@ components:
           type: object
           additionalProperties: true
           example:
+            name: "Calendar Agent"
             llmModel: "claude-3-5-sonnet"
             environment: "production"
         authFlowId:
@@ -2294,6 +2258,8 @@ components:
           items:
             $ref: '#/components/schemas/InboundAuthConfig'
           description: OAuth config without secrets.
+        status:
+          $ref: '#/components/schemas/AgentAccessStatus'
 
     AgentGroup:
       type: object
@@ -2681,18 +2647,28 @@ components:
 
     AgentType:
       type: object
-      required: [id, name, ouId, schema]
+      required: [id, handle, displayName, ouId, schema]
       properties:
         id:
           type: string
           format: uuid
           description: "The unique identifier of the agent type"
-        name:
+        handle:
           type: string
           enum: ["default"]
           description: |
-            The agent type this schema defines. Restricted to `default` —
-            only the bootstrap-provisioned `default` schema is permitted.
+            Unique handle of the agent type (lowercase letters, numbers, hyphens, and underscores only).
+            Restricted to `default`, the only agent type schema permitted. Agents and applications refer to
+            the agent type by this handle.
+            Once set, the handle cannot be changed.
+          pattern: '^[a-z0-9][a-z0-9_-]*[a-z0-9]$|^[a-z0-9]$'
+          maxLength: 100
+        displayName:
+          type: string
+          description: "Human-readable name of the agent type. It does not need to be unique and can be changed at any time."
+          minLength: 1
+          maxLength: 100
+          example: "Default"
         ouId:
           type: string
           format: uuid
@@ -2719,12 +2695,12 @@ components:
           additionalProperties:
             oneOf:
               - type: object
-                description: "Leaf property - string or number"
+                description: "Leaf property - string, email, mobile, or number"
                 required: [type]
                 properties:
                   type:
                     type: string
-                    enum: ["string", "number"]
+                    enum: ["string", "email", "mobile", "number"]
                     description: "Data type of the property"
                   required:
                     type: boolean
@@ -2737,7 +2713,7 @@ components:
                   credential:
                     type: boolean
                     default: false
-                    description: "Whether this property should be treated as a credential attribute"
+                    description: "Whether this property should be treated as a credential attribute. Not supported for email or mobile types."
                   displayName:
                     type: string
                     description: "Human-readable label shown in the UI for this property"
@@ -2745,7 +2721,7 @@ components:
                     type: array
                     items:
                       type: string
-                    description: "List of allowed values for this property"
+                    description: "List of allowed values for this property. Not supported for email or mobile types."
                   regex:
                     type: string
                     description: "Regular expression pattern for validating the property value"
@@ -2805,16 +2781,20 @@ components:
                   items:
                     oneOf:
                       - type: object
-                        description: "Array of strings or numbers"
+                        description: "Array of strings, emails, mobiles, or numbers"
                         required: [type]
                         properties:
                           type:
                             type: string
-                            enum: ["string", "number"]
+                            enum: ["string", "email", "mobile", "number"]
                           enum:
                             type: array
                             items:
                               type: string
+                            description: "List of allowed values. Not supported for email or mobile types."
+                          regex:
+                            type: string
+                            description: "Custom validation pattern. Contact types use their default when omitted or empty."
                         additionalProperties: false
                       - type: object
                         description: "Array of booleans"
@@ -2869,15 +2849,16 @@ components:
           type: array
           items:
             type: object
-            required: [id, name, ouId]
+            required: [id, handle, displayName, ouId]
             properties:
               id:
                 type: string
                 format: uuid
                 description: "The unique identifier of the agent type"
-              name:
-                type: string
-                description: "The agent type this schema defines"
+              handle:
+                $ref: "#/components/schemas/AgentType/properties/handle"
+              displayName:
+                $ref: "#/components/schemas/AgentType/properties/displayName"
               ouId:
                 type: string
                 format: uuid
@@ -2905,14 +2886,23 @@ components:
 
     CreateAgentTypeRequest:
       type: object
-      required: [name, ouId, schema]
+      required: [handle, displayName, ouId, schema]
       properties:
-        name:
+        handle:
           type: string
           enum: ["default"]
           description: |
-            The agent type this schema will define. Must be `default` — agent types are
-            restricted to a single `default` schema and any other name is rejected.
+            Unique handle for the agent type (lowercase letters, numbers, hyphens, and underscores only).
+            Must be `default`. Agent types are restricted to a single `default` schema and any other
+            handle is rejected. Once set, the handle cannot be changed.
+          pattern: '^[a-z0-9][a-z0-9_-]*[a-z0-9]$|^[a-z0-9]$'
+          maxLength: 100
+        displayName:
+          type: string
+          description: "Human-readable name of the agent type. It does not need to be unique."
+          minLength: 1
+          maxLength: 100
+          example: "Default"
         ouId:
           type: string
           format: uuid
@@ -2931,13 +2921,22 @@ components:
 
     UpdateAgentTypeRequest:
       type: object
-      required: [name, ouId, schema]
+      required: [displayName, ouId, schema]
       properties:
-        name:
+        handle:
           type: string
           enum: ["default"]
           description: |
-            The agent type this schema defines. Must remain `default` — renaming is rejected.
+            Optional. The handle cannot be changed, so when provided it must be `default`. When omitted,
+            the existing handle is kept.
+          pattern: '^[a-z0-9][a-z0-9_-]*[a-z0-9]$|^[a-z0-9]$'
+          maxLength: 100
+        displayName:
+          type: string
+          description: "Human-readable name of the agent type. It does not need to be unique."
+          minLength: 1
+          maxLength: 100
+          example: "Default"
         ouId:
           type: string
           format: uuid
@@ -2967,6 +2966,79 @@ components:
         defaultValue:
           type: string
           description: Default message in English (fallback).
+
+    AgentAccessStatus:
+      type: object
+      readOnly: true
+      description: |
+        The agent's effective access status and the reason for it. Computed when the agent is
+        read or updated, and never accepted on a write.
+      properties:
+        value:
+          type: string
+          readOnly: true
+          enum: [ACTIVE, LOCKED, SUSPENDED]
+          description: |
+            `ACTIVE`, `LOCKED` or `SUSPENDED`. When the agent is both suspended and locked,
+            `SUSPENDED` is reported.
+
+            `SUSPENDED` is an administrative hold. `LOCKED` is an automatic hold after repeated
+            failed authentication attempts with the `credential` or `otp` authentication method,
+            reported under the `accountAccess` policy in force. Automatic locking is enabled for
+            agents by default. The agent's OAuth client secret is never locked. A lock does not expire
+            when its duration is `0` or it forms at `maxConsecutiveFailures`; other locks expire
+            on their own.
+          example: "ACTIVE"
+        details:
+          type: object
+          readOnly: true
+          description: Why the status applies. Absent for `ACTIVE`.
+          properties:
+            reason:
+              type: string
+              readOnly: true
+              enum: [FAILED_ATTEMPTS, ADMINISTRATIVE_SUSPENSION]
+              description: |
+                What caused the status. `FAILED_ATTEMPTS` is an automatic lock after repeated failed
+                authentication attempts. `ADMINISTRATIVE_SUSPENSION` is a suspension placed by an
+                operator. One reason covers every entry in `lockedMethods`.
+              example: "FAILED_ATTEMPTS"
+            since:
+              type: string
+              format: date-time
+              readOnly: true
+              description: When the operator placed the hold. Absent for an automatic lock.
+            operatorNote:
+              type: string
+              readOnly: true
+              description: The note the operator entered when placing the hold. Absent when none was entered.
+              example: "Credential exposure reported by the security team"
+            lockedMethods:
+              type: array
+              readOnly: true
+              description: |
+                The automatic locks currently in force, in a stable order. Absent unless the status
+                is `LOCKED`.
+
+                With `lockGranularity` set to `authentication_method`, each method locks separately,
+                so several entries can be present, each with its own expiry. An account-wide lock is
+                reported as a single entry with the method `entity`.
+              items:
+                type: object
+                properties:
+                  method:
+                    type: string
+                    readOnly: true
+                    description: |
+                      The locked authentication method, such as `credential`, or `entity` when every
+                      method is locked.
+                    example: "credential"
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    readOnly: true
+                    description: When the lock expires. **Absent when it does not expire.**
+                    example: "2026-09-08T10:15:00Z"
 
     Link:
       type: object

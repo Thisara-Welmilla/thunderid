@@ -63,4 +63,10 @@ describe('getTemplateFieldConstraints', () => {
 
     expect(constraints?.oauth2?.pkceRequired).toEqual({readOnly: true, value: true});
   });
+
+  it('returns pkceRequired constraint as readOnly true with value true for the "cimd" template', () => {
+    const constraints = getTemplateFieldConstraints('cimd');
+
+    expect(constraints?.oauth2?.pkceRequired).toEqual({readOnly: true, value: true});
+  });
 });

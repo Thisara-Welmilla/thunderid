@@ -173,7 +173,7 @@ export default function ConfigureApplicationDetails({
     if (hasSeededUserTypesRef.current || !allowsUserLogins || userTypes.length < 2) return;
     hasSeededUserTypesRef.current = true;
     if (selectedUserTypes.length === 0) {
-      onUserTypesChange(userTypes.map((userType) => userType.name));
+      onUserTypesChange(userTypes.map((userType) => userType.handle));
     }
   }, [allowsUserLogins, userTypes, selectedUserTypes.length, onUserTypesChange]);
 
@@ -218,7 +218,7 @@ export default function ConfigureApplicationDetails({
         <OrganizationUnitSummaryChip
           logoUrl={organizationUnit?.logoUrl}
           icon={OrganizationUnitTreeConstants.DEFAULT_AVATAR}
-          label={t('applications:onboarding.organizationUnit.fieldLabel', 'Organization Unit')}
+          label={t('applications:onboarding.organizationUnit.fieldLabel', 'Organization unit')}
           value={isOuLoading ? t('common:status.loading', 'Loading...') : organizationUnit?.name}
           onChange={onChangeOu}
         />

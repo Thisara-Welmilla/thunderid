@@ -1,7 +1,7 @@
 // Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import {FullScreenCreationWizardLayout} from '@thunderid/components';
+import {DocumentTitle, FullScreenCreationWizardLayout} from '@thunderid/components';
 import {AuthenticatorTypes, IdentityProviderTypes, useIdentityProviders} from '@thunderid/configure-connections';
 import {GatePreview, VIEWPORT_WIDTHS, VIEWPORT_HEIGHTS} from '@thunderid/configure-design';
 import {
@@ -35,10 +35,12 @@ import {useTranslation} from 'react-i18next';
 import {useLocation, useNavigate} from 'react-router';
 import useCreateApplication from '../api/useCreateApplication';
 import useGetApplications from '../api/useGetApplications';
+import ConfigureMetadataDocument from '../components/create-application/cimd/ConfigureMetadataDocument';
 import ConfigureSecuritySettings from '../components/create-application/configure-security-settings/ConfigureSecuritySettings';
 import ConfigureApplicationDetails from '../components/create-application/ConfigureApplicationDetails';
 import ConfigureDesign from '../components/create-application/ConfigureDesign';
 import ConfigureDetails from '../components/create-application/ConfigureDetails';
+import ConfigureMcpClientIdentity from '../components/create-application/mcp/ConfigureMcpClientIdentity';
 import ConfigureMcpClientType from '../components/create-application/mcp/ConfigureMcpClientType';
 import ApplicationConstants from '../constants/application-constants';
 import TemplateConstants from '../constants/template-constants';
@@ -52,6 +54,8 @@ import {
   OrganizationUnitDefaultItem,
 } from '../models/application-create-flow';
 import {PlatformApplicationTemplate, TechnologyApplicationTemplate} from '../models/application-templates';
+import {McpClientIdentityModes} from '../models/cimd';
+import type {CimdPreview, McpClientIdentityMode} from '../models/cimd';
 import {McpClientTypes} from '../models/mcp-client';
 import type {OAuth2Config} from '../models/oauth';
 import {OAuth2GrantTypes, TokenEndpointAuthMethods} from '../models/oauth';
@@ -123,9 +127,26 @@ export default function ApplicationCreatePage(): JSX.Element {
 
   const isMcpClientTemplate = selectedTemplateConfig?.id === TemplateConstants.MCP_CLIENT_TEMPLATE_ID;
 
+  const isCimdTemplate = selectedTemplateConfig?.id === TemplateConstants.CIMD_TEMPLATE_ID;
+  const [mcpIdentityMode, setMcpIdentityMode] = useState<McpClientIdentityMode | null>(null);
+  // Whether a user-delegated MCP client is created confidential (issued a client secret) rather than public.
+  const [mcpConfidentialClient, setMcpConfidentialClient] = useState(false);
+  const [cimdPreview, setCimdPreview] = useState<CimdPreview | null>(null);
+
+  // The approved metadata document supplies the client's name, so the Details step starts from it.
+  // A document always describes a client that acts for a signed-in user.
+  const handleCimdPreviewChange = (preview: CimdPreview | null): void => {
+    setError(null);
+    setCimdPreview(preview);
+    if (preview) {
+      setAppName(preview.clientName);
+      setMcpClientType(McpClientTypes.USER_DELEGATED);
+    }
+  };
+
   const steps: Record<ApplicationCreateFlowStep, {label: string; order: number}> = useMemo(
     () => ({
-      ORGANIZATION_UNIT: {label: t('applications:onboarding.steps.organizationUnit', 'Organization Unit'), order: 1},
+      ORGANIZATION_UNIT: {label: t('applications:onboarding.steps.organizationUnit', 'Organization unit'), order: 1},
       DETAILS: {label: t('applications:onboarding.steps.details'), order: 2},
       SECURITY: {label: t('applications:onboarding.steps.security'), order: 3},
       DESIGN: {label: t('applications:onboarding.steps.design'), order: 4},
@@ -133,6 +154,8 @@ export default function ApplicationCreatePage(): JSX.Element {
         label: t('applications:onboarding.steps.configure'),
         order: 6,
       },
+      METADATA_DOCUMENT: {label: t('applications:onboarding.steps.metadataDocument', 'Metadata document'), order: 2},
+      CLIENT_IDENTITY: {label: t('applications:onboarding.steps.clientIdentity', 'Client identity'), order: 2},
       CLIENT_TYPE: {label: t('applications:onboarding.steps.configure'), order: 3},
       COMPLETE: {label: t('applications:onboarding.steps.complete'), order: 7},
     }),
@@ -314,6 +337,8 @@ export default function ApplicationCreatePage(): JSX.Element {
     SECURITY: true,
     DESIGN: true,
     CONFIGURE: true,
+    METADATA_DOCUMENT: false,
+    CLIENT_IDENTITY: false,
     CLIENT_TYPE: false,
     COMPLETE: true,
   });
@@ -376,6 +401,14 @@ export default function ApplicationCreatePage(): JSX.Element {
   }, [oauthConfig, callbackUrlFromConfig, walletClientId, redirectUris, postLogoutRedirectUris]);
 
   const creationFlow = useMemo(() => resolveCreationFlow(selectedTemplateConfig), [selectedTemplateConfig]);
+
+  // An MCP client registers from a metadata document only when its template offers the Client
+  // identity step and the administrator chose the document on it.
+  const isMcpCimdRegistration =
+    isMcpClientTemplate &&
+    creationFlow.steps.includes(ApplicationCreateFlowStep.CLIENT_IDENTITY) &&
+    mcpIdentityMode === McpClientIdentityModes.METADATA_DOCUMENT;
+  const isCimdRegistration = isCimdTemplate || isMcpCimdRegistration;
 
   // The organization unit is the wizard's first step whenever there's a choice to make. Single-OU
   // deployments never need it, so once that's known, skip straight past it.
@@ -477,6 +510,8 @@ export default function ApplicationCreatePage(): JSX.Element {
       // Single-OU deployments have no organization unit choice to make.
       if (step === ApplicationCreateFlowStep.ORGANIZATION_UNIT) return hasMultipleOUs;
       if (step === ApplicationCreateFlowStep.CONFIGURE) return showConfigureStep;
+      // A metadata document already fixes the client type and redirect URIs.
+      if (step === ApplicationCreateFlowStep.CLIENT_TYPE) return !isMcpCimdRegistration;
       // Nothing left to show once the Sign In section is snapshotted from the organization
       // unit's default — Sign Up/Recovery/Sign Out live elsewhere and aren't configured here.
       if (step === ApplicationCreateFlowStep.SECURITY) return !ouDefaults[OrganizationUnitDefaultItem.SIGN_IN];
@@ -510,6 +545,7 @@ export default function ApplicationCreatePage(): JSX.Element {
     isWalletTemplate,
     ouDefaults,
     resolvedOrganizationUnit,
+    isMcpCimdRegistration,
   ]);
 
   const handleClose = (): void => {
@@ -554,7 +590,15 @@ export default function ApplicationCreatePage(): JSX.Element {
   const isRolledBackGeneratedFlow = (flowId: string | undefined): boolean =>
     Boolean(flowId) && generatedSelectionIdRef.current === flowId && generatedFlowRef.current?.flowId !== flowId;
 
-  const handleCreateApplication = (skipOAuthConfig = false, overrideFlowId?: string): void => {
+  // A known client chosen on the Client identity step registers from its validated document at once, so the
+  // approved document is passed in rather than read from state that hasn't updated yet.
+  const handleCreateApplication = (
+    skipOAuthConfig = false,
+    overrideFlowId?: string,
+    knownClientDocument?: CimdPreview,
+  ): void => {
+    const approvedCimd: CimdPreview | null = knownClientDocument ?? cimdPreview;
+    const registersFromDocument = Boolean(knownClientDocument) || isCimdRegistration;
     setError(null);
 
     const includesSecurity = hasSecurityStep;
@@ -600,7 +644,7 @@ export default function ApplicationCreatePage(): JSX.Element {
     const userTypes = userTypesData?.types ?? [];
     const allowedUserTypes = (() => {
       if (!allowsUserLogins) return undefined;
-      if (userTypes.length === 1) return [userTypes[0].name];
+      if (userTypes.length === 1) return [userTypes[0].handle];
       if (userTypes.length > 1) return selectedUserTypes.length > 0 ? selectedUserTypes : undefined;
       return undefined;
     })();
@@ -615,13 +659,24 @@ export default function ApplicationCreatePage(): JSX.Element {
 
     // The canonical application type resolved above. The MCP client template can resolve to two
     // types, so the machine-to-machine selection overrides it.
-    const applicationType: ApplicationType =
-      isMcpClientTemplate && mcpClientType === McpClientTypes.M2M ? 'm2m' : resolvedApplicationType;
+    // A metadata-document client can take any shape, so, like a DCR-registered client, it is custom.
+    const applicationType: ApplicationType = isCimdTemplate
+      ? 'custom'
+      : isMcpClientTemplate && mcpClientType === McpClientTypes.M2M
+        ? 'm2m'
+        : resolvedApplicationType;
+
+    // A metadata-document client stores the previewed OAuth values as returned, over the template's
+    // seeded config: the URL is the client ID, and the redirect URIs, authentication method, grants
+    // and keys come from the document.
+    const cimdOAuth2Config: OAuth2Config | null =
+      registersFromDocument && approvedCimd ? {...oauthConfig, ...approvedCimd.oauth2Config} : null;
 
     // The mcp-client template branches the oauth2 config off the template-seeded config (never
     // rebuilt from scratch): user-delegated keeps the seeded authorization_code/refresh_token/PKCE/
-    // public-client shape and adds the collected redirect URIs; machine-to-machine overrides it to a
-    // confidential client_credentials shape with no redirect URIs.
+    // public-client shape and adds the collected redirect URIs, switching to a confidential client
+    // when chosen; machine-to-machine overrides it to a confidential client_credentials shape with
+    // no redirect URIs.
     const mcpOAuth2Config: OAuth2Config | null =
       isMcpClientTemplate && oauthConfig
         ? mcpClientType === McpClientTypes.M2M
@@ -634,12 +689,26 @@ export default function ApplicationCreatePage(): JSX.Element {
               publicClient: false,
               tokenEndpointAuthMethod: TokenEndpointAuthMethods.CLIENT_SECRET_BASIC,
             }
-          : {...oauthConfig, redirectUris: mcpRedirectUris.filter((uri) => uri.trim() !== '')}
+          : {
+              ...oauthConfig,
+              redirectUris: mcpRedirectUris.filter((uri) => uri.trim() !== ''),
+              ...(mcpConfidentialClient && {
+                publicClient: false,
+                tokenEndpointAuthMethod: TokenEndpointAuthMethods.CLIENT_SECRET_BASIC,
+              }),
+            }
         : null;
 
     const applicationData: CreateApplicationRequest = {
-      name: appName,
+      name: knownClientDocument?.clientName ?? appName,
       ...(hostingUrl && {url: hostingUrl}),
+      ...(registersFromDocument &&
+        approvedCimd && {
+          ...(approvedCimd.clientUri && {url: approvedCimd.clientUri}),
+          ...(approvedCimd.tosUri && {tosUri: approvedCimd.tosUri}),
+          ...(approvedCimd.policyUri && {policyUri: approvedCimd.policyUri}),
+          ...(approvedCimd.contacts.length > 0 && {contacts: approvedCimd.contacts}),
+        }),
       ...(finalAuthFlowId && {authFlowId: finalAuthFlowId}),
       ...(effectiveOuId && {ouId: effectiveOuId}),
       ...(applicationType && {type: applicationType}),
@@ -667,7 +736,7 @@ export default function ApplicationCreatePage(): JSX.Element {
       }),
       ...(allowedUserTypes && {allowedUserTypes}),
       ...(!skipOAuthConfig && {
-        inboundAuthConfig: [{type: 'oauth2', config: mcpOAuth2Config ?? effectiveOauthConfig}],
+        inboundAuthConfig: [{type: 'oauth2', config: cimdOAuth2Config ?? mcpOAuth2Config ?? effectiveOauthConfig}],
       }),
     };
 
@@ -708,17 +777,6 @@ export default function ApplicationCreatePage(): JSX.Element {
               },
             },
           );
-        }
-
-        // The mcp-client template has no completion step of its own, so it always goes straight
-        // to the created application's detail page.
-        if (isMcpClientTemplate) {
-          (async () => {
-            await navigate(routes.applications.detail(createdApp.id));
-          })().catch((_error: unknown) => {
-            logger.error('Failed to navigate to application details', {error: _error, applicationId: createdApp.id});
-          });
-          return;
         }
 
         const oauth2Config = createdApp.inboundAuthConfig?.find((config) => config.type === 'oauth2');
@@ -913,6 +971,29 @@ export default function ApplicationCreatePage(): JSX.Element {
     [handleStepReadyChange],
   );
 
+  // A known client skips the remaining steps: its document supplies the name, and it always acts for a user.
+  const handleKnownClientSelect = (document: CimdPreview): void => {
+    setError(null);
+    setCimdPreview(document);
+    setAppName(document.clientName);
+    setMcpClientType(McpClientTypes.USER_DELEGATED);
+    handleCreateApplication(false, undefined, document);
+  };
+
+  const handleClientIdentityStepReadyChange = useCallback(
+    (isReady: boolean): void => {
+      handleStepReadyChange(ApplicationCreateFlowStep.CLIENT_IDENTITY, isReady);
+    },
+    [handleStepReadyChange],
+  );
+
+  const handleMetadataDocumentStepReadyChange = useCallback(
+    (isReady: boolean): void => {
+      handleStepReadyChange(ApplicationCreateFlowStep.METADATA_DOCUMENT, isReady);
+    },
+    [handleStepReadyChange],
+  );
+
   const handleClientTypeStepReadyChange = useCallback(
     (isReady: boolean): void => {
       handleStepReadyChange(ApplicationCreateFlowStep.CLIENT_TYPE, isReady);
@@ -946,6 +1027,33 @@ export default function ApplicationCreatePage(): JSX.Element {
           />
         );
 
+      case ApplicationCreateFlowStep.CLIENT_IDENTITY:
+        return (
+          <ConfigureMcpClientIdentity
+            knownClients={selectedTemplateConfig?.metadataDocumentClients ?? []}
+            onKnownClientSelect={handleKnownClientSelect}
+            isRegistering={createApplication.isPending}
+            mode={mcpIdentityMode}
+            onModeChange={(mode) => {
+              setError(null);
+              setMcpIdentityMode(mode);
+            }}
+            preview={cimdPreview}
+            onPreviewChange={handleCimdPreviewChange}
+            onReadyChange={handleClientIdentityStepReadyChange}
+          />
+        );
+
+      case ApplicationCreateFlowStep.METADATA_DOCUMENT:
+        return (
+          <ConfigureMetadataDocument
+            knownClients={selectedTemplateConfig?.metadataDocumentClients ?? []}
+            preview={cimdPreview}
+            onPreviewChange={handleCimdPreviewChange}
+            onReadyChange={handleMetadataDocumentStepReadyChange}
+          />
+        );
+
       case ApplicationCreateFlowStep.CLIENT_TYPE:
         return (
           <ConfigureMcpClientType
@@ -953,6 +1061,8 @@ export default function ApplicationCreatePage(): JSX.Element {
             onSelect={setMcpClientType}
             redirectUris={mcpRedirectUris}
             onRedirectUrisChange={setMcpRedirectUris}
+            confidentialClient={mcpConfidentialClient}
+            onConfidentialClientChange={setMcpConfidentialClient}
             onReadyChange={handleClientTypeStepReadyChange}
           />
         );
@@ -1068,27 +1178,33 @@ export default function ApplicationCreatePage(): JSX.Element {
     });
   };
 
+  const pageTitle = t('applications:listing.addApplication', 'Add application');
+
   if (currentStep === ApplicationCreateFlowStep.ORGANIZATION_UNIT) {
     if (isOuLoading || !hasMultipleOUs) {
       return (
         <Box sx={{minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+          <DocumentTitle title={pageTitle} />
           <CircularProgress />
         </Box>
       );
     }
 
     return (
-      <OrganizationUnitPickerScreen
-        icon={<Home size={26} />}
-        title={t('applications:onboarding.organizationUnit.title')}
-        subtitle={t('applications:onboarding.organizationUnit.subtitle')}
-        value={ouId}
-        onChange={handleOuIdChange}
-        onBack={ouId ? () => setCurrentStep(ApplicationCreateFlowStep.DETAILS) : handleBackToTemplates}
-        onContinue={handleNextStep}
-        backLabel={t('common:actions.back')}
-        continueLabel={t('common:actions.continue')}
-      />
+      <>
+        <DocumentTitle title={pageTitle} />
+        <OrganizationUnitPickerScreen
+          icon={<Home size={26} />}
+          title={t('applications:onboarding.organizationUnit.title')}
+          subtitle={t('applications:onboarding.organizationUnit.subtitle')}
+          value={ouId}
+          onChange={handleOuIdChange}
+          onBack={ouId ? () => setCurrentStep(ApplicationCreateFlowStep.DETAILS) : handleBackToTemplates}
+          onContinue={handleNextStep}
+          backLabel={t('common:actions.back')}
+          continueLabel={t('common:actions.continue')}
+        />
+      </>
     );
   }
 
@@ -1187,6 +1303,7 @@ export default function ApplicationCreatePage(): JSX.Element {
         </Box>
       }
     >
+      <DocumentTitle title={pageTitle} />
       {error && (
         <Alert severity="error" sx={{mb: 3}} onClose={() => setError(null)}>
           {error}

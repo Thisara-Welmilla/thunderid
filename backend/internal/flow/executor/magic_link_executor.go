@@ -64,7 +64,7 @@ func newMagicLinkExecutor(
 		log.String(log.LoggerKeyExecutorName, ExecutorNameMagicLink))
 
 	identifyExec := newIdentifyingExecutor(ExecutorNameMagicLink, defaultInputs, prerequisites,
-		flowFactory, entityProvider)
+		flowFactory, entityProvider, nil)
 	base := flowFactory.CreateExecutor(ExecutorNameMagicLink, providers.ExecutorTypeAuthentication,
 		defaultInputs, prerequisites, &providers.ExecutorMeta{
 			SupportedModes: []string{ExecutorModeGenerate, ExecutorModeVerify},
@@ -136,7 +136,7 @@ func (m *magicLinkExecutor) InitiateMagicLink(ctx *providers.NodeContext,
 	logger *log.Logger) (*providers.ExecutorResponse, error) {
 	execResp := newMagicLinkExecutorResponse()
 	execResp.AuthUser = ctx.AuthUser
-	isRegistration := ctx.FlowType == providers.FlowTypeRegistration
+	isRegistration := isRegistrationFlow(ctx)
 	searchAttrs := m.buildUserSearchAttributes(ctx)
 
 	// 1. Resolve the destination attribute name
@@ -308,7 +308,7 @@ func (m *magicLinkExecutor) executeVerify(ctx *providers.NodeContext) (*provider
 	token := ctx.UserInputs[userInputMagicLinkToken]
 
 	subjectAttribute := ""
-	if ctx.FlowType == providers.FlowTypeRegistration {
+	if isRegistrationFlow(ctx) {
 		subjectAttribute = ctx.RuntimeData[common.RuntimeKeyMagicLinkDestinationAttribute]
 		if subjectAttribute == "" {
 			return execResp, errors.New("magic link destination attribute missing from runtime data")

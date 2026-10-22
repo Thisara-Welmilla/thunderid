@@ -28,19 +28,19 @@ describe('AttributesSummarySection', () => {
     id: 'agent-1',
     ouId: 'ou-1',
     type: 'default',
-    name: 'Test',
     attributes: {email: 'a@b.com', count: 5, isAdmin: true, tags: ['a', 'b']},
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseGetAgentTypes.mockReturnValue({
-      data: {types: [{id: 'schema-1', name: 'default', ouId: 'ou-1'}]},
+      data: {types: [{id: 'schema-1', handle: 'default', displayName: 'Default', ouId: 'ou-1'}]},
     });
     mockUseGetAgentType.mockReturnValue({
       data: {
         id: 'schema-1',
-        name: 'default',
+        handle: 'default',
+        displayName: 'Default',
         ouId: 'ou-1',
         schema: {email: {type: 'string', required: true}, count: {type: 'number'}},
       },
@@ -84,7 +84,8 @@ describe('AttributesSummarySection', () => {
     mockUseGetAgentType.mockReturnValue({
       data: {
         id: 'schema-1',
-        name: 'default',
+        handle: 'default',
+        displayName: 'Default',
         ouId: 'ou-1',
         schema: {email: {type: 'string', displayName: 'Email Address'}},
       },

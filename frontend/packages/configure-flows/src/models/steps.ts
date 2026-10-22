@@ -113,8 +113,14 @@ export const ExecutionTypes = {
   ApplicationActionValidator: 'ApplicationActionValidator',
   ApplicationDelete: 'ApplicationDeleteExecutor',
   ClientSecret: 'ClientSecretExecutor',
+  CriteriaRevocation: 'CriteriaRevocationExecutor',
+  AccessChangeValidator: 'AccessChangeValidator',
+  RoleExecutor: 'RoleExecutor',
+  GroupExecutor: 'GroupExecutor',
+  ActionDeletion: 'ActionDeletionExecutor',
   AuthAssert: 'AuthAssertExecutor',
   Authorization: 'AuthorizationExecutor',
+  AccountLinking: 'AccountLinkingExecutor',
 } as const;
 
 export const ExecutionStepViewTypes = {

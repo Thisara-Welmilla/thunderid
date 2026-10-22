@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,6 +48,10 @@ func init() {
 		ServerBinary = "thunderid"
 	}
 }
+
+// deploymentYamlSource is the deployment.yaml ReplaceResources installs. The Control Plane suite
+// replaces it through UseControlPlane.
+var deploymentYamlSource = TestDeploymentYamlPath
 
 // Package-level variables for server configuration
 var (
@@ -370,7 +375,7 @@ func ReplaceResources(zipFilePattern string) error {
 		return fmt.Errorf("failed to create conf directory: %v", err)
 	}
 
-	err = copyFile(TestDeploymentYamlPath, destPath)
+	err = copyFile(deploymentYamlSource, destPath)
 	if err != nil {
 		return fmt.Errorf("failed to replace deployment.yaml: %v", err)
 	}
@@ -423,6 +428,7 @@ func CopyDeclarativeResources(zipFilePattern string) error {
 		"gateways",
 		"groups",
 		"layouts",
+		"notification_templates",
 		"organization_units",
 		"presentation_definitions",
 		"resource_servers",
@@ -618,6 +624,40 @@ func RunInitScript(zipFilePattern string) error {
 	return nil
 }
 
+// CreateEntityRuntimeOnlyDB writes a SQLite database at dbPath, relative to the product home, holding
+// only the shipped runtime-persistent schema's ENTITY_RUNTIME_DATA table. A server pointed at it reads
+// entity runtime rows, while every other runtime-persistent query fails.
+func CreateEntityRuntimeOnlyDB(dbPath string) error {
+	home := GetExtractedProductHome()
+	schema, err := os.ReadFile(filepath.Join(home, "dbscripts", "runtime_persistent", "sqlite.sql"))
+	if err != nil {
+		return fmt.Errorf("failed to read the runtime-persistent schema: %w", err)
+	}
+	start := strings.Index(string(schema), `CREATE TABLE "ENTITY_RUNTIME_DATA"`)
+	if start < 0 {
+		return fmt.Errorf("the runtime-persistent schema has no ENTITY_RUNTIME_DATA table")
+	}
+	end := strings.Index(string(schema[start:]), ");")
+	if end <= 0 {
+		return fmt.Errorf("unterminated ENTITY_RUNTIME_DATA definition")
+	}
+
+	schemaFile, err := os.CreateTemp("", "entity_runtime_only-*.sql")
+	if err != nil {
+		return fmt.Errorf("failed to create the ENTITY_RUNTIME_DATA schema file: %w", err)
+	}
+	defer os.Remove(schemaFile.Name())
+	_, err = schemaFile.Write(schema[start : start+end+2])
+	if closeErr := schemaFile.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("failed to write the ENTITY_RUNTIME_DATA schema file: %w", err)
+	}
+
+	return initSQLiteDB("entity_runtime_only", schemaFile.Name(), filepath.Join(home, dbPath))
+}
+
 // initSQLiteDB creates a SQLite database from a schema file using the sqlite3 CLI.
 func initSQLiteDB(name, schemaPath, dbPath string) error {
 	log.Printf("Initializing SQLite database: %s", name)
@@ -785,6 +825,66 @@ func startServerInternal(port string, extraArgs ...string) error {
 	writePidFile(serverPid)
 
 	return nil
+}
+
+// StartServerExpectingExit stops the running server and starts one that is expected to refuse its
+// configuration and exit. It returns nil once the process has exited, and an error if the server
+// stays up for the timeout, in which case it is stopped. Call RestartServer to run normally again.
+func StartServerExpectingExit(timeout time.Duration) error {
+	ensureInitialized()
+	StopServer()
+	if err := waitForPortClosed(serverPort, 30*time.Second); err != nil {
+		return err
+	}
+
+	if err := startServerInternal(serverPort); err != nil {
+		return err
+	}
+	cmd := serverCmd
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
+	defer func() {
+		serverCmd = nil
+		serverPid = 0
+		removePidFile()
+	}()
+
+	select {
+	case <-exited:
+		return nil
+	case <-time.After(timeout):
+	}
+
+	// The goroutine above is the process's only waiter, so the stop is awaited on its channel.
+	if err := sendStopSignal(cmd.Process); err != nil {
+		_ = cmd.Process.Kill()
+	}
+	select {
+	case <-exited:
+	case <-time.After(3 * time.Second):
+		_ = cmd.Process.Kill()
+		<-exited
+	}
+	return fmt.Errorf("the server was still running %s after it started", timeout)
+}
+
+// waitForPortClosed polls until nothing accepts connections on the port, so a new server can bind it.
+func waitForPortClosed(port string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		conn, err := net.DialTimeout("tcp", "localhost:"+port, 500*time.Millisecond)
+		if err != nil {
+			return nil
+		}
+		_ = conn.Close()
+		if time.Now().After(deadline) {
+			return fmt.Errorf("port %s still accepted connections %s after the server was stopped", port, timeout)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // RestartServerWithResourcesFile stops the running server and restarts it with the -resources flag
@@ -1240,4 +1340,26 @@ func detectOSAndArchitecture() (string, string) {
 	}
 
 	return goos, goarch
+}
+
+// WithoutTopLevelKey drops one top-level key and its block from a YAML document, leaving the rest of
+// the text as it was so an export's template placeholders survive. A blank line inside the block
+// does not end it.
+func WithoutTopLevelKey(content, key string) string {
+	var out []string
+	skipping := false
+	for _, line := range strings.Split(content, "\n") {
+		if skipping {
+			if line == "" || strings.HasPrefix(line, " ") || strings.HasPrefix(line, "- ") || line == "-" {
+				continue
+			}
+			skipping = false
+		}
+		if strings.HasPrefix(line, key+":") {
+			skipping = true
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }

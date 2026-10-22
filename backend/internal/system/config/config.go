@@ -94,7 +94,18 @@ type DatabaseConfig struct {
 
 // NotificationConfig holds the notification configuration details.
 type NotificationConfig struct {
-	OTP OTPConfig `yaml:"otp" json:"otp"`
+	OTP      OTPConfig                  `yaml:"otp"      json:"otp"`
+	Template NotificationTemplateConfig `yaml:"template" json:"template"`
+}
+
+// NotificationTemplateConfig holds the storage mode for notification templates.
+type NotificationTemplateConfig struct {
+	// Store defines the storage mode for notification templates.
+	// Valid values: "mutable", "declarative", "composite" (hybrid mode).
+	// If not specified, falls back to the global declarative_resources.enabled setting:
+	//   - enabled = true: behaves as "declarative"
+	//   - enabled = false: behaves as "mutable"
+	Store string `yaml:"store" json:"store"`
 }
 
 // Validate checks the notification configuration for correctness.
@@ -179,6 +190,16 @@ type UserConfig struct {
 // PasskeyConfig holds the passkey configuration details.
 type PasskeyConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins" json:"allowed_origins"`
+}
+
+// DirectAPIConfig holds the configuration for the Direct API endpoints.
+type DirectAPIConfig struct {
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+}
+
+// IsEnabled reports whether the Direct API endpoints are enabled, defaulting to false when unset.
+func (c DirectAPIConfig) IsEnabled() bool {
+	return derefBool(c.Enabled)
 }
 
 // AttestationConfig holds engine-level platform attestation configuration shared across
@@ -297,22 +318,6 @@ type RestSecurityConfig struct {
 	APIKey string `yaml:"api_key" json:"api_key"`
 }
 
-// EmailConfig holds the email configuration details.
-type EmailConfig struct {
-	SMTP SMTPEmailConfig `yaml:"smtp" json:"smtp"`
-}
-
-// SMTPEmailConfig holds the SMTP email configuration details.
-type SMTPEmailConfig struct {
-	Host                 string `yaml:"host"                  json:"host"`
-	Port                 int    `yaml:"port"                  json:"port"`
-	Username             string `yaml:"username"              json:"username"`
-	Password             string `yaml:"password"              json:"password"`
-	FromAddress          string `yaml:"from_address"          json:"from_address"`
-	EnableStartTLS       *bool  `yaml:"enable_start_tls"      json:"enable_start_tls"`
-	EnableAuthentication *bool  `yaml:"enable_authentication" json:"enable_authentication"`
-}
-
 // GatewayConfig holds how many gateways this deployment administers.
 //
 // It is here rather than in the engine's server configuration because only a deployment that
@@ -330,6 +335,19 @@ type GatewayConfig struct {
 	// user-supplied primitive when it is non-zero, so a plain int could not tell `max_gateways: 0`,
 	// meaning administer none, from an omitted field, and the default of one would win either way.
 	MaxGateways *int `yaml:"max_gateways" json:"max_gateways"`
+	// MaxVersions bounds how many captured configuration versions a deployment keeps. Capturing one
+	// beyond it removes the oldest, except a version some gateway holds or could be reverted to.
+	MaxVersions *int `yaml:"max_versions" json:"max_versions"`
+	// AllowPrivateAddresses lets a gateway be registered at, and reached on, a loopback, link-local
+	// or private address. Off, which is the default, a base URL naming one is refused at registration
+	// and a hostname that resolves to one is refused when the gateway is called, so an administrator
+	// cannot point this plane's calls, which carry the gateway's key, at something inside its own
+	// network. Turn it on for a local or single-host setup whose gateways sit on such addresses.
+	AllowPrivateAddresses bool `yaml:"allow_private_addresses" json:"allow_private_addresses"`
+	// RemovalConfirmationThreshold is how many resources an apply may remove from a gateway before it
+	// has to be confirmed; an apply that would remove more is refused unless the request confirms it.
+	// A pointer so that an explicit zero, which turns the check off, is told from an omitted field.
+	RemovalConfirmationThreshold *int `yaml:"removal_confirmation_threshold" json:"removal_confirmation_threshold"`
 	// Store defines the storage mode for gateways.
 	// Valid values: "mutable", "declarative", "composite" (hybrid mode)
 	// If not specified, falls back to global DeclarativeResources.Enabled setting:
@@ -343,6 +361,18 @@ type GatewayConfig struct {
 // deployment administers none.
 func (c GatewayConfig) MaxGatewayCount() int {
 	return derefInt(c.MaxGateways, 0)
+}
+
+// RemovalConfirmationLimit reports how many resources an apply may remove without being confirmed,
+// zero for no check. Unset, it is five (an explicit default lives in default.json).
+func (c GatewayConfig) RemovalConfirmationLimit() int {
+	return derefInt(c.RemovalConfirmationThreshold, 5)
+}
+
+// MaxVersionCount reports how many captured configuration versions a deployment keeps. It is never
+// below one, because a capture that kept nothing could not be applied.
+func (c GatewayConfig) MaxVersionCount() int {
+	return max(derefInt(c.MaxVersions, 1), 1)
 }
 
 // DeclarativeResources holds the configuration details for the declarative resources.
@@ -630,6 +660,7 @@ type OAuthConfig struct {
 	AuthorizationCode        engineconfig.AuthorizationCodeConfig    `yaml:"authorization_code" json:"authorization_code"`       //nolint:lll
 	AuthorizationRequest     engineconfig.AuthorizationRequestConfig `yaml:"authorization_request" json:"authorization_request"` //nolint:lll
 	DCR                      engineconfig.DCRConfig                  `yaml:"dcr" json:"dcr"`
+	CIMD                     engineconfig.CIMDConfig                 `yaml:"cimd" json:"cimd"`
 	PAR                      engineconfig.PARConfig                  `yaml:"par" json:"par"`
 	DPoP                     engineconfig.DPoPConfig                 `yaml:"dpop" json:"dpop"`
 	AuthClass                engineconfig.AuthClassConfig            `yaml:"auth_class" json:"auth_class"`
@@ -654,6 +685,7 @@ func (c OAuthConfig) ToEngineConfig() engineconfig.OAuthConfig {
 		AuthorizationCode:        c.AuthorizationCode,
 		AuthorizationRequest:     c.AuthorizationRequest,
 		DCR:                      c.DCR,
+		CIMD:                     c.CIMD,
 		PAR:                      c.PAR,
 		DPoP:                     c.DPoP,
 		AuthClass:                c.AuthClass,
@@ -711,6 +743,7 @@ type Config struct {
 	EntityType           EntityTypeConfig                  `yaml:"user_type"             json:"user_type"`
 	Observability        engineconfig.ObservabilityConfig  `yaml:"observability"         json:"observability"`
 	Passkey              PasskeyConfig                     `yaml:"passkey"               json:"passkey"`
+	DirectAPI            DirectAPIConfig                   `yaml:"direct_api"            json:"direct_api"`
 	Attestation          AttestationConfig                 `yaml:"attestation"           json:"attestation"`
 	OpenID4VP            OpenID4VPConfig                   `yaml:"openid4vp"             json:"openid4vp"`
 	OpenID4VCI           OpenID4VCIConfig                  `yaml:"openid4vci"            json:"openid4vci"`
@@ -724,15 +757,63 @@ type Config struct {
 	Theme                ThemeConfig                       `yaml:"theme"                 json:"theme"`
 	Layout               LayoutConfig                      `yaml:"layout"                json:"layout"`
 	Translation          TranslationConfig                 `yaml:"translation"           json:"translation"`
-	Email                EmailConfig                       `yaml:"email"                 json:"email"`
 	Notification         NotificationConfig                `yaml:"notification"          json:"notification"`
 	AttributeCache       engineconfig.AttributeCacheConfig `yaml:"attribute_cache" json:"attribute_cache"`
 	ResourceSharing      ResourceSharingConfig             `yaml:"resource_sharing"      json:"resource_sharing"`
+	AccountAccess        AccountAccessConfig               `yaml:"account_access"        json:"account_access"`
 }
 
 // ResourceSharingConfig configures how resources may be shared across organization units.
 type ResourceSharingConfig struct {
 	AllowChildOUCrossTreeSharing bool `yaml:"allow_child_ou_cross_tree_sharing" json:"allow_child_ou_cross_tree_sharing"` //nolint:lll
+}
+
+// AccountAccessConfig holds the default automatic-lockout policy, keyed by entity category. It is the
+// base of the accountAccess server-config section. An absent category block means disabled.
+type AccountAccessConfig struct {
+	User  CategoryAccessConfig `yaml:"user"  json:"user"`
+	Agent CategoryAccessConfig `yaml:"agent" json:"agent"`
+}
+
+// CategoryAccessConfig is the lockout policy for one entity category.
+type CategoryAccessConfig struct {
+	// LockGranularity is "authentication_method" (the default) or "entity".
+	LockGranularity string `yaml:"lock_granularity" json:"lock_granularity"`
+	// RecordLastLogin turns on the lastLoginAt write when access is granted. Unset resolves to false.
+	RecordLastLogin *bool `yaml:"record_last_login" json:"record_last_login"`
+	// LastLoginResolutionSeconds skips the write when the stored value is newer than this. 0 writes
+	// every time; unset is an hour.
+	LastLoginResolutionSeconds *int `yaml:"last_login_resolution_seconds" json:"last_login_resolution_seconds"`
+	// Default is the policy for every authentication method in this category.
+	Default LockPolicyConfig `yaml:"default" json:"default"`
+	// Notifications configures the notices sent to the account holder.
+	Notifications AccessNotificationsConfig `yaml:"notifications" json:"notifications"`
+}
+
+// AccessNotificationsConfig is the notices one category sends, keyed by event.
+type AccessNotificationsConfig struct {
+	OnLock LockNotificationConfig `yaml:"on_lock" json:"on_lock"`
+}
+
+// LockNotificationConfig is what is sent when an automatic lock forms, keyed by channel.
+type LockNotificationConfig struct {
+	Email LockEmailConfig `yaml:"email" json:"email"`
+}
+
+// LockEmailConfig holds the lock email settings.
+type LockEmailConfig struct {
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+}
+
+// LockPolicyConfig is a category's lockout policy, applied to every authentication method. Fields
+// are pointers or slices so unset is distinguishable from zero.
+type LockPolicyConfig struct {
+	Enabled                *bool `yaml:"enabled" json:"enabled"`
+	Threshold              *int  `yaml:"threshold" json:"threshold"`
+	FailureWindowSeconds   *int  `yaml:"failure_window_seconds" json:"failure_window_seconds"`
+	LockDurationsSeconds   []int `yaml:"lock_durations_seconds" json:"lock_durations_seconds"`
+	LockDecaySeconds       *int  `yaml:"lock_decay_seconds" json:"lock_decay_seconds"`
+	MaxConsecutiveFailures *int  `yaml:"max_consecutive_failures" json:"max_consecutive_failures"`
 }
 
 // LoadConfig loads the configurations from the specified YAML file and applies defaults.
@@ -757,6 +838,7 @@ func LoadConfig(configPath string, defaultPath string, serverHome string) (*Conf
 
 	// Merge user configuration with defaults
 	mergeConfigs(&cfg, &userCfg)
+	cfg.Server.EnableOUQualifiedEndpoints = true
 
 	// Default gate_client to the server's own URL when not explicitly configured, so the gate only
 	// needs configuring when it is hosted separately from the server.
@@ -975,7 +1057,7 @@ func isZeroValue(v reflect.Value) bool {
 		return v.String() == ""
 	case reflect.Slice, reflect.Map, reflect.Chan:
 		return v.IsNil() || v.Len() == 0
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		return v.IsNil()
 	default:
 		return false

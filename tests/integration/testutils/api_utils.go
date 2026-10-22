@@ -114,15 +114,15 @@ func CreateUserType(schema UserType) (string, error) {
 // and returns its ID. The server restricts agent types to one `default` schema and rejects
 // deletion, so suites share the singleton: this helper creates it on first call and updates
 // it (PUT) on subsequent calls so each suite's schema fixture takes effect. The caller's
-// `Name` is ignored — it is always coerced to `default`.
+// `Handle` is ignored. It is always coerced to `default`.
 func CreateAgentType(schema UserType) (string, error) {
-	schema.Name = "default"
+	schema.Handle = "default"
 
 	id, err := postAgentType(schema)
 	if err == nil {
 		return id, nil
 	}
-	if !errors.Is(err, errAgentTypeNameConflict) {
+	if !errors.Is(err, errAgentTypeHandleConflict) {
 		return "", err
 	}
 
@@ -142,6 +142,7 @@ func CreateAgentType(schema UserType) (string, error) {
 // The schema in particular cannot come from the list endpoint, which omits it.
 type AgentTypeSnapshot struct {
 	ID                    string
+	DisplayName           string
 	OUID                  string
 	AllowSelfRegistration bool
 	SystemAttributes      map[string]interface{}
@@ -179,6 +180,7 @@ func SnapshotAgentType() (*AgentTypeSnapshot, error) {
 
 	var detail struct {
 		ID                    string                 `json:"id"`
+		DisplayName           string                 `json:"displayName"`
 		OUID                  string                 `json:"ouId"`
 		AllowSelfRegistration bool                   `json:"allowSelfRegistration"`
 		SystemAttributes      map[string]interface{} `json:"systemAttributes"`
@@ -190,6 +192,7 @@ func SnapshotAgentType() (*AgentTypeSnapshot, error) {
 
 	return &AgentTypeSnapshot{
 		ID:                    detail.ID,
+		DisplayName:           detail.DisplayName,
 		OUID:                  detail.OUID,
 		AllowSelfRegistration: detail.AllowSelfRegistration,
 		SystemAttributes:      detail.SystemAttributes,
@@ -208,7 +211,7 @@ func RestoreAgentType(snapshot *AgentTypeSnapshot) error {
 
 	ouID := snapshot.OUID
 	if _, err := GetOrganizationUnit(ouID); err != nil {
-		bootstrapOUID, lookupErr := findBootstrapOUID()
+		bootstrapOUID, lookupErr := FindBootstrapOUID()
 		if lookupErr != nil {
 			return fmt.Errorf("snapshot OU %s is gone and the bootstrap OU is unavailable: %w",
 				ouID, lookupErr)
@@ -220,7 +223,8 @@ func RestoreAgentType(snapshot *AgentTypeSnapshot) error {
 	// `omitempty`, so a snapshotted `false` would be dropped, and it has no SystemAttributes field at
 	// all. Either omission makes the server reset that field instead of restoring it.
 	payload := map[string]interface{}{
-		"name":                  "default",
+		"handle":                "default",
+		"displayName":           snapshot.DisplayName,
 		"ouId":                  ouID,
 		"allowSelfRegistration": snapshot.AllowSelfRegistration,
 		"schema":                snapshot.Schema,
@@ -241,6 +245,10 @@ func RestoreAgentType(snapshot *AgentTypeSnapshot) error {
 	}
 	if restored.ID != snapshot.ID {
 		return fmt.Errorf("restored agent type has id %s, want %s", restored.ID, snapshot.ID)
+	}
+	if restored.DisplayName != snapshot.DisplayName {
+		return fmt.Errorf("restored agent type has displayName %q, want %q",
+			restored.DisplayName, snapshot.DisplayName)
 	}
 	if restored.OUID != ouID {
 		return fmt.Errorf("restored agent type has ouId %s, want %s", restored.OUID, ouID)
@@ -263,8 +271,8 @@ func RestoreAgentType(snapshot *AgentTypeSnapshot) error {
 	return nil
 }
 
-// findBootstrapOUID resolves the long-lived `default` organization unit seeded at bootstrap.
-func findBootstrapOUID() (string, error) {
+// FindBootstrapOUID resolves the long-lived `default` organization unit seeded at bootstrap.
+func FindBootstrapOUID() (string, error) {
 	req, err := http.NewRequest("GET", TestServerURL+"/organization-units?limit=100", nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create OU list request: %w", err)
@@ -303,7 +311,7 @@ func findBootstrapOUID() (string, error) {
 	return "", errors.New("bootstrap organization unit with handle 'default' not found")
 }
 
-var errAgentTypeNameConflict = errors.New("agent type name conflict")
+var errAgentTypeHandleConflict = errors.New("agent type handle conflict")
 
 func postAgentType(schema UserType) (string, error) {
 	payload, err := json.Marshal(schema)
@@ -329,7 +337,7 @@ func postAgentType(schema UserType) (string, error) {
 	}
 
 	if resp.StatusCode == http.StatusConflict {
-		return "", errAgentTypeNameConflict
+		return "", errAgentTypeHandleConflict
 	}
 	if resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("expected status 201, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
@@ -395,15 +403,15 @@ func findDefaultAgentTypeID() (string, error) {
 
 	var list struct {
 		Types []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID     string `json:"id"`
+			Handle string `json:"handle"`
 		} `json:"types"`
 	}
 	if err := json.Unmarshal(body, &list); err != nil {
 		return "", fmt.Errorf("failed to parse list response: %w. Response: %s", err, string(body))
 	}
 	for _, s := range list.Types {
-		if s.Name == "default" {
+		if s.Handle == "default" {
 			return s.ID, nil
 		}
 	}
@@ -466,8 +474,8 @@ func ListUserTypes() ([]UserType, error) {
 	var listing struct {
 		TotalResults int `json:"totalResults"`
 		Types        []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID     string `json:"id"`
+			Handle string `json:"handle"`
 		} `json:"types"`
 	}
 	if err := json.Unmarshal(body, &listing); err != nil {
@@ -484,11 +492,11 @@ func ListUserTypes() ([]UserType, error) {
 	for _, item := range listing.Types {
 		detail, err := getJSON(fmt.Sprintf("%s/user-types/%s", TestServerURL, item.ID))
 		if err != nil {
-			return nil, fmt.Errorf("failed to read user type %q: %w", item.Name, err)
+			return nil, fmt.Errorf("failed to read user type %q: %w", item.Handle, err)
 		}
 		var userType UserType
 		if err := json.Unmarshal(detail, &userType); err != nil {
-			return nil, fmt.Errorf("failed to parse user type %q: %w. Response: %s", item.Name, err, string(detail))
+			return nil, fmt.Errorf("failed to parse user type %q: %w. Response: %s", item.Handle, err, string(detail))
 		}
 		userTypes = append(userTypes, userType)
 	}
@@ -1188,6 +1196,38 @@ func FindUserByAttribute(key, value string) (*User, error) {
 	return nil, nil
 }
 
+// GetUserFromAssertion returns the user a flow assertion was issued for, looked up by the assertion's
+// subject. A federated flow resolves its identity to exactly one user, and this is that user.
+func GetUserFromAssertion(assertion string) (*User, error) {
+	claims, err := DecodeJWT(assertion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode the assertion: %w", err)
+	}
+
+	req, err := http.NewRequest("GET", TestServerURL+"/users/"+claims.Sub, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create get user request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := GetHTTPClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send get user request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(body))
+	}
+
+	var user User
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return nil, fmt.Errorf("failed to parse get user response: %w", err)
+	}
+	return &user, nil
+}
+
 // CreateGroup creates a group via API and returns the group ID
 func CreateGroup(group Group) (string, error) {
 	groupJSON, err := json.Marshal(group)
@@ -1657,6 +1697,16 @@ func CreateAction(resourceServerID string, action Action) (string, error) {
 	return createAction(resourceServerID, action)
 }
 
+// CreateResourceAction creates an action nested under a resource and returns the action ID.
+func CreateResourceAction(resourceServerID, resourceID string, action Action) (string, error) {
+	return createActionUnderResource(resourceServerID, resourceID, action)
+}
+
+// DeleteResourceAction deletes an action nested under a resource.
+func DeleteResourceAction(resourceServerID, resourceID, actionID string) error {
+	return deleteActionAtResource(resourceServerID, resourceID, actionID)
+}
+
 // GetActionsByResourceServer returns the IDs of the actions defined on a resource server.
 func GetActionsByResourceServer(resourceServerID string) ([]string, error) {
 	client := GetHTTPClient()
@@ -1787,29 +1837,39 @@ func GetWritableServerConfig(section string) (json.RawMessage, error) {
 
 // PutWritableServerConfig replaces the writable layer of the named server-config section.
 func PutWritableServerConfig(section string, body []byte) error {
+	status, respBody, err := PutWritableServerConfigWithStatus(section, body)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("expected status 200 updating %s server config with %s, got %d. Response: %s",
+			section, string(body), status, string(respBody))
+	}
+	return nil
+}
+
+// PutWritableServerConfigWithStatus is PutWritableServerConfig for a write the server may refuse: it
+// returns the status and body whatever they are, and an error only when no answer came back.
+func PutWritableServerConfigWithStatus(section string, body []byte) (int, []byte, error) {
 	url := fmt.Sprintf("%s/server-config/%s", TestServerURL, section)
 
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("failed to create %s server config request: %w", section, err)
+		return 0, nil, fmt.Errorf("failed to create %s server config request: %w", section, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := GetHTTPClient().Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to update %s server config: %w", section, err)
+		return 0, nil, fmt.Errorf("failed to update %s server config: %w", section, err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read %s server config response: %w", section, err)
+		return 0, nil, fmt.Errorf("failed to read %s server config response: %w", section, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("expected status 200 updating %s server config with %s, got %d. Response: %s",
-			section, string(body), resp.StatusCode, string(respBody))
-	}
-	return nil
+	return resp.StatusCode, respBody, nil
 }
 
 // MergeWritableServerConfig applies the given top-level keys over the current writable layer of the
@@ -2217,6 +2277,48 @@ func CreateFlow(flowDefinition Flow) (string, error) {
 	return flowID, nil
 }
 
+// ModifyFlowNode finds the node with the given ID in a flow and applies modifier to it. It accepts
+// both a flow declared as a literal, whose Nodes are []map[string]interface{}, and one rebuilt from
+// JSON, whose Nodes have decoded to []interface{}.
+func ModifyFlowNode(flow *Flow, nodeID string, modifier func(node map[string]interface{})) error {
+	var nodes []map[string]interface{}
+	switch n := flow.Nodes.(type) {
+	case []map[string]interface{}:
+		nodes = n
+	case []interface{}:
+		for _, item := range n {
+			node, ok := item.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("flow node is not a map[string]interface{}")
+			}
+			nodes = append(nodes, node)
+		}
+	default:
+		return fmt.Errorf("unsupported flow nodes type %T", flow.Nodes)
+	}
+
+	for _, node := range nodes {
+		if node["id"] == nodeID {
+			modifier(node)
+			return nil
+		}
+	}
+	return fmt.Errorf("node with ID %s not found in flow", nodeID)
+}
+
+// SetFlowNodeProperty sets a property on the node with the given ID in a flow, creating the node's
+// properties map when it has none.
+func SetFlowNodeProperty(flow *Flow, nodeID, key string, value interface{}) error {
+	return ModifyFlowNode(flow, nodeID, func(node map[string]interface{}) {
+		props, ok := node["properties"].(map[string]interface{})
+		if !ok {
+			props = make(map[string]interface{})
+			node["properties"] = props
+		}
+		props[key] = value
+	})
+}
+
 // CreateIsolatedAuthFlow creates a minimal AUTHENTICATION flow with no CALL nodes, suitable for
 // tests that attach a custom registration/recovery/signout flow to an application: reusing the
 // default auth flow would trigger cross-type reference validation (APP-1039) because it CALLs the
@@ -2385,23 +2487,26 @@ var senderPropertyToConnectionField = map[string]string{
 	"sender_id":    "senderId",
 	"url":          "url",
 	"http_method":  "httpMethod",
-	"http_headers": "httpHeaders",
 	"content_type": "contentType",
 }
 
 // senderToConnectionBody converts a legacy NotificationSender{Properties: [...]} fixture into
 // the typed camelCase body /connections/{vendor} expects for sender-backed vendors.
-func senderToConnectionBody(sender NotificationSender) map[string]interface{} {
+func senderToConnectionBody(sender NotificationSender) (map[string]interface{}, error) {
 	body := map[string]interface{}{
 		"name":        sender.Name,
 		"description": sender.Description,
 	}
 	for _, prop := range sender.Properties {
+		if prop.Name == "http_headers" {
+			body["httpHeaders"] = prop.Value
+			continue
+		}
 		if field, ok := senderPropertyToConnectionField[prop.Name]; ok {
 			body[field] = prop.Value
 		}
 	}
-	return body
+	return body, nil
 }
 
 // CreateNotificationSender creates a notification sender via /connections/{vendor} and returns
@@ -2412,7 +2517,11 @@ func CreateNotificationSender(sender NotificationSender) (string, error) {
 		return "", err
 	}
 
-	bodyJSON, err := json.Marshal(senderToConnectionBody(sender))
+	body, err := senderToConnectionBody(sender)
+	if err != nil {
+		return "", err
+	}
+	bodyJSON, err := json.Marshal(body)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal connection body: %w", err)
 	}
@@ -2451,6 +2560,91 @@ func CreateNotificationSender(sender NotificationSender) (string, error) {
 
 	senderVendorRegistryMu.Lock()
 	senderVendorRegistry[id] = vendor
+	senderVendorRegistryMu.Unlock()
+
+	return id, nil
+}
+
+// CreateSMTPEmailProvider creates an email provider via /connections/email-smtp pointed at the
+// given host and port, and returns its ID. Suites that deliver mail through the mock SMTP server
+// use it to obtain the sender ID an EmailExecutor node names in its senderId property: providers
+// are configured only through this API, so a flow has no deployment-wide default to fall back to.
+// The returned ID is deletable through DeleteNotificationSender.
+func CreateSMTPEmailProvider(name, host string, port int, fromAddress string) (string, error) {
+	return createSMTPEmailProvider(map[string]interface{}{
+		"name":        name,
+		"description": "Email provider backed by the integration test mock SMTP server",
+		"host":        host,
+		"port":        port,
+		"fromAddress": fromAddress,
+		"tls":         "none",
+		"authentication": map[string]interface{}{
+			"type": "none",
+		},
+	})
+}
+
+// CreateSTARTTLSEmailProvider creates an email provider that requires STARTTLS and authenticates
+// with the given username and password, and returns its ID. The mock SMTP server offers neither
+// STARTTLS nor AUTH, so a send through this provider must be refused rather than fall back to
+// plaintext. The returned ID is deletable through DeleteNotificationSender.
+func CreateSTARTTLSEmailProvider(name, host string, port int, fromAddress, username,
+	password string) (string, error) {
+	return createSMTPEmailProvider(map[string]interface{}{
+		"name":        name,
+		"description": "Email provider that requires STARTTLS, backed by the mock SMTP server",
+		"host":        host,
+		"port":        port,
+		"fromAddress": fromAddress,
+		"tls":         "starttls",
+		"authentication": map[string]interface{}{
+			"type":       "basic",
+			"properties": map[string]string{"username": username, "password": password},
+		},
+	})
+}
+
+// createSMTPEmailProvider posts body to /connections/email-smtp and returns the new provider's ID.
+func createSMTPEmailProvider(body map[string]interface{}) (string, error) {
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal SMTP connection body: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", TestServerURL+"/connections/email-smtp", bytes.NewReader(bodyJSON))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := GetHTTPClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("expected status 201, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var respBody map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
+		return "", fmt.Errorf("failed to parse response body: %w. Response: %s", err, string(bodyBytes))
+	}
+
+	id, ok := respBody["id"].(string)
+	if !ok {
+		return "", fmt.Errorf("response does not contain id or id is not a string. Response: %s", string(bodyBytes))
+	}
+
+	senderVendorRegistryMu.Lock()
+	senderVendorRegistry[id] = "email-smtp"
 	senderVendorRegistryMu.Unlock()
 
 	return id, nil

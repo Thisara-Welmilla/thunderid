@@ -23,7 +23,7 @@ func Initialize(
 	rbacEngine, authZENPDPEngine := engine.Initialize(
 		roleService,
 		authZENPDPService,
-		httpservice.NewHTTPClientWithTimeout(0),
+		httpservice.NewHTTPClientWithoutRedirects(0, false),
 	)
 	return newAuthorizationService(
 		rbacEngine,

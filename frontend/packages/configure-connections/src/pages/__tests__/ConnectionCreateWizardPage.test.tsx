@@ -11,6 +11,8 @@ const resetMock = vi.fn();
 const navigateMock = vi.fn();
 const showToastMock = vi.fn();
 const mutationState = {isPending: false, isError: false};
+/** Extra form values the stubbed form enters after the defaults, e.g. authentication fields. */
+const formExtraValues: Record<string, string> = {};
 
 vi.mock('react-router', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react-router')>()),
@@ -24,24 +26,61 @@ vi.mock('@thunderid/contexts', async (importOriginal) => ({
   }),
   useToast: () => ({showToast: showToastMock}),
 }));
+const HTTP_METHODS = [
+  {type: 'none', displayName: 'None'},
+  {
+    type: 'basic',
+    displayName: 'Username and Password',
+    fields: [
+      {key: 'username', type: 'string', required: true, displayName: 'Username'},
+      {key: 'password', type: 'string', required: true, credential: true, displayName: 'Password'},
+    ],
+  },
+  {
+    type: 'bearer',
+    displayName: 'Bearer token',
+    fields: [{key: 'token', type: 'string', required: true, credential: true, displayName: 'Bearer token'}],
+  },
+  {
+    type: 'api_key',
+    displayName: 'API key',
+    fields: [],
+    additionalProperties: {key: '', type: 'string', required: true, credential: true, displayName: 'API key headers'},
+  },
+];
+vi.mock('../../api/useConnectionMeta', () => ({
+  default: () => ({data: {authentication: {methods: HTTP_METHODS}}, isError: false}),
+}));
 vi.mock('../../api/useCreateConnection', () => ({
   default: () => ({mutate: mutateMock, reset: resetMock, ...mutationState}),
 }));
 
 vi.mock('../../components/ConnectionForm', () => ({
-  default: function StubConnectionForm({onFieldChange}: {onFieldChange: (name: string, value: string) => void}) {
+  default: function StubConnectionForm({
+    onFieldChange,
+    showAuthentication,
+  }: {
+    onFieldChange: (name: string, value: string) => void;
+    showAuthentication?: boolean;
+  }) {
     useEffect(() => {
       // Populate the fields required by every connection type used in these tests
-      // (oidc, oauth, sms-gateway).
+      // (oidc, oauth, sms-gateway, email-smtp).
       onFieldChange('clientId', 'x');
       onFieldChange('clientSecret', 's');
       onFieldChange('authorizationEndpoint', 'https://idp.example.com/authorize');
       onFieldChange('tokenEndpoint', 'https://idp.example.com/token');
       onFieldChange('userInfoEndpoint', 'https://idp.example.com/userinfo');
       onFieldChange('url', 'https://sms.example.com/send');
+      onFieldChange('host', 'smtp.example.com');
+      onFieldChange('fromAddress', 'noreply@example.com');
+      onFieldChange('fromName', 'Acme Support');
+      for (const [name, value] of Object.entries(formExtraValues)) {
+        onFieldChange(name, value);
+      }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    return <div data-testid="stub-connection-form" />;
+    return <div data-testid="stub-connection-form" data-show-authentication={String(showAuthentication)} />;
   },
 }));
 
@@ -72,7 +111,6 @@ vi.mock('../../components/TrustedIssuerCreateForm', () => ({
 /** Drives the wizard from the type step through the name step, entering the given name. */
 function selectTypeAndName(typeTestId: string, name = 'Acme Connection'): void {
   fireEvent.click(screen.getByTestId(typeTestId));
-  fireEvent.click(screen.getByTestId('wizard-continue'));
   fireEvent.change(screen.getByTestId('connection-name-input'), {target: {value: name}});
   fireEvent.click(screen.getByTestId('wizard-continue'));
 }
@@ -80,6 +118,9 @@ function selectTypeAndName(typeTestId: string, name = 'Acme Connection'): void {
 describe('ConnectionCreateWizardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    for (const name of Object.keys(formExtraValues)) {
+      delete formExtraValues[name];
+    }
     mutationState.isPending = false;
     mutationState.isError = false;
   });
@@ -91,11 +132,20 @@ describe('ConnectionCreateWizardPage', () => {
     expect(screen.getAllByText('Connection type')).toHaveLength(1);
   });
 
+  it('carries no footer on the type step, advancing on the card click alone', () => {
+    render(<ConnectionCreateWizardPage />);
+
+    expect(screen.queryByTestId('wizard-continue')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('connection-type-option-oidc'));
+
+    expect(screen.getByTestId('connection-name-step')).toBeInTheDocument();
+  });
+
   it('shows the name step after selecting a type, gated on a non-empty name', () => {
     render(<ConnectionCreateWizardPage />);
 
     fireEvent.click(screen.getByTestId('connection-type-option-oidc'));
-    fireEvent.click(screen.getByTestId('wizard-continue'));
 
     expect(screen.getByTestId('connection-name-step')).toBeInTheDocument();
     expect(screen.getByTestId('wizard-continue')).toBeDisabled();
@@ -137,7 +187,6 @@ describe('ConnectionCreateWizardPage', () => {
     render(<ConnectionCreateWizardPage />);
 
     fireEvent.click(screen.getByTestId('connection-type-option-policy-decision-point'));
-    fireEvent.click(screen.getByTestId('wizard-continue'));
 
     expect(screen.getByTestId('select-pdp-protocol')).toBeInTheDocument();
     expect(screen.getByTestId('pdp-protocol-option-authzen')).toBeInTheDocument();
@@ -151,18 +200,18 @@ describe('ConnectionCreateWizardPage', () => {
     fireEvent.change(screen.getByTestId('connection-name-input'), {target: {value: 'Booking PDP'}});
     fireEvent.click(screen.getByTestId('wizard-continue'));
 
-    expect(screen.getByRole('heading', {name: 'Connection Configuration', level: 1})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Connection configuration', level: 1})).toBeInTheDocument();
     expect(screen.getByText('Add custom connection')).toBeInTheDocument();
-    expect(screen.getByText('Policy Decision Point (PDP)')).toBeInTheDocument();
+    expect(screen.getByText('Policy decision point (PDP)')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', {name: 'Show hidden breadcrumbs'}));
     expect(screen.getByText('AuthZEN')).toBeInTheDocument();
+    expect(screen.getByTestId('stub-connection-form')).toHaveAttribute('data-show-authentication', 'false');
   });
 
   it('preserves the PDP wizard path when navigating back', () => {
     render(<ConnectionCreateWizardPage />);
 
     fireEvent.click(screen.getByTestId('connection-type-option-policy-decision-point'));
-    fireEvent.click(screen.getByTestId('wizard-continue'));
     fireEvent.click(screen.getByTestId('pdp-protocol-option-authzen'));
     fireEvent.click(screen.getByTestId('wizard-continue'));
 
@@ -173,7 +222,7 @@ describe('ConnectionCreateWizardPage', () => {
     fireEvent.click(screen.getByText('Back'));
     expect(screen.getByTestId('connection-type-option-policy-decision-point')).toHaveAttribute('aria-pressed', 'true');
 
-    fireEvent.click(screen.getByTestId('wizard-continue'));
+    fireEvent.click(screen.getByTestId('connection-type-option-policy-decision-point'));
     expect(screen.getByTestId('select-pdp-protocol')).toBeInTheDocument();
   });
 
@@ -203,6 +252,7 @@ describe('ConnectionCreateWizardPage', () => {
     render(<ConnectionCreateWizardPage />);
 
     selectTypeAndName('connection-type-option-sms-gateway', 'Custom SMS Sender');
+    expect(screen.getByTestId('stub-connection-form')).toHaveAttribute('data-show-authentication', 'false');
     fireEvent.click(screen.getByTestId('wizard-create'));
 
     expect(mutateMock).toHaveBeenCalledTimes(1);
@@ -217,6 +267,152 @@ describe('ConnectionCreateWizardPage', () => {
     onSuccess({id: 'sms-1'});
 
     expect(navigateMock).toHaveBeenCalledWith('/connections/sms-gateway/sms-1');
+  });
+
+  it('creates an SMTP connection with the transport defaults and a numeric port', () => {
+    render(<ConnectionCreateWizardPage />);
+
+    selectTypeAndName('connection-type-option-email-smtp', 'Corp SMTP');
+    fireEvent.click(screen.getByTestId('wizard-create'));
+
+    expect(mutateMock).toHaveBeenCalledTimes(1);
+    expect(mutateMock.mock.calls[0][0]).toEqual({
+      name: 'Corp SMTP',
+      host: 'smtp.example.com',
+      port: 587,
+      fromAddress: 'noreply@example.com',
+      fromName: 'Acme Support',
+      tls: 'starttls',
+    });
+
+    const {onSuccess} = mutateMock.mock.calls[0][1] as {onSuccess: (data: {id: string}) => void};
+    onSuccess({id: 'smtp-1'});
+
+    expect(navigateMock).toHaveBeenCalledWith('/connections/email-smtp/smtp-1');
+  });
+
+  it('creates an HTTP endpoint connection from its name and URL alone', () => {
+    render(<ConnectionCreateWizardPage />);
+
+    selectTypeAndName('connection-type-option-http', 'Risk Engine');
+    fireEvent.click(screen.getByTestId('wizard-create'));
+
+    expect(mutateMock).toHaveBeenCalledTimes(1);
+    expect(mutateMock.mock.calls[0][0]).toEqual({name: 'Risk Engine', url: 'https://sms.example.com/send'});
+
+    const {onSuccess} = mutateMock.mock.calls[0][1] as {onSuccess: (data: {id: string}) => void};
+    onSuccess({id: 'http-1'});
+
+    expect(navigateMock).toHaveBeenCalledWith('/connections/http/http-1');
+  });
+
+  it('creates an HTTP endpoint connection with its authentication', () => {
+    Object.assign(formExtraValues, {
+      'authentication.type': 'basic',
+      'authentication.properties.username': 'risk-client',
+      'authentication.properties.password': 's3cret',
+    });
+    render(<ConnectionCreateWizardPage />);
+
+    selectTypeAndName('connection-type-option-http', 'Risk Engine');
+    fireEvent.click(screen.getByTestId('wizard-create'));
+
+    expect(mutateMock.mock.calls[0][0]).toEqual({
+      name: 'Risk Engine',
+      url: 'https://sms.example.com/send',
+      authentication: {type: 'basic', properties: {username: 'risk-client', password: 's3cret'}},
+    });
+  });
+
+  it('creates an HTTP endpoint connection with a bearer token', () => {
+    Object.assign(formExtraValues, {
+      'authentication.type': 'bearer',
+      'authentication.properties.username': 'left-from-basic',
+      'authentication.properties.token': 'tok-1',
+    });
+    render(<ConnectionCreateWizardPage />);
+
+    selectTypeAndName('connection-type-option-http', 'Risk Engine');
+    fireEvent.click(screen.getByTestId('wizard-create'));
+
+    expect(mutateMock.mock.calls[0][0]).toEqual({
+      name: 'Risk Engine',
+      url: 'https://sms.example.com/send',
+      authentication: {type: 'bearer', properties: {token: 'tok-1'}},
+    });
+  });
+
+  it('creates an HTTP endpoint connection with API-key headers', () => {
+    Object.assign(formExtraValues, {
+      'authentication.type': 'api_key',
+      'authentication.additionalProperties': JSON.stringify([
+        {name: 'X-Api-Key', value: 'k-1'},
+        {name: 'X-Client', value: 'c-1'},
+      ]),
+    });
+    render(<ConnectionCreateWizardPage />);
+
+    selectTypeAndName('connection-type-option-http', 'Risk Engine');
+    fireEvent.click(screen.getByTestId('wizard-create'));
+
+    expect(mutateMock.mock.calls[0][0]).toEqual({
+      name: 'Risk Engine',
+      url: 'https://sms.example.com/send',
+      authentication: {type: 'api_key', properties: {'X-Api-Key': 'k-1', 'X-Client': 'c-1'}},
+    });
+  });
+
+  it('blocks creating an HTTP endpoint with a half-filled or missing API-key header', () => {
+    Object.assign(formExtraValues, {
+      'authentication.type': 'api_key',
+      'authentication.additionalProperties': JSON.stringify([{name: 'X-Api-Key', value: ''}]),
+    });
+    render(<ConnectionCreateWizardPage />);
+
+    selectTypeAndName('connection-type-option-http', 'Risk Engine');
+
+    expect(screen.getByTestId('wizard-create')).toBeDisabled();
+  });
+
+  it('blocks creating an HTTP endpoint with API-key authentication over http', () => {
+    Object.assign(formExtraValues, {
+      url: 'http://risk.example.com/check',
+      'authentication.type': 'api_key',
+      'authentication.additionalProperties': JSON.stringify([{name: 'X-Api-Key', value: 'k-1'}]),
+    });
+    render(<ConnectionCreateWizardPage />);
+
+    selectTypeAndName('connection-type-option-http', 'Risk Engine');
+
+    expect(screen.getByTestId('wizard-create')).toBeDisabled();
+  });
+
+  it('blocks creating an HTTP endpoint with authentication over http', () => {
+    Object.assign(formExtraValues, {
+      url: 'http://risk.example.com/check',
+      'authentication.type': 'basic',
+      'authentication.properties.username': 'risk-client',
+      'authentication.properties.password': 's3cret',
+    });
+    render(<ConnectionCreateWizardPage />);
+
+    selectTypeAndName('connection-type-option-http', 'Risk Engine');
+
+    expect(screen.getByTestId('wizard-create')).toBeDisabled();
+  });
+
+  it('explains and blocks an HTTP endpoint name longer than 255 characters', () => {
+    render(<ConnectionCreateWizardPage />);
+
+    fireEvent.click(screen.getByTestId('connection-type-option-http'));
+    fireEvent.change(screen.getByTestId('connection-name-input'), {target: {value: 'n'.repeat(256)}});
+
+    expect(screen.getByText('Enter a name of at most 255 characters.')).toBeInTheDocument();
+    expect(screen.getByTestId('wizard-continue')).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId('connection-name-input'), {target: {value: 'n'.repeat(255)}});
+    expect(screen.queryByText('Enter a name of at most 255 characters.')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wizard-continue')).not.toBeDisabled();
   });
 
   it('hides the redirect-URI hint for connection types that do not use one', () => {
@@ -333,10 +529,13 @@ describe('ConnectionCreateWizardPage', () => {
     expect(screen.queryByTestId('custom-step')).not.toBeInTheDocument();
   });
 
-  it('shows five type cards including trusted-idp', () => {
+  it('shows seven type cards including trusted-idp, policy decision point, email-smtp and http', () => {
     render(<ConnectionCreateWizardPage />);
 
-    expect(screen.getAllByTestId(/^connection-type-option-/)).toHaveLength(5);
+    expect(screen.getAllByTestId(/^connection-type-option-/)).toHaveLength(7);
+    expect(screen.getByTestId('connection-type-option-http')).toBeInTheDocument();
     expect(screen.getByTestId('connection-type-option-trusted-idp')).toBeInTheDocument();
+    expect(screen.getByTestId('connection-type-option-policy-decision-point')).toBeInTheDocument();
+    expect(screen.getByTestId('connection-type-option-email-smtp')).toBeInTheDocument();
   });
 });

@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
@@ -19,6 +18,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/flow/core"
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	"github.com/thunder-id/thunderid/internal/system/log"
+	systemutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const (
@@ -34,9 +34,6 @@ type OAuthTokenResponse struct {
 	IDToken      string `json:"id_token"`
 	ExpiresIn    int    `json:"expires_in"`
 }
-
-// userInfoSkipAttributes contains the list of user info attributes to skip when mapping to context user.
-var userInfoSkipAttributes = []string{"username", "sub", "id"}
 
 // oAuthExecutorInterface defines the interface for OAuth authentication executors.
 type oAuthExecutorInterface interface {
@@ -194,10 +191,12 @@ func (o *oAuthExecutor) ProcessAuthFlowResponse(ctx *providers.NodeContext,
 		return nil
 	}
 
+	returnedState := consumeFederatedCallbackInputs(ctx)
+
 	// Validate the OAuth state parameter to prevent CSRF attacks.
 	// State is validated only when the client sends it back. Clients that handle CSRF
 	// protection client-side (e.g., via sessionStorage) may omit it.
-	if returnedState, ok := ctx.UserInputs[userInputState]; ok && returnedState != "" {
+	if returnedState != "" {
 		expectedState := ctx.RuntimeData[common.RuntimeKeyOAuthState]
 		if returnedState != expectedState {
 			logger.Debug(ctx.Context, "OAuth state mismatch")
@@ -223,7 +222,9 @@ func (o *oAuthExecutor) ProcessAuthFlowResponse(ctx *providers.NodeContext,
 		} else {
 			execResp.AuthUser = authUser
 			for key, value := range attributes.Attributes {
-				existingCtxUserAttributes[key] = value
+				if value != nil {
+					existingCtxUserAttributes[key] = value.Value
+				}
 			}
 		}
 	}
@@ -254,15 +255,28 @@ func (o *oAuthExecutor) ProcessAuthFlowResponse(ctx *providers.NodeContext,
 	}
 	execResp.AuthUser = authUser
 
-	if !validateFederatedIdentifierConsistency(ctx, federatedAttributes, existingCtxUserAttributes) {
+	// The consistency check compares the identity on the connection's account-linking attributes, so
+	// it cannot be skipped when the connection fails to load.
+	idpDTO, svcErr := o.idpService.GetIdentityProvider(ctx.Context, idpID)
+	if svcErr != nil {
+		return fmt.Errorf("failed to retrieve identity provider %s: %s", idpID, svcErr.Code)
+	}
+
+	if !validateFederatedIdentifierConsistency(ctx, idpDTO, federatedAttributes, existingCtxUserAttributes) {
 		execResp.Status = providers.ExecFailure
 		execResp.Error = &ErrInvalidFederatedUser
 		return nil
 	}
 
-	copyFederatedAttributesToRuntimeData(execResp, federatedAttributes)
+	// Keep the connection id with the subject: the idpId runtime entry is overwritten by any later node
+	// with its own connection, so only this pairing tells linking and provisioning which connection
+	// asserted the subject.
+	sub := systemutils.ConvertInterfaceValueToString(federatedAttributes[userAttributeSub])
+	if err := setExternalIdentity(execResp, idpID, sub, federatedAttributes); err != nil {
+		return err
+	}
 
-	resolveAndSetMappedAuthorizationTargets(ctx.Context, execResp, o.idpService, idpID, federatedAttributes, logger)
+	resolveAndSetMappedAuthorizationTargets(ctx.Context, execResp, o.idpService, idpDTO, federatedAttributes, logger)
 
 	setFederatedEntityState(ctx.Context, execResp, o.authnProvider)
 
@@ -320,28 +334,4 @@ func (o *oAuthExecutor) getIDPName(ctx context.Context, idpID string) (string, e
 	}
 
 	return idp.Name, nil
-}
-
-// getContextUserAttributes extracts and returns user attributes from the user info map.
-// TODO: Need to convert attributes as per the IDP to local attribute mapping when the support is implemented.
-func (o *oAuthExecutor) getContextUserAttributes(execResp *providers.ExecutorResponse,
-	userInfo map[string]string) map[string]interface{} {
-	attributes := make(map[string]interface{})
-	for key, value := range userInfo {
-		if !slices.Contains(userInfoSkipAttributes, key) {
-			attributes[key] = value
-		}
-	}
-
-	// Append email to runtime data if available.
-	if email, ok := attributes[userAttributeEmail]; ok {
-		if emailStr, ok := email.(string); ok && emailStr != "" {
-			if execResp.RuntimeData == nil {
-				execResp.RuntimeData = make(map[string]string)
-			}
-			execResp.RuntimeData[userAttributeEmail] = emailStr
-		}
-	}
-
-	return attributes
 }

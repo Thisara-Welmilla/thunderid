@@ -11,6 +11,8 @@ import (
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 )
 
 // InlineStubEntityTypeService satisfies the service interface contract cleanly.
@@ -33,7 +35,7 @@ func (s *InlineStubEntityTypeService) CreateEntityType(
 	if s.OnCreateEntityType != nil {
 		return s.OnCreateEntityType(ctx, cat, req)
 	}
-	return &EntityType{ID: "type-123", Name: req.Name}, nil
+	return &EntityType{ID: "type-123", Handle: req.Handle, DisplayName: req.DisplayName}, nil
 }
 
 func (s *InlineStubEntityTypeService) UpdateEntityType(
@@ -42,7 +44,7 @@ func (s *InlineStubEntityTypeService) UpdateEntityType(
 	if s.OnUpdateEntityType != nil {
 		return s.OnUpdateEntityType(ctx, cat, id, req)
 	}
-	return &EntityType{ID: id, Name: req.Name}, nil
+	return &EntityType{ID: id, Handle: req.Handle, DisplayName: req.DisplayName}, nil
 }
 
 func (s *InlineStubEntityTypeService) GetEntityType(
@@ -81,16 +83,16 @@ func (s *InlineStubEntityTypeService) GetAttributesForEntityType(
 	return map[TypeCategory][]AttributeInfo{}, nil
 }
 
-func (s *InlineStubEntityTypeService) GetDisplayAttributesByNames(
+func (s *InlineStubEntityTypeService) GetDisplayAttributesByHandles(
 	ctx context.Context, cat TypeCategory, names []string,
 ) (map[string]string, *tidcommon.ServiceError) {
 	return map[string]string{}, nil
 }
 
-func (s *InlineStubEntityTypeService) GetEntityTypeByName(
+func (s *InlineStubEntityTypeService) GetEntityTypeByHandle(
 	ctx context.Context, cat TypeCategory, name string,
 ) (*EntityType, *tidcommon.ServiceError) {
-	return &EntityType{Name: name}, nil
+	return &EntityType{Handle: name}, nil
 }
 
 func (s *InlineStubEntityTypeService) GetUniqueAttributes(
@@ -121,7 +123,13 @@ func (s *InlineStubEntityTypeService) ValidateEntityUniqueness(
 func (s *InlineStubEntityTypeService) GetEntityTypeSchema(
 	ctx context.Context, cat TypeCategory, name string,
 ) (*EntityType, *tidcommon.ServiceError) {
-	return &EntityType{Name: name, Category: cat}, nil
+	return &EntityType{Handle: name, Category: cat}, nil
+}
+
+func (s *InlineStubEntityTypeService) GetResourceDependencies(
+	ctx context.Context, resourceType, id string,
+) ([]resourcedependency.ResourceDependency, error) {
+	return nil, nil
 }
 
 // --- POST ENDPOINT TESTS ---
@@ -129,7 +137,7 @@ func (s *InlineStubEntityTypeService) GetEntityTypeSchema(
 func TestHandleEntityTypePostRequest_Success(t *testing.T) {
 	stub := &InlineStubEntityTypeService{}
 	handler := newEntityTypeHandler(stub, TypeCategoryUser)
-	goodJSON := `{"name": "CustomUserType", "ouId": "ou-123", "schema": {}}`
+	goodJSON := `{"handle": "custom-user-type", "displayName": "Custom User Type", "ouId": "ou-123", "schema": {}}`
 	req := httptest.NewRequest(http.MethodPost, "/user-types", bytes.NewBufferString(goodJSON))
 	w := httptest.NewRecorder()
 
@@ -140,7 +148,7 @@ func TestHandleEntityTypePostRequest_Success(t *testing.T) {
 func TestHandleEntityTypePostRequest_ValidationError(t *testing.T) {
 	stub := &InlineStubEntityTypeService{}
 	handler := newEntityTypeHandler(stub, TypeCategoryUser)
-	badJSON := `{"name": "ab"}`
+	badJSON := `{"handle": "ab"}`
 	req := httptest.NewRequest(http.MethodPost, "/user-types", bytes.NewBufferString(badJSON))
 	w := httptest.NewRecorder()
 
@@ -170,11 +178,81 @@ func TestHandleEntityTypePostRequest_ConflictError(t *testing.T) {
 		},
 	}
 	handler := newEntityTypeHandler(stub, TypeCategoryUser)
-	goodJSON := `{"name": "DuplicateUserType", "ouId": "ou-123", "schema": {}}`
+	goodJSON := `{"handle": "duplicate-user-type", "displayName": "Duplicate User Type", ` +
+		`"ouId": "ou-123", "schema": {}}`
 	req := httptest.NewRequest(http.MethodPost, "/user-types", bytes.NewBufferString(goodJSON))
 	w := httptest.NewRecorder()
 
 	handler.HandleEntityTypePostRequest(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandleEntityTypePostRequest_HandleConflictError(t *testing.T) {
+	stub := &InlineStubEntityTypeService{
+		OnCreateEntityType: func(
+			ctx context.Context, cat TypeCategory, req CreateEntityTypeRequestWithID,
+		) (*EntityType, *tidcommon.ServiceError) {
+			return nil, &ErrorUserTypeHandleConflict
+		},
+	}
+	handler := newEntityTypeHandler(stub, TypeCategoryUser)
+	goodJSON := `{"handle": "employee", "displayName": "Employee", "ouId": "ou-123", "schema": {}}`
+	req := httptest.NewRequest(http.MethodPost, "/user-types", bytes.NewBufferString(goodJSON))
+	w := httptest.NewRecorder()
+
+	handler.HandleEntityTypePostRequest(w, req)
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestHandleEntityTypePostRequest_MissingDisplayName(t *testing.T) {
+	stub := &InlineStubEntityTypeService{}
+	handler := newEntityTypeHandler(stub, TypeCategoryUser)
+	badJSON := `{"handle": "employee", "ouId": "ou-123", "schema": {}}`
+	req := httptest.NewRequest(http.MethodPost, "/user-types", bytes.NewBufferString(badJSON))
+	w := httptest.NewRecorder()
+
+	handler.HandleEntityTypePostRequest(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandleEntityTypePostRequest_PassesHandleAndDisplayName(t *testing.T) {
+	var got CreateEntityTypeRequestWithID
+	stub := &InlineStubEntityTypeService{
+		OnCreateEntityType: func(
+			ctx context.Context, cat TypeCategory, req CreateEntityTypeRequestWithID,
+		) (*EntityType, *tidcommon.ServiceError) {
+			got = req
+			return &EntityType{ID: "type-123", Handle: req.Handle, DisplayName: req.DisplayName}, nil
+		},
+	}
+	handler := newEntityTypeHandler(stub, TypeCategoryUser)
+	goodJSON := `{"handle": "employee", "displayName": "Employee", "ouId": "ou-123", "schema": {}}`
+	req := httptest.NewRequest(http.MethodPost, "/user-types", bytes.NewBufferString(goodJSON))
+	w := httptest.NewRecorder()
+
+	handler.HandleEntityTypePostRequest(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, "employee", got.Handle)
+	assert.Equal(t, "Employee", got.DisplayName)
+	assert.Contains(t, w.Body.String(), `"handle":"employee"`)
+	assert.Contains(t, w.Body.String(), `"displayName":"Employee"`)
+}
+
+func TestHandleEntityTypePutRequest_HandleUpdateNotAllowed(t *testing.T) {
+	stub := &InlineStubEntityTypeService{
+		OnUpdateEntityType: func(
+			ctx context.Context, cat TypeCategory, id string, req UpdateEntityTypeRequest,
+		) (*EntityType, *tidcommon.ServiceError) {
+			return nil, &ErrorEntityTypeHandleUpdateNotAllowed
+		},
+	}
+	handler := newEntityTypeHandler(stub, TypeCategoryUser)
+	goodJSON := `{"handle": "renamed", "displayName": "Renamed", "ouId": "ou-123", "schema": {}}`
+	req := httptest.NewRequest(http.MethodPut, "/user-types/type-123", bytes.NewBufferString(goodJSON))
+	req.SetPathValue("id", "type-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleEntityTypePutRequest(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -187,7 +265,7 @@ func TestHandleEntityTypePostRequest_ServiceError(t *testing.T) {
 		},
 	}
 	handler := newEntityTypeHandler(stub, TypeCategoryUser)
-	goodJSON := `{"name": "CustomUserType", "ouId": "ou-123", "schema": {}}`
+	goodJSON := `{"handle": "custom-user-type", "displayName": "Custom User Type", "ouId": "ou-123", "schema": {}}`
 	req := httptest.NewRequest(http.MethodPost, "/user-types", bytes.NewBufferString(goodJSON))
 	w := httptest.NewRecorder()
 
@@ -200,7 +278,7 @@ func TestHandleEntityTypePostRequest_ServiceError(t *testing.T) {
 func TestHandleEntityTypePutRequest_Success(t *testing.T) {
 	stub := &InlineStubEntityTypeService{}
 	handler := newEntityTypeHandler(stub, TypeCategoryUser)
-	goodJSON := `{"name": "UpdatedUserType", "ouId": "ou-123", "schema": {}}`
+	goodJSON := `{"handle": "updated-user-type", "displayName": "Updated User Type", "ouId": "ou-123", "schema": {}}`
 	req := httptest.NewRequest(http.MethodPut, "/user-types/type-123", bytes.NewBufferString(goodJSON))
 	req.SetPathValue("id", "type-123")
 	w := httptest.NewRecorder()
@@ -250,7 +328,7 @@ func TestHandleEntityTypePutRequest_ServiceError(t *testing.T) {
 		},
 	}
 	handler := newEntityTypeHandler(stub, TypeCategoryUser)
-	goodJSON := `{"name": "UpdatedUserType", "ouId": "ou-123", "schema": {}}`
+	goodJSON := `{"handle": "updated-user-type", "displayName": "Updated User Type", "ouId": "ou-123", "schema": {}}`
 	req := httptest.NewRequest(http.MethodPut, "/user-types/type-123", bytes.NewBufferString(goodJSON))
 	req.SetPathValue("id", "type-123")
 	w := httptest.NewRecorder()
@@ -387,4 +465,9 @@ func TestHandleEntityTypeListRequest_Success(t *testing.T) {
 
 	handler.HandleEntityTypeListRequest(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestSanitizeSystemAttributes_KeepsPrimaryContacts(t *testing.T) {
+	attrs := &SystemAttributes{Display: "work", PrimaryEmail: "work", PrimaryMobile: "phone"}
+	assert.Equal(t, attrs, sanitizeSystemAttributes(attrs))
 }

@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// UserType represents a user type definition
+// UserType represents a user type definition.
 type UserType struct {
 	ID                    string                    `json:"id,omitempty"`
-	Name                  string                    `json:"name"`
+	Handle                string                    `json:"handle"`
+	DisplayName           string                    `json:"displayName"`
 	OUID                  string                    `json:"ouId"`
 	AllowSelfRegistration bool                      `json:"allowSelfRegistration,omitempty"`
 	SystemAttributes      *UserTypeSystemAttributes `json:"systemAttributes,omitempty"`
@@ -46,6 +47,7 @@ type Application struct {
 	AuthFlowID                string                   `json:"authFlowId,omitempty"`
 	RegistrationFlowID        string                   `json:"registrationFlowId,omitempty"`
 	RecoveryFlowID            string                   `json:"recoveryFlowId,omitempty"`
+	SignOutFlowID             string                   `json:"signOutFlowId,omitempty"`
 	ClientID                  string                   `json:"clientId,omitempty"`
 	ClientSecret              string                   `json:"clientSecret,omitempty"`
 	RedirectURIs              []string                 `json:"redirectUris,omitempty"`
@@ -438,7 +440,6 @@ type Agent struct {
 	OUID        string      `json:"ouId,omitempty"`
 	OUHandle    string      `json:"ouHandle,omitempty"`
 	Type        string      `json:"type,omitempty"`
-	Name        string      `json:"name,omitempty"`
 	Description string      `json:"description,omitempty"`
 	LogoURL     string      `json:"logoUrl,omitempty"`
 	Owner       string      `json:"owner,omitempty"`

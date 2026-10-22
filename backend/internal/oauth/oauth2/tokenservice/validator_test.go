@@ -25,6 +25,7 @@ import (
 	oauthconfig "github.com/thunder-id/thunderid/internal/oauth/config"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/revocation"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+	sharedrevocation "github.com/thunder-id/thunderid/internal/revocation"
 	"github.com/thunder-id/thunderid/internal/system/cmodels"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
@@ -312,7 +313,56 @@ func (suite *TokenValidatorTestSuite) TestValidateSubjectToken_Error_IDJAGTypRej
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
-	assert.Contains(suite.T(), err.Error(), "ID-JAG cannot be presented as a subject_token")
+	assert.Contains(suite.T(), err.Error(),
+		`a token of type "oauth-id-jag+jwt" cannot be presented as a subject_token`)
+}
+
+// A self-issued back-channel logout token is rejected on its typ header before its signature is checked.
+func (suite *TokenValidatorTestSuite) TestValidateSubjectToken_Error_LogoutTokenTypRejected() {
+	header := map[string]interface{}{"alg": "RS256", "typ": jwt.TokenTypeLogout}
+	claims := map[string]interface{}{
+		"iss": suite.validator.cfg.JWT.Issuer,
+		"sub": "user123",
+		"aud": testAppID,
+		"sid": "session-1",
+		"exp": float64(time.Now().Unix() + 120),
+	}
+	headerJSON, _ := json.Marshal(header)
+	claimsJSON, _ := json.Marshal(claims)
+	token := fmt.Sprintf("%s.%s.signature",
+		base64.RawURLEncoding.EncodeToString(headerJSON),
+		base64.RawURLEncoding.EncodeToString(claimsJSON))
+
+	result, err := suite.validator.ValidateSubjectToken(context.Background(), token, suite.oauthApp)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), result)
+	assert.Contains(suite.T(), err.Error(), `a token of type "logout+jwt" cannot be presented as a subject_token`)
+	suite.mockJWTService.AssertNotCalled(suite.T(), "VerifyJWTSignature", mock.Anything, mock.Anything)
+}
+
+// A self-issued token whose typ is neither the generic nor an access token type is refused before its
+// signature is checked, so a token type added later with its own typ is not exchangeable by default.
+func (suite *TokenValidatorTestSuite) TestValidateSubjectToken_Error_UnlistedSelfIssuedTypRejected() {
+	header := map[string]interface{}{"alg": "RS256", "typ": "example+jwt"}
+	claims := map[string]interface{}{
+		"iss": suite.validator.cfg.JWT.Issuer,
+		"sub": "user123",
+		"aud": testAppID,
+		"exp": float64(time.Now().Unix() + 3600),
+	}
+	headerJSON, _ := json.Marshal(header)
+	claimsJSON, _ := json.Marshal(claims)
+	token := fmt.Sprintf("%s.%s.signature",
+		base64.RawURLEncoding.EncodeToString(headerJSON),
+		base64.RawURLEncoding.EncodeToString(claimsJSON))
+
+	result, err := suite.validator.ValidateSubjectToken(context.Background(), token, suite.oauthApp)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), result)
+	assert.Contains(suite.T(), err.Error(), `a token of type "example+jwt" cannot be presented as a subject_token`)
+	suite.mockJWTService.AssertNotCalled(suite.T(), "VerifyJWTSignature", mock.Anything, mock.Anything)
 }
 
 // ============================================================================
@@ -2205,11 +2255,12 @@ func (suite *TokenValidatorTestSuite) TestValidateAccessToken_Revoked() {
 }
 
 func (suite *TokenValidatorTestSuite) TestRevocationIdentity_RefreshTokenUsesAccessTokenSubject() {
-	identity := revocationIdentity(map[string]interface{}{
+	identity, err := revocationIdentity(map[string]interface{}{
 		"sub":              "oauth-client",
 		"access_token_sub": "user-123",
 		"iat":              float64(1_700_000_000),
 	}, "refresh-jti", "refresh-family")
+	suite.Require().NoError(err)
 
 	assert.Contains(suite.T(), identity.Criteria, revocation.Criterion{
 		Type: revocation.CriterionTypeSubject, Value: "user-123",
@@ -2222,11 +2273,12 @@ func (suite *TokenValidatorTestSuite) TestRevocationIdentity_RefreshTokenUsesAcc
 // An access token carries the owning client in client_id, so app.key is taken from there and sub is left
 // to the subject dimension.
 func (suite *TokenValidatorTestSuite) TestRevocationIdentity_AccessTokenAppKeyFromClientID() {
-	identity := revocationIdentity(map[string]interface{}{
+	identity, err := revocationIdentity(map[string]interface{}{
 		"sub":       "user-123",
 		"client_id": "oauth-client",
 		"iat":       float64(1_700_000_000),
 	}, "at-jti", "at-family")
+	suite.Require().NoError(err)
 
 	assert.Contains(suite.T(), identity.Criteria, revocation.Criterion{
 		Type: revocation.CriterionTypeApplicationKey, Value: "oauth-client",
@@ -2239,11 +2291,12 @@ func (suite *TokenValidatorTestSuite) TestRevocationIdentity_AccessTokenAppKeyFr
 // A refresh token carries no client_id and is minted with the owning client as sub, so app.key falls back
 // to sub there. Without this, refresh tokens would escape application revocation entirely.
 func (suite *TokenValidatorTestSuite) TestRevocationIdentity_RefreshTokenAppKeyFallsBackToSub() {
-	identity := revocationIdentity(map[string]interface{}{
+	identity, err := revocationIdentity(map[string]interface{}{
 		"sub":              "oauth-client",
 		"access_token_sub": "user-123",
 		"iat":              float64(1_700_000_000),
 	}, "refresh-jti", "refresh-family")
+	suite.Require().NoError(err)
 
 	assert.Contains(suite.T(), identity.Criteria, revocation.Criterion{
 		Type: revocation.CriterionTypeApplicationKey, Value: "oauth-client",
@@ -2253,10 +2306,11 @@ func (suite *TokenValidatorTestSuite) TestRevocationIdentity_RefreshTokenAppKeyF
 // The sub fallback must not apply to an access token, where sub holds the end user rather than the client.
 // Treating it as a client id would put a user identifier into the app.key dimension.
 func (suite *TokenValidatorTestSuite) TestRevocationIdentity_AccessTokenWithoutClientIDHasNoAppKey() {
-	identity := revocationIdentity(map[string]interface{}{
+	identity, err := revocationIdentity(map[string]interface{}{
 		"sub": "user-123",
 		"iat": float64(1_700_000_000),
 	}, "at-jti", "")
+	suite.Require().NoError(err)
 
 	for _, criterion := range identity.Criteria {
 		assert.NotEqual(suite.T(), revocation.CriterionTypeApplicationKey, criterion.Type,
@@ -3252,7 +3306,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_Success() {
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3275,7 +3329,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_SingleResourceC
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3293,7 +3347,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_MultipleResourc
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3309,7 +3363,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_NoResourceClaim
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3319,7 +3373,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_NoResourceClaim
 func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_WrongTyp() {
 	assertion := suite.createAssertion(jwt.TokenTypeJWT, suite.idjagClaims())
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3332,7 +3386,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_UntrustedIssuer
 	suite.mockIDPService.On("GetIdentityProvidersByProperty", context.Background(),
 		idp.PropIssuer, testExternalIssuer).Return([]providers.IDPDTO{}, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3353,7 +3407,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_IDJagNotEnabled
 	suite.mockIDPService.On("GetIdentityProvidersByProperty", context.Background(),
 		idp.PropIssuer, testExternalIssuer).Return(idpDTOs, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3376,7 +3430,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_InvalidSignatur
 			},
 		})
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3398,7 +3452,7 @@ func (suite *IDJAGValidatorTestSuite) assertRejectsSignedAssertion(
 		idp.PropIssuer, testExternalIssuer).Return(buildIDJAGIDPDTOs(), nil)
 	suite.mockJWTService.On("VerifyJWTSignatureWithJWKS", mock.Anything, assertion, testExternalJWKS).Return(nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3446,6 +3500,15 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_AudMismatch() {
 	suite.assertRejectsSignedAssertion(claims, "assertion audience does not match server issuer")
 }
 
+func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_ClientIDMismatch() {
+	claims := suite.idjagClaims()
+	claims["client_id"] = "a-different-client"
+	suite.assertRejectsSignedAssertion(claims, "does not match the authenticated client")
+	// A presenter that is not the bound client must not consume the assertion's jti.
+	suite.mockJTIStore.AssertNotCalled(suite.T(), "RecordJTI",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
 func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_MissingClientIDClaim() {
 	claims := suite.idjagClaims()
 	delete(claims, "client_id")
@@ -3472,7 +3535,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_SingleElementAu
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3491,7 +3554,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_ReplayedJTI() {
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(false, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3508,7 +3571,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_JTIStoreError()
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(false, fmt.Errorf("store unavailable"))
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3715,7 +3778,7 @@ func (suite *TokenValidatorTestSuite) TestValidateSubjectToken_Error_RefreshToke
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
-	assert.Contains(suite.T(), err.Error(), "refresh token cannot be presented as a subject_token")
+	assert.Contains(suite.T(), err.Error(), `a token of type "rt+jwt" cannot be presented as a subject_token`)
 }
 
 // The same, for a refresh token minted before rt+jwt: the generic typ plus access_token_sub.
@@ -3737,7 +3800,7 @@ func (suite *TokenValidatorTestSuite) TestValidateActorToken_Error_RefreshToken(
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
-	assert.Contains(suite.T(), err.Error(), "refresh token cannot be presented as a subject_token")
+	assert.Contains(suite.T(), err.Error(), `a token of type "rt+jwt" cannot be presented as a subject_token`)
 }
 
 // An ID token remains a valid subject token: its sub is the end user, so the exchange is the
@@ -3812,4 +3875,137 @@ func (suite *TokenValidatorTestSuite) TestValidateSubjectToken_Error_Undecodable
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
 	assert.Contains(suite.T(), err.Error(), "failed to decode token")
+}
+
+func (suite *TokenValidatorTestSuite) TestRevocationIdentity_ScopeCriteriaAreKeyedByAudience() {
+	identity, err := revocationIdentity(map[string]interface{}{
+		"sub":       "user-123",
+		"aud":       "https://api.dmv.ca.gov",
+		"client_id": "ca-dmv-online",
+		"scope":     "openid license",
+		"iat":       float64(1_700_000_000),
+	}, "at-jti", "at-family")
+	suite.Require().NoError(err)
+
+	assert.Contains(suite.T(), identity.Criteria, revocation.Criterion{
+		Type:  revocation.CriterionTypeEntityScope,
+		Value: sharedrevocation.EntityScopeCriterionValue("user-123", "https://api.dmv.ca.gov", "license"),
+	})
+	assert.Contains(suite.T(), identity.Criteria, revocation.Criterion{
+		Type:  revocation.CriterionTypeScope,
+		Value: sharedrevocation.ScopeCriterionValue("https://api.dmv.ca.gov", "license"),
+	})
+	assert.NotContains(suite.T(), identity.Criteria, revocation.Criterion{
+		Type:  revocation.CriterionTypeEntityScope,
+		Value: sharedrevocation.EntityScopeCriterionValue("user-123", "https://api.dmv.oh.gov", "license"),
+	}, "the same scope on another resource server must not be matched")
+}
+
+func (suite *TokenValidatorTestSuite) TestRevocationIdentity_ScopeCriteriaSurviveAnArrayAudience() {
+	identity, err := revocationIdentity(map[string]interface{}{
+		"sub":       "user-123",
+		"aud":       []interface{}{"https://api.dmv.ca.gov"},
+		"client_id": "ca-dmv-online",
+		"scope":     "openid license",
+		"iat":       float64(1_700_000_000),
+	}, "at-jti", "at-family")
+	suite.Require().NoError(err)
+
+	assert.Contains(suite.T(), identity.Criteria, revocation.Criterion{
+		Type:  revocation.CriterionTypeEntityScope,
+		Value: sharedrevocation.EntityScopeCriterionValue("user-123", "https://api.dmv.ca.gov", "license"),
+	}, "an array-encoded audience must key the same criterion a string-encoded one does")
+	assert.Contains(suite.T(), identity.Criteria, revocation.Criterion{
+		Type:  revocation.CriterionTypeScope,
+		Value: sharedrevocation.ScopeCriterionValue("https://api.dmv.ca.gov", "license"),
+	})
+}
+
+func (suite *TokenValidatorTestSuite) TestRevocationIdentity_RefreshTokenUsesAccessTokenAudience() {
+	identity, err := revocationIdentity(map[string]interface{}{
+		"sub":              "ca-dmv-online",
+		"access_token_sub": "user-123",
+		"aud":              "https://localhost:8090",
+		"access_token_aud": []interface{}{"https://api.dmv.ca.gov"},
+		"scope":            "license",
+		"iat":              float64(1_700_000_000),
+	}, "rt-jti", "rt-family")
+	suite.Require().NoError(err)
+
+	assert.Contains(suite.T(), identity.Criteria, revocation.Criterion{
+		Type:  revocation.CriterionTypeEntityScope,
+		Value: sharedrevocation.EntityScopeCriterionValue("user-123", "https://api.dmv.ca.gov", "license"),
+	})
+}
+
+func (suite *TokenValidatorTestSuite) TestRevocationIdentity_NoScopeCriteriaWithoutScopes() {
+	identity, err := revocationIdentity(map[string]interface{}{
+		"sub":       "user-123",
+		"aud":       "ca-dmv-online",
+		"client_id": "ca-dmv-online",
+		"iat":       float64(1_700_000_000),
+	}, "at-jti", "at-family")
+	suite.Require().NoError(err)
+
+	for _, criterion := range identity.Criteria {
+		assert.NotEqual(suite.T(), revocation.CriterionTypeEntityScope, criterion.Type)
+		assert.NotEqual(suite.T(), revocation.CriterionTypeScope, criterion.Type)
+	}
+}
+
+func (suite *TokenValidatorTestSuite) TestRevocationIdentity_ScopeCriteriaCoverEveryAudience() {
+	identity, err := revocationIdentity(map[string]interface{}{
+		"sub":       "user-123",
+		"aud":       []interface{}{"https://api.dmv.ca.gov", "https://api.dmv.oh.gov"},
+		"client_id": "ca-dmv-online",
+		"scope":     "license",
+		"iat":       float64(1_700_000_000),
+	}, "at-jti", "at-family")
+	suite.Require().NoError(err)
+
+	assert.Contains(suite.T(), identity.Criteria, revocation.Criterion{
+		Type:  revocation.CriterionTypeEntityScope,
+		Value: sharedrevocation.EntityScopeCriterionValue("user-123", "https://api.dmv.oh.gov", "license"),
+	}, "a scope revoked on any audience the token names must match")
+}
+
+func (suite *TokenValidatorTestSuite) TestRevocationIdentity_MalformedAudienceIsAnError() {
+	_, err := revocationIdentity(map[string]interface{}{
+		"sub":              "ca-dmv-online",
+		"access_token_sub": "user-123",
+		"access_token_aud": []interface{}{"https://api.dmv.ca.gov", float64(7)},
+		"scope":            "license",
+		"iat":              float64(1_700_000_000),
+	}, "rt-jti", "rt-family")
+
+	assert.ErrorContains(suite.T(), err, "invalid audience claim")
+}
+
+func (suite *TokenValidatorTestSuite) TestValidateRefreshToken_MalformedAudienceIsRejectedBeforeEnforcement() {
+	now := time.Now().Unix()
+	token := suite.createTestJWT(map[string]interface{}{
+		"sub":              "test-client",
+		"iss":              "https://example.com",
+		"aud":              "test-client",
+		"exp":              float64(now + 3600),
+		"iat":              float64(now),
+		"scope":            "license",
+		"access_token_sub": "user123",
+		"access_token_aud": []interface{}{testAppID, float64(7)},
+		"grant_type":       "authorization_code",
+		"jti":              "rt-jti-malformed-aud",
+	})
+	suite.mockJWTService.On("VerifyJWT", mock.Anything, token, "", "https://example.com").Return(nil)
+	enforcement := revocationmock.NewEnforcementServiceInterfaceMock(suite.T())
+	validator := &tokenValidator{
+		cfg:                suite.validator.cfg,
+		jwtService:         suite.mockJWTService,
+		enforcementService: enforcement,
+	}
+
+	result, err := validator.ValidateRefreshToken(context.Background(), token)
+
+	assert.Nil(suite.T(), result)
+	assert.ErrorContains(suite.T(), err, "invalid audience claim")
+	enforcement.AssertNotCalled(suite.T(), "EnsureNotRevoked", mock.Anything, mock.Anything)
 }

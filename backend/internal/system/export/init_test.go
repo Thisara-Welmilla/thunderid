@@ -111,7 +111,7 @@ func createTestExporters(
 	entityTypeService *entitytypemock.EntityTypeServiceInterfaceMock,
 ) []declarativeresource.ResourceExporter {
 	return []declarativeresource.ResourceExporter{
-		application.NewApplicationExporterForTest(appService),
+		application.NewApplicationExporterForTest(appService, nil),
 		connection.NewConnectionExporterForTest(idpService, notificationService, nil),
 		entitytype.NewEntityTypeExporterForTest(entityTypeService, entitytype.TypeCategoryUser),
 	}
@@ -499,4 +499,26 @@ func TestCORSConfiguration_Standalone(t *testing.T) {
 	// Verify CORS headers are present when Origin is provided
 	headers := w.Header()
 	assert.True(t, len(headers) > 0, "CORS headers should be present")
+}
+
+// styleRecordingExporter records the style the export tells it to write its own placeholders in.
+type styleRecordingExporter struct {
+	declarativeresource.ResourceExporter
+	references *bool
+}
+
+func (e styleRecordingExporter) GetResourceType() string { return "styled" }
+
+func (e styleRecordingExporter) WriteValueReferences(references bool) { *e.references = references }
+
+// An exporter that writes placeholders itself is told which style the export writes, so its
+// placeholders match the ones the parameterizer writes for everything else.
+func TestInitializeTellsExportersTheStyle(t *testing.T) {
+	for style, want := range map[PlaceholderStyle]bool{ValueReferences: true, TemplatePlaceholders: false} {
+		told := !want
+		Initialize(http.NewServeMux(), []declarativeresource.ResourceExporter{
+			styleRecordingExporter{references: &told},
+		}, style)
+		assert.Equal(t, want, told)
+	}
 }

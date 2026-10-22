@@ -108,8 +108,9 @@ func (ts *IDJAGConsumptionTestSuite) SetupSuite() {
 	ts.ouID = ouID
 
 	userType := testutils.UserType{
-		Name: "idjag-consumption-person",
-		OUID: ts.ouID,
+		Handle:      "idjag-consumption-person",
+		DisplayName: "Idjag Consumption Person",
+		OUID:        ts.ouID,
 		Schema: map[string]any{
 			"username": map[string]any{"type": "string"},
 			"password": map[string]any{"type": "string", "credential": true},
@@ -592,16 +593,15 @@ func (ts *IDJAGConsumptionTestSuite) TestIDJAGConsumption_AudienceMismatch() {
 	ts.Equal("invalid_grant", resp.Error)
 }
 
-func (ts *IDJAGConsumptionTestSuite) TestIDJAGConsumption_CrossClientExchange() {
+func (ts *IDJAGConsumptionTestSuite) TestIDJAGConsumption_ClientIDMismatch() {
 	assertion := ts.buildIDJAGAssertion(func(h, c map[string]interface{}) {
-		c["client_id"] = "external-source-client"
+		c["client_id"] = "wrong-client-id"
 	})
 
 	resp, statusCode, err := ts.consumeIDJAG(assertion, nil, consumptionClientID, consumptionClientSecret)
 	ts.Require().NoError(err)
-	ts.Equal(http.StatusOK, statusCode)
-	ts.NotEmpty(resp.AccessToken)
-	ts.Equal("Bearer", resp.TokenType)
+	ts.Equal(http.StatusBadRequest, statusCode)
+	ts.Equal("invalid_grant", resp.Error)
 }
 
 func (ts *IDJAGConsumptionTestSuite) TestIDJAGConsumption_WrongTypHeader() {

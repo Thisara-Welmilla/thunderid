@@ -24,6 +24,8 @@ servers:
 tags:
   - name: Connections
     description: Discover available connection types and configure their instances.
+  - name: Connection Metadata
+    description: Describe the configurable options of each connection vendor.
 
 security:
   - OAuth2: [system]
@@ -35,8 +37,8 @@ paths:
       summary: List configured connection instances
       description: >-
         Returns a paginated list of the configured connection instances across the
-        identity-provider, notification-sender, and authorization PDP backed connection types, optionally
-        filtered by functional category. Omit the category parameter to return all instances.
+        identity-provider, notification-sender, authorization PDP and HTTP endpoint connection types,
+        optionally filtered by functional category. Omit the category parameter to return all instances.
       parameters:
         - name: category
           in: query
@@ -44,7 +46,7 @@ paths:
           description: Filter instances by functional category. Omit to return all instances.
           schema:
             type: string
-            enum: [identity-provider, sms-provider, authorization-pdp]
+            enum: [identity-provider, sms-provider, authorization-pdp, email-provider, http]
         - $ref: '#/components/parameters/limitQueryParam'
         - $ref: '#/components/parameters/offsetQueryParam'
       responses:
@@ -162,6 +164,90 @@ paths:
       responses:
         "200": { $ref: '#/components/responses/ConnectionUsages' }
         "404": { $ref: '#/components/responses/NotFound' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+
+  /connections/http:
+    get:
+      tags: [Connections]
+      summary: List configured HTTP endpoint connections
+      responses:
+        "200": { $ref: '#/components/responses/HTTPConnectionInstanceList' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Connections]
+      summary: Create an HTTP endpoint connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HTTPConnectionCreateRequest' }
+            example:
+              name: "Risk Engine"
+              url: "https://risk.example.com/evaluate"
+      responses:
+        "201":
+          description: Connection created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HTTPConnectionResponse' }
+        "400": { $ref: '#/components/responses/HTTPConnectionBadRequest' }
+        "409": { $ref: '#/components/responses/HTTPConnectionConflict' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+  /connections/http/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/ConnectionID' }
+    get:
+      tags: [Connections]
+      summary: Get an HTTP endpoint connection
+      description: Returns the connection with every secret masked as `******`.
+      responses:
+        "200":
+          description: Connection details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HTTPConnectionResponse' }
+        "404": { $ref: '#/components/responses/HTTPConnectionNotFound' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [Connections]
+      summary: Update an HTTP endpoint connection
+      description: |
+        Replaces the connection. A credential omitted from `authentication.properties` keeps its
+        stored value only while the authentication `type`, its non-secret properties (such as the
+        username) and the URL origin (scheme, host and port, with default ports normalized) are
+        unchanged. Otherwise the credential is discarded and must be supplied again, so a
+        connection cannot be pointed at another server with its stored password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HTTPConnectionUpdateRequest' }
+      responses:
+        "200":
+          description: Connection updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HTTPConnectionResponse' }
+        "400": { $ref: '#/components/responses/HTTPConnectionBadRequest' }
+        "404": { $ref: '#/components/responses/HTTPConnectionNotFound' }
+        "409": { $ref: '#/components/responses/HTTPConnectionConflict' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Connections]
+      summary: Delete an HTTP endpoint connection
+      responses:
+        "204": { description: Connection deleted }
+        "404": { $ref: '#/components/responses/HTTPConnectionNotFound' }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "403": { $ref: '#/components/responses/Forbidden' }
         "500": { $ref: '#/components/responses/InternalServerError' }
@@ -540,7 +626,6 @@ paths:
       summary: Delete a Twilio connection
       responses:
         "204": { description: Connection deleted }
-        "404": { $ref: '#/components/responses/NotFound' }
         "409": { $ref: '#/components/responses/Conflict' }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "403": { $ref: '#/components/responses/Forbidden' }
@@ -642,7 +727,6 @@ paths:
       summary: Delete a Vonage connection
       responses:
         "204": { description: Connection deleted }
-        "404": { $ref: '#/components/responses/NotFound' }
         "409": { $ref: '#/components/responses/Conflict' }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "403": { $ref: '#/components/responses/Forbidden' }
@@ -746,7 +830,6 @@ paths:
       summary: Delete an SMS gateway connection
       responses:
         "204": { description: Connection deleted }
-        "404": { $ref: '#/components/responses/NotFound' }
         "409": { $ref: '#/components/responses/Conflict' }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "403": { $ref: '#/components/responses/Forbidden' }
@@ -757,6 +840,111 @@ paths:
     get:
       tags: [Connections]
       summary: Get SMS gateway connection usages
+      description: |
+        Returns the resources that reference this connection, aggregated across all resource
+        types (for example, flows that use it). Informational only: it drives the pre-delete
+        confirmation dialog in the UI and does not gate deletion on the server.
+
+        Each usage entry includes a `behaviorOnDelete` field describing what happens to the
+        referencing resource if the connection is deleted:
+        - `fallback`: the reference is kept as-is.
+        - `cascade`: the resource is permanently deleted along with the connection.
+        - `restrict`: the resource blocks deletion of the connection.
+
+        When usage data is unavailable (e.g. the server has not fully initialised),
+        `totalResults` and `summary` are `null` rather than `0`/empty. Consumers must treat
+        `null` as "unknown" and `0` as "confirmed empty".
+      responses:
+        "200": { $ref: '#/components/responses/ConnectionUsages' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+
+  /connections/email-smtp:
+    get:
+      tags: [Connections]
+      summary: List configured SMTP connections
+      responses:
+        "200": { $ref: '#/components/responses/InstanceList' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Connections]
+      summary: Create an SMTP connection
+      description: Creates an email provider backed by an SMTP server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SMTPConnectionCreateRequest' }
+      responses:
+        "201":
+          description: Connection created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SMTPConnectionResponse' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "409": { $ref: '#/components/responses/Conflict' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+  /connections/email-smtp/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/ConnectionID' }
+    get:
+      tags: [Connections]
+      summary: Get an SMTP connection
+      responses:
+        "200":
+          description: Connection details (secrets masked)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SMTPConnectionResponse' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [Connections]
+      summary: Update an SMTP connection
+      description: >-
+        Omit password to keep the stored value. The stored password is kept only while host, port,
+        authentication type and username are unchanged; changing any of them requires the password
+        to be supplied again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SMTPConnectionUpdateRequest' }
+      responses:
+        "200":
+          description: Connection updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SMTPConnectionResponse' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { $ref: '#/components/responses/Conflict' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Connections]
+      summary: Delete an SMTP connection
+      responses:
+        "204": { description: Connection deleted }
+        "409": { $ref: '#/components/responses/Conflict' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+  /connections/email-smtp/{id}/usages:
+    parameters:
+      - { $ref: '#/components/parameters/ConnectionID' }
+    get:
+      tags: [Connections]
+      summary: Get SMTP connection usages
       description: |
         Returns the resources that reference this connection, aggregated across all resource
         types (for example, flows that use it). Informational only: it drives the pre-delete
@@ -879,6 +1067,60 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "500": { $ref: '#/components/responses/InternalServerError' }
 
+  /connections/meta:
+    get:
+      tags: [Connection Metadata]
+      summary: Describe the configurable options of connection vendors
+      description: >-
+        Returns the server-driven description of what each connection vendor can be configured
+        with, so a console can render options it was not built against. Without a `vendor`
+        filter every registered vendor is described; with one, the list holds that vendor alone.
+        Only authentication is described today: which methods a vendor supports and which fields
+        each one takes. A vendor whose credentials are a fixed contract, such as Twilio, reports
+        no methods.
+      parameters:
+        - name: vendor
+          in: query
+          required: false
+          description: >-
+            Limits the result to one connection vendor, as it appears in the /connections/{vendor}
+            path. An unregistered vendor is rejected.
+          schema:
+            type: string
+            enum: [google, github, oidc, oauth, twilio, vonage, sms-gateway, email-smtp, authzen-pdp, http]
+          example: "email-smtp"
+      responses:
+        "200":
+          description: The configurable options of the described vendors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionMetaResponse'
+              example:
+                vendors:
+                  - vendor: "email-smtp"
+                    authentication:
+                      methods:
+                        - type: "none"
+                          displayName: "{{t(system:outboundauth.method.none)}}"
+                          fields: []
+                        - type: "basic"
+                          displayName: "{{t(system:outboundauth.method.basic)}}"
+                          fields:
+                            - key: "username"
+                              type: "string"
+                              required: true
+                              displayName: "{{t(system:outboundauth.field.username)}}"
+                            - key: "password"
+                              type: "string"
+                              required: true
+                              credential: true
+                              displayName: "{{t(system:outboundauth.field.password)}}"
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "500": { $ref: '#/components/responses/InternalServerError' }
+
 components:
   securitySchemes:
     OAuth2:
@@ -986,6 +1228,16 @@ components:
                 description:
                   key: "error.connectionservice.invalid_authzen_pdp_endpoint_description"
                   defaultValue: "The single and batch evaluation endpoints must be absolute URLs."
+            authentication-required-for-endpoint-change:
+              summary: Fresh authentication is required after changing a PDP endpoint
+              value:
+                code: "CON-1014"
+                message:
+                  key: "error.connectionservice.authzen_pdp_authentication_required_for_endpoint_change"
+                  defaultValue: "Authentication must be updated"
+                description:
+                  key: "error.connectionservice.authzen_pdp_authentication_required_for_endpoint_change_description"
+                  defaultValue: "Enter fresh credentials when changing an AuthZEN PDP endpoint."
     AuthZENPDPConflict:
       description: An AuthZEN PDP connection with the same name already exists
       content:
@@ -999,6 +1251,140 @@ components:
             description:
               key: "error.connectionservice.authzen_pdp_already_exists_description"
               defaultValue: "Choose a different name for the AuthZEN PDP connection"
+    HTTPConnectionInstanceList:
+      description: Configured HTTP endpoint connections
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/ConnectionInstanceSummary'
+          example:
+            - id: "0199d1f4-6a1e-7c3b-9f2a-1b2c3d4e5f60"
+              name: "Risk Engine"
+              description: "Sign-in risk evaluation"
+    HTTPConnectionBadRequest:
+      description: Invalid HTTP endpoint connection request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            invalid-request-format:
+              summary: Invalid request format
+              value:
+                code: "CON-1007"
+                message:
+                  key: "error.connectionservice.invalid_request_format"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.connectionservice.invalid_request_format_description"
+                  defaultValue: "The request body is malformed or contains invalid data"
+            invalid-name:
+              summary: Invalid name
+              value:
+                code: "CON-1017"
+                message:
+                  key: "error.connectionservice.invalid_http_connection_name"
+                  defaultValue: "Invalid HTTP connection name"
+                description:
+                  key: "error.connectionservice.invalid_http_connection_name_description"
+                  defaultValue: "The HTTP connection name is required and must be at most 255 characters"
+            invalid-description:
+              summary: Invalid description
+              value:
+                code: "CON-1022"
+                message:
+                  key: "error.connectionservice.invalid_http_connection_description"
+                  defaultValue: "Invalid HTTP connection description"
+                description:
+                  key: "error.connectionservice.invalid_http_connection_description_description"
+                  defaultValue: "The HTTP connection description must be at most 500 characters"
+            invalid-url:
+              summary: Invalid URL
+              value:
+                code: "CON-1018"
+                message:
+                  key: "error.connectionservice.invalid_http_connection_url"
+                  defaultValue: "Invalid HTTP connection URL"
+                description:
+                  key: "error.connectionservice.invalid_http_connection_url_description"
+                  defaultValue: "The URL must be an absolute http or https URL with a valid host and port and no user name or password, and must use https when the connection sends credentials"
+            invalid-timeout:
+              summary: Invalid timeout
+              value:
+                code: "CON-1019"
+                message:
+                  key: "error.connectionservice.invalid_http_connection_timeout"
+                  defaultValue: "Invalid HTTP connection timeout"
+                description:
+                  key: "error.connectionservice.invalid_http_connection_timeout_description"
+                  defaultValue: "The timeout must be between 1 and 20000 milliseconds"
+            invalid-headers:
+              summary: Invalid headers
+              value:
+                code: "CON-1020"
+                message:
+                  key: "error.connectionservice.invalid_http_connection_headers"
+                  defaultValue: "Invalid HTTP connection headers"
+                description:
+                  key: "error.connectionservice.invalid_http_connection_headers_description"
+                  defaultValue: "Each header needs a valid name that is not repeated and a value without line breaks. Credentials go in authentication, so names that carry them, such as Authorization or X-Api-Key, headers the HTTP client manages, such as Host or Content-Type, and headers the authentication sets cannot be set."
+            invalid-authentication:
+              summary: Invalid authentication
+              value:
+                code: "CON-1021"
+                message:
+                  key: "error.connectionservice.invalid_http_connection_authentication"
+                  defaultValue: "Invalid HTTP connection authentication"
+                description:
+                  key: "error.connectionservice.invalid_http_connection_authentication_description"
+                  defaultValue: "The authentication must give every field its method requires, and a password or token cannot be ******: omit it to keep the stored one. A changed method, username or URL origin needs each secret again."
+            masked-secret:
+              summary: Password or token sent as the mask
+              value:
+                code: "CON-1021"
+                message:
+                  key: "error.connectionservice.invalid_http_connection_authentication"
+                  defaultValue: "Invalid HTTP connection authentication"
+                description:
+                  key: "error.connectionservice.invalid_http_connection_authentication_description"
+                  defaultValue: "The authentication must give every field its method requires, and a password or token cannot be ******: omit it to keep the stored one. A changed method, username or URL origin needs each secret again."
+            invalid-authentication-type:
+              summary: Unsupported authentication type
+              value:
+                code: "CON-1012"
+                message:
+                  key: "error.connectionservice.invalid_authentication_type"
+                  defaultValue: "Invalid authentication type"
+                description:
+                  key: "error.connectionservice.invalid_authentication_type_description"
+                  defaultValue: "The authentication type must name a method this deployment supports"
+    HTTPConnectionConflict:
+      description: An HTTP endpoint connection with the same name already exists
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            code: "CON-1016"
+            message:
+              key: "error.connectionservice.http_connection_already_exists"
+              defaultValue: "An HTTP connection with the same name already exists"
+            description:
+              key: "error.connectionservice.http_connection_already_exists_description"
+              defaultValue: "Choose a different name for the HTTP connection"
+    HTTPConnectionNotFound:
+      description: HTTP endpoint connection not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            code: "CON-1015"
+            message:
+              key: "error.connectionservice.http_connection_not_found"
+              defaultValue: "HTTP connection not found"
+            description:
+              key: "error.connectionservice.http_connection_not_found_description"
+              defaultValue: "No HTTP connection exists for the supplied identifier"
     ConnectionDependencyConflict:
       description: The connection cannot be deleted because it is still in use
       content:
@@ -1127,14 +1513,14 @@ components:
           type: string
           description: >-
             Lowercase vendor identifier. `sms-gateway` denotes a generic HTTP webhook SMS sender.
-          enum: [google, github, oidc, oauth, twilio, vonage, sms-gateway, authzen-pdp]
+          enum: [google, github, oidc, oauth, twilio, vonage, sms-gateway, authzen-pdp, email-smtp, http]
           example: "google"
         categories:
           type: array
           minItems: 1
           items:
             type: string
-            enum: [identity-provider, sms-provider, authorization-pdp]
+            enum: [identity-provider, sms-provider, authorization-pdp, email-provider, http]
           example: ["identity-provider"]
 
     ConnectionInstanceSummary:
@@ -1371,6 +1757,13 @@ components:
         attributeConfiguration: { $ref: '#/components/schemas/AttributeConfiguration' }
 
     AuthZENPDPConnectionUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/AuthZENPDPConnectionConfiguration'
+        - type: object
+          properties:
+            authentication:
+              $ref: '#/components/schemas/OutboundAuthentication'
+    AuthZENPDPConnectionConfiguration:
       type: object
       required: [name, endpoint]
       properties:
@@ -1405,12 +1798,14 @@ components:
       $ref: '#/components/schemas/AuthZENPDPConnectionUpdateRequest'
     AuthZENPDPConnectionResponse:
       allOf:
-        - $ref: '#/components/schemas/AuthZENPDPConnectionUpdateRequest'
         - type: object
           required: [id, type]
           properties:
             id: { type: string, format: uuid }
             type: { type: string, enum: [authzen-pdp] }
+            authentication:
+              $ref: '#/components/schemas/OutboundAuthentication'
+        - $ref: '#/components/schemas/AuthZENPDPConnectionConfiguration'
 
     AuthZENPDPSubjectAttributeMapping:
       type: object
@@ -1418,7 +1813,7 @@ components:
       properties:
         entityType:
           type: string
-          description: ThunderID entity type to which this mapping applies.
+          description: Handle of the user type or agent type to which this mapping applies.
         attributes:
           type: array
           items:
@@ -1431,6 +1826,103 @@ components:
               pdpAttribute:
                 type: string
                 description: AuthZEN PDP subject property name. Defaults to attribute when omitted.
+
+    HTTPConnectionUpdateRequest:
+      type: object
+      required: [name, url]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          description: Unique per deployment.
+          example: "Risk Engine"
+        description: { type: string, maxLength: 500 }
+        url:
+          type: string
+          format: uri
+          pattern: '^https?://'
+          description: >-
+            Absolute `http` or `https` URL of the endpoint, with a DNS name or IP literal host, a
+            port from 1 to 65535 and no user name or password; credentials go in `authentication`.
+            Must be `https` when `authentication.type` is not `none`, so a stored credential never
+            crosses the network in clear. Stored with a lower-case scheme and host and without a
+            default port.
+          example: "https://risk.example.com/evaluate"
+        timeoutMs:
+          type: integer
+          minimum: 0
+          maximum: 20000
+          default: 10000
+          description: Timeout of each call in milliseconds. `0` or omitted means 10000.
+        headers:
+          type: array
+          description: >-
+            Plain headers sent on every call. Names are unique, case-insensitively, and values have
+            no line breaks. A PUT replaces the whole list, so omitted means none. Names are
+            compared case-insensitively. Headers that commonly carry credentials (`Authorization`,
+            `Proxy-Authorization`, `Cookie`, `X-Api-Key`, `Api-Key`, `X-Auth-Token`,
+            `X-Access-Token`), headers the HTTP client manages (`Host`, `Content-Length`,
+            `Content-Type`, `Transfer-Encoding`, `Connection`, `TE`, `Trailer`, `Upgrade`,
+            `Keep-Alive`, `Expect`) and any header the `api_key` authentication sets are refused
+            with `CON-1020`.
+          items: { $ref: '#/components/schemas/HTTPConnectionHeader' }
+        authentication:
+          allOf:
+            - $ref: '#/components/schemas/OutboundAuthentication'
+          description: |
+            How ThunderID authenticates to the endpoint: `none`, `basic` (`username`, `password`),
+            `bearer` (`token`) or `api_key` (one property per header, the header name as the key).
+            Omit it to send no credentials, on update as much as on create. Call
+            `GET /connections/meta?vendor=http` for the methods this deployment supports and the
+            fields each one takes.
+
+            Secrets (the password, the token and every `api_key` header value) are stored
+            encrypted and returned as `"******"`; `api_key` header names are returned in clear.
+            On update, an omitted password or token keeps the stored one only while the
+            authentication type, the username and the URL origin (scheme, host and port) are
+            unchanged; otherwise the update fails with `CON-1021`. Unlike the shared rule, a
+            password or token sent as `"******"` is refused with `CON-1021`, on create and on
+            update, and the stored secret is unchanged. An `api_key` header sent as `"******"`
+            keeps that header's stored value under the same rule; on create it is refused.
+          example:
+            type: "api_key"
+            properties:
+              X-Tenant-Key: "<tenant_key>"
+    HTTPConnectionCreateRequest:
+      $ref: '#/components/schemas/HTTPConnectionUpdateRequest'
+    HTTPConnectionResponse:
+      type: object
+      required: [id, name, type, url, timeoutMs, headers, authentication]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: "Risk Engine" }
+        description: { type: string }
+        type: { type: string, enum: [http] }
+        url: { type: string, example: "https://risk.example.com/evaluate" }
+        timeoutMs: { type: integer, example: 10000 }
+        headers:
+          type: array
+          items: { $ref: '#/components/schemas/HTTPConnectionHeader' }
+        authentication: { $ref: '#/components/schemas/OutboundAuthentication' }
+      example:
+        id: "0199d1f4-6a1e-7c3b-9f2a-1b2c3d4e5f60"
+        name: "Risk Engine"
+        type: "http"
+        url: "https://risk.example.com/evaluate"
+        timeoutMs: 5000
+        headers:
+          - name: "X-Tenant"
+            value: "acme"
+        authentication:
+          type: "api_key"
+          properties:
+            X-Tenant-Key: "******"
+    HTTPConnectionHeader:
+      type: object
+      required: [name, value]
+      properties:
+        name: { type: string, example: "X-Tenant" }
+        value: { type: string, example: "acme" }
 
     TwilioConnectionUpdateRequest:
       type: object
@@ -1490,7 +1982,20 @@ components:
         description: { type: string }
         url: { type: string, description: "The HTTP endpoint to call to send an SMS.", example: "https://sms.example.com/send" }
         httpMethod: { type: string, enum: [GET, POST], example: "POST" }
-        httpHeaders: { type: string, description: "Comma-separated \"Key: value\" pairs.", example: "Authorization: Bearer abc123" }
+        httpHeaders:
+          type: string
+          description: |
+            Comma-separated general HTTP headers, for example X-Campaign-ID: campaign-1.
+            Values are returned unchanged. Commas are not supported within header values.
+            Omit on update to retain them, or send an empty string to remove them.
+          example: "X-Campaign-ID: campaign-1"
+        authentication:
+          allOf:
+            - $ref: '#/components/schemas/OutboundAuthentication'
+          description: >-
+            Optional HTTP authentication using none, bearer, basic, or api_key. Authenticated
+            remote URLs must use HTTPS; loopback HTTP is allowed. General httpHeaders retain
+            their existing behavior and cannot use a header name also set by authentication.
         contentType: { type: string, enum: [JSON, FORM], example: "JSON" }
     SMSGatewayConnectionCreateRequest:
       $ref: '#/components/schemas/SMSGatewayConnectionUpdateRequest'
@@ -1503,9 +2008,150 @@ components:
         type: { type: string, example: "sms-gateway" }
         url: { type: string }
         httpMethod: { type: string }
-        httpHeaders: { type: string }
+        httpHeaders:
+          type: string
+          description: "Comma-separated general HTTP headers returned unchanged."
+          example: "X-Campaign-ID: campaign-1"
+        authentication:
+          $ref: '#/components/schemas/OutboundAuthentication'
         contentType: { type: string }
 
+    SMTPConnectionUpdateRequest:
+      type: object
+      required: [name, host, port, fromAddress]
+      properties:
+        name: { type: string, example: "Corp SMTP" }
+        description: { type: string }
+        host: { type: string, description: "Hostname of the SMTP server.", example: "smtp.example.com" }
+        port: { type: integer, minimum: 1, maximum: 65535, example: 587 }
+        fromAddress: { type: string, format: email, description: "Address used in the From header and the SMTP envelope.", example: "noreply@example.com" }
+        fromName:
+          type: string
+          description: |
+            Display name shown beside `fromAddress` in the From header, so a recipient sees
+            `Acme Support <noreply@example.com>`. Optional: without it the From header carries
+            the bare address. It must not contain a line break. The SMTP envelope sender is
+            always the bare `fromAddress`, whether or not a name is set.
+          example: "Acme Support"
+        tls:
+          type: string
+          enum: [none, starttls, implicit]
+          default: starttls
+          description: |
+            How the connection to the SMTP server is secured. Defaults to `starttls` when
+            omitted. `implicit` dials TLS directly (SMTPS, usually port 465). `none` sends in
+            the clear and cannot carry credentials, so it cannot be combined with an
+            `authentication` method other than `none`.
+          example: "starttls"
+        authentication:
+          allOf:
+            - $ref: '#/components/schemas/OutboundAuthentication'
+          description: |
+            How ThunderID authenticates to the SMTP server. Omit it to send no credentials.
+            Call `GET /connections/meta?vendor=email-smtp` for the methods this deployment supports
+            and the fields each one takes.
+    SMTPConnectionCreateRequest:
+      $ref: '#/components/schemas/SMTPConnectionUpdateRequest'
+    SMTPConnectionResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        type: { type: string, example: "email-smtp" }
+        host: { type: string }
+        port: { type: integer, example: 587 }
+        fromAddress: { type: string, format: email }
+        fromName: { type: string, example: "Acme Support" }
+        tls: { type: string, enum: [none, starttls, implicit] }
+        authentication: { $ref: '#/components/schemas/OutboundAuthentication' }
+
+    OutboundAuthentication:
+      type: object
+      description: |
+        How ThunderID authenticates itself on an outbound call. The `type` selects the method
+        and `properties` carries that method's fields, so a new method needs no change to this
+        schema. Call `GET /connections/meta?vendor={vendor}` to discover the methods a vendor
+        supports and the fields each one takes.
+
+        Credential values are stored encrypted and returned as `"******"`. On update, a masked
+        value retains the matching stored credential while the connection target is unchanged.
+        For `api_key`, `properties` contains HTTP header names and values. Omitting a header
+        from a supplied `api_key` block deletes it. Omitting the whole `authentication` block
+        keeps the existing configuration. Setting `type` to `none` removes authentication.
+      required: [type]
+      properties:
+        type:
+          type: string
+          description: "The authentication method. `none` sends no credentials."
+          example: "basic"
+        properties:
+          type: object
+          additionalProperties: { type: string }
+          description: "The selected method's field values, keyed by field name."
+          example:
+            username: "mailer"
+            password: "<smtp_password>"
+
+    ConnectionMetaResponse:
+      type: object
+      description: "Server-driven description of the configurable options of connection vendors."
+      properties:
+        vendors:
+          type: array
+          description: |
+            Every registered vendor, or the one named by the `vendor` filter. Filtering narrows the
+            list rather than changing the shape of the response.
+          items: { $ref: '#/components/schemas/ConnectionVendorMeta' }
+
+    ConnectionVendorMeta:
+      type: object
+      description: "Server-driven description of one connection vendor's configurable options."
+      properties:
+        vendor: { type: string, example: "email-smtp" }
+        authentication:
+          type: object
+          properties:
+            methods:
+              type: array
+              description: |
+                The outbound authentication methods this vendor supports, in the order a console
+                should offer them. Empty when the vendor has no configurable choice, such as a
+                provider whose credentials are a fixed vendor contract.
+              items: { $ref: '#/components/schemas/OutboundAuthMethod' }
+
+    OutboundAuthMethod:
+      type: object
+      properties:
+        type: { type: string, example: "basic" }
+        displayName:
+          type: string
+          description: "Label for the method. Either plain text or an i18n template pattern."
+          example: "{{t(system:outboundauth.method.basic)}}"
+        fields:
+          type: array
+          description: "The method's fields, in the order a console should render them."
+          items: { $ref: '#/components/schemas/OutboundAuthField' }
+        additionalProperties:
+          $ref: '#/components/schemas/OutboundAuthField'
+
+    OutboundAuthField:
+      type: object
+      description: |
+        One field of an authentication method, described with the same vocabulary as an entity
+        type's property schema so a console can reuse its schema-driven form renderer.
+      properties:
+        key: { type: string, example: "password" }
+        type: { type: string, enum: [string], example: "string" }
+        required: { type: boolean, example: true }
+        credential:
+          type: boolean
+          description: "A secret: stored encrypted, returned masked, omit on update to keep it."
+          example: true
+        displayName:
+          type: string
+          description: "Label for the field. Either plain text or an i18n template pattern."
+          example: "{{t(system:outboundauth.field.password)}}"
     AttributeConfiguration:
       type: object
       description: External-to-local attribute mapping configuration for the connection.
@@ -1527,13 +2173,23 @@ components:
     AccountLinking:
       type: object
       description: >
-        Configures how an incoming federated identity is resolved to an existing local user when the
-        subject identifier does not resolve one. All configured attributes that have a value are
-        combined into a single lookup filter.
+        Configures how an incoming federated identity is matched to an existing local user when it
+        has no recorded link. Every configured attribute that has a value must match.
       properties:
         attributes:
           type: array
-          description: External attribute names used together to resolve the local user.
+          description: >
+            External attribute names used together to find the local user. Each one matches on
+            every local attribute it is mapped to, and on the local attribute of the same name.
+            A name that is not made of letters, digits and underscores matches only through its
+            mappings, so it must be mapped for every user type, and saving the connection rejects it
+            otherwise. The reserved names userID, federatedIdpId, credentialUpdatedAt and linkedIds
+            are rejected, both as linking attributes and as the local attributes they are mapped to.
+            If an attribute has a value but no local attribute to match on, the connection matches
+            no one. This can still happen at sign-in when the identity resolves to a user type that
+            has no attribute mappings. Each attribute's local attributes are combined with every
+            other's, one lookup per combination, and saving rejects a configuration that needs more
+            than 10 lookups for any user type.
           items:
             type: string
           example:
@@ -1541,27 +2197,27 @@ components:
 
     UserTypeResolution:
       type: object
-      description: Resolves which local user type an incoming federated identity maps to.
+      description: Resolves which local user type an incoming federated identity maps to. User types are referenced by their handle.
       required:
         - default
       properties:
         default:
           type: string
           description: >
-            Fallback local user type, used when claim-driven resolution is not configured or the
-            external attribute's value does not match a mapping.
-          example: "Person"
+            Handle of the fallback local user type, used when claim-driven resolution is not configured
+            or the external attribute's value does not match a mapping.
+          example: "person"
         externalAttribute:
           type: string
           description: External claim whose value selects the local user type.
           example: "user_type"
         valueMapping:
           type: object
-          description: Maps an external attribute value to a local user type.
+          description: Maps an external attribute value to the handle of a local user type.
           additionalProperties:
             type: string
           example:
-            staff: "Employee"
+            staff: "employee"
 
     UserTypeAttributeMapping:
       type: object
@@ -1571,8 +2227,8 @@ components:
       properties:
         userType:
           type: string
-          description: Local user type this profile applies to.
-          example: "Person"
+          description: Handle of the local user type this profile applies to.
+          example: "person"
         attributes:
           type: array
           description: External-to-local attribute mappings for this user type.

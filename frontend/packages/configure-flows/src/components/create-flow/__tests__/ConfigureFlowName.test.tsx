@@ -72,7 +72,7 @@ describe('ConfigureFlowName', () => {
       render(<ConfigureFlowName {...defaultProps} />);
 
       expect(screen.getByText('Flow name')).toBeInTheDocument();
-      expect(screen.getByPlaceholderText('e.g. Customer Sign-in')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('e.g. Customer sign-in')).toBeInTheDocument();
     });
 
     it('should render the handle input with label', () => {
@@ -93,7 +93,7 @@ describe('ConfigureFlowName', () => {
     it('should call onChange with name and auto-derived handle when name changes', async () => {
       render(<ConfigureFlowName {...defaultProps} />);
 
-      const nameInput = screen.getByPlaceholderText('e.g. Customer Sign-in');
+      const nameInput = screen.getByPlaceholderText('e.g. Customer sign-in');
       fireEvent.change(nameInput, {target: {value: 'My Flow'}});
 
       await waitFor(() => {
@@ -101,14 +101,14 @@ describe('ConfigureFlowName', () => {
       });
     });
 
-    it('should sanitize handle by removing non-alphanumeric characters', async () => {
+    it('should replace non-alphanumeric characters in handle with a hyphen', async () => {
       render(<ConfigureFlowName {...defaultProps} />);
 
-      const nameInput = screen.getByPlaceholderText('e.g. Customer Sign-in');
+      const nameInput = screen.getByPlaceholderText('e.g. Customer sign-in');
       fireEvent.change(nameInput, {target: {value: 'My Flow @#$!'}});
 
       await waitFor(() => {
-        expect(mockOnChange).toHaveBeenCalledWith({name: 'My Flow @#$!', handle: 'my-flow-'});
+        expect(mockOnChange).toHaveBeenCalledWith({name: 'My Flow @#$!', handle: 'my-flow'});
       });
     });
   });
@@ -125,7 +125,7 @@ describe('ConfigureFlowName', () => {
       });
 
       // After manual edit, changing the name should not update the handle
-      const nameInput = screen.getByPlaceholderText('e.g. Customer Sign-in');
+      const nameInput = screen.getByPlaceholderText('e.g. Customer sign-in');
       fireEvent.change(nameInput, {target: {value: 'New Name'}});
 
       await waitFor(() => {

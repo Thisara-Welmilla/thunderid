@@ -13,7 +13,6 @@ import (
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 
-	authnprovidercm "github.com/thunder-id/thunderid/internal/authnprovider/common"
 	"github.com/thunder-id/thunderid/internal/entityprovider"
 	"github.com/thunder-id/thunderid/internal/entitytype"
 	"github.com/thunder-id/thunderid/internal/flow/common"
@@ -89,7 +88,7 @@ func newProvisioningExecutor(
 		})
 
 	identifyingExec := newIdentifyingExecutor(ExecutorNameProvisioning,
-		[]providers.Input{}, []providers.Input{}, flowFactory, entityProvider)
+		[]providers.Input{}, []providers.Input{}, flowFactory, entityProvider, nil)
 
 	return &provisioningExecutor{
 		Executor:                     base,
@@ -134,6 +133,52 @@ func (p *provisioningExecutor) Execute(ctx *providers.NodeContext) (*providers.E
 		return execResp, nil
 	}
 
+	// A resolved user needs no provisioning. Checked before required inputs so the user is not
+	// prompted for attributes they already have. Registration flows still apply the existing-user
+	// rules.
+	if ctx.FlowType == providers.FlowTypeAuthentication {
+		if resolvedID := p.GetUserIDFromContext(ctx, execResp, p.authnProvider); resolvedID != "" {
+			logger.Debug(ctx.Context, "User already exists, skipping provisioning")
+			execResp.Status = providers.ExecComplete
+			return execResp, nil
+		}
+		// Several users hold the federated identity's link and no Resolve User node picked one, so
+		// provisioning would add yet another holder.
+		if ctx.RuntimeData[common.RuntimeKeyEntityState] == entityStateAmbiguous {
+			logger.Debug(ctx.Context, "Several users hold the federated identity's link, refusing to provision")
+			execResp.Status = providers.ExecFailure
+			execResp.Error = errForEntityCategory(ErrAmbiguousEntityIdentity, category)
+			return execResp, nil
+		}
+	}
+
+	// Unsettled linking candidates mean provisioning would duplicate one of those accounts. Checked
+	// before the registration shortcut below, so an account a failed verification signed in does not
+	// complete the registration.
+	if ctx.RuntimeData[common.RuntimeKeyLinkingCandidateUserIDs] != "" {
+		logger.Debug(ctx.Context, "Linking candidate was never verified, refusing to provision")
+		execResp.Status = providers.ExecFailure
+		execResp.Error = &ErrUnverifiedLinkingCandidate
+		return execResp, nil
+	}
+
+	// A federated identity resolves users only through its recorded links, and no input can change
+	// which users those are, so registration applies the existing-user rules to the link's holders
+	// before prompting for attributes. With cross-OU provisioning, holders in other OUs do not count,
+	// so registering into an OU where nobody holds the link provisions a new user with it.
+	if isSelfRegistering(ctx) {
+		if federated := federatedIdentityFrom(ctx); federated != nil {
+			holderIDs, err := p.registrationLinkHolders(ctx, category, federated, execResp)
+			if err != nil {
+				return nil, err
+			}
+			if len(holderIDs) > 0 {
+				p.applyExistingLinkHolderRules(ctx, category, holderIDs, execResp, logger)
+				return execResp, nil
+			}
+		}
+	}
+
 	// Authentication only auto-provisions the categories it can authenticate, and only when it
 	// marked the entity eligible.
 	if ctx.FlowType == providers.FlowTypeAuthentication && traitsFor(category).autoProvisionedAtAuthentication {
@@ -160,7 +205,70 @@ func (p *provisioningExecutor) Execute(ctx *providers.NodeContext) (*providers.E
 		return execResp, nil
 	}
 
-	return p.completeProvisioning(ctx, category, entityID, execResp, logger)
+	return p.completeProvisioning(ctx, category, entityID, execResp, logger), nil
+}
+
+// isSelfRegistering reports whether the flow registers the person running it: self-registration, or
+// accepting an invitation.
+func isSelfRegistering(ctx *providers.NodeContext) bool {
+	return ctx.FlowType == providers.FlowTypeRegistration || ctx.FlowType == providers.FlowTypeUserOnboarding
+}
+
+// registrationLinkHolders returns the users holding the federated identity's link that count against
+// registering it. With cross-OU provisioning only holders in the target OU count.
+func (p *provisioningExecutor) registrationLinkHolders(ctx *providers.NodeContext,
+	category entitytype.TypeCategory, federated *core.ExternalIdentity,
+	execResp *providers.ExecutorResponse) ([]string, error) {
+	holders, epErr := p.entityProvider.GetLinkedEntities(federated.IdpID, federated.Sub)
+	if epErr != nil {
+		if epErr.Code != entityprovider.ErrorCodeNotImplemented {
+			return nil, errors.New("failed to retrieve the users linked to the federated identity")
+		}
+		// An entity provider that cannot list the holders leaves the authentication provider's
+		// resolution as the only answer.
+		if resolvedID := p.GetUserIDFromContext(ctx, execResp, p.authnProvider); resolvedID != "" {
+			return []string{resolvedID}, nil
+		}
+		return nil, nil
+	}
+
+	targetOUID := ""
+	if isCrossOUProvisioningAllowed(ctx) {
+		ref, err := p.getTargetEntityRef(ctx, category)
+		if err != nil {
+			return nil, err
+		}
+		targetOUID = ref.ouID
+	}
+	holderIDs := make([]string, 0, len(holders))
+	for _, holder := range holders {
+		if targetOUID == "" || holder.OUID == targetOUID {
+			holderIDs = append(holderIDs, holder.ID)
+		}
+	}
+	return holderIDs, nil
+}
+
+// applyExistingLinkHolderRules completes registration as the one user holding the link when
+// registering an existing user is allowed, and fails it otherwise.
+func (p *provisioningExecutor) applyExistingLinkHolderRules(ctx *providers.NodeContext,
+	category entitytype.TypeCategory, holderIDs []string, execResp *providers.ExecutorResponse,
+	logger *log.Logger) {
+	logger.Debug(ctx.Context, "Federated identity is already linked to a user",
+		log.Int("holderCount", len(holderIDs)))
+	if len(holderIDs) > 1 || !isAllowRegistrationWithExistingUserRuntimeFlagSet(ctx) {
+		execResp.Status = providers.ExecFailure
+		execResp.Error = errForEntityCategory(ErrEntityAlreadyExists, category)
+		return
+	}
+	// Several users hold the link, so the AuthUser names none of them yet.
+	if ctx.RuntimeData[common.RuntimeKeyEntityState] == entityStateAmbiguous {
+		p.authenticateProvisionedEntity(ctx, category, holderIDs[0], execResp)
+		if execResp.Status == providers.ExecFailure {
+			return
+		}
+	}
+	execResp.Status = providers.ExecComplete
 }
 
 // categoryFromMode maps the node's mode property onto the entity category it works on. A mode is
@@ -223,8 +331,8 @@ func (p *provisioningExecutor) prepareProvisioning(ctx *providers.NodeContext,
 }
 
 // resolveExistingEntity identifies an entity that already matches the provisioning attributes and
-// decides whether provisioning can still go ahead. A false return means execResp already carries
-// the outcome of the node.
+// decides whether provisioning can still go ahead. A user this execution already resolved is the
+// existing user. A false return means execResp already carries the outcome of the node.
 //
 // With no attributes to match on there is nothing to identify by, which is reachable whenever a
 // schema declares every attribute optional and none is supplied. Identification is skipped rather
@@ -233,6 +341,17 @@ func (p *provisioningExecutor) resolveExistingEntity(ctx *providers.NodeContext,
 	category entitytype.TypeCategory, identifyingAttrs map[string]interface{},
 	execResp *providers.ExecutorResponse, logger *log.Logger,
 ) (bool, error) {
+	if category == entitytype.TypeCategoryUser {
+		if resolvedID := p.GetUserIDFromContext(ctx, execResp, p.authnProvider); resolvedID != "" {
+			return p.handleExistingEntity(ctx, category, resolvedID, execResp, logger)
+		}
+		// A federated identity resolves an existing user only through its recorded link, so it is
+		// never matched on attributes.
+		if federatedIdentityFrom(ctx) != nil {
+			return true, nil
+		}
+	}
+
 	if len(identifyingAttrs) == 0 {
 		logger.Debug(ctx.Context, "No identifying attributes provided, skipping identification")
 		return true, nil
@@ -315,19 +434,19 @@ func (p *provisioningExecutor) createEntity(ctx *providers.NodeContext, category
 // authentication as the provisioned entity, and the runtime flags the rest of the flow reads.
 func (p *provisioningExecutor) completeProvisioning(ctx *providers.NodeContext,
 	category entitytype.TypeCategory, entityID string, execResp *providers.ExecutorResponse,
-	logger *log.Logger) (*providers.ExecutorResponse, error) {
+	logger *log.Logger) *providers.ExecutorResponse {
 	if err := p.assignGroupsAndRoles(ctx, category, entityID); err != nil {
 		logger.Error(ctx.Context, "Failed to assign groups and roles to the provisioned entity",
 			log.MaskedString(log.LoggerKeyEntityID, entityID),
 			log.Error(err))
 		execResp.Status = providers.ExecFailure
 		execResp.Error = errForEntityCategory(ErrProvisioningAssignmentFailed, category)
-		return execResp, nil
+		return execResp
 	}
 
 	p.authenticateProvisionedEntity(ctx, category, entityID, execResp)
 	if execResp.Status == providers.ExecFailure {
-		return execResp, nil
+		return execResp
 	}
 
 	execResp.Status = providers.ExecComplete
@@ -337,26 +456,16 @@ func (p *provisioningExecutor) completeProvisioning(ctx *providers.NodeContext,
 		execResp.RuntimeData[common.RuntimeKeyUserAutoProvisioned] = dataValueTrue
 	}
 
-	return execResp, nil
+	return execResp
 }
 
 // authenticateProvisionedEntity authenticates the newly provisioned entity and updates the
 // executor response.
 func (p *provisioningExecutor) authenticateProvisionedEntity(ctx *providers.NodeContext,
 	category entitytype.TypeCategory, entityID string, execResp *providers.ExecutorResponse) {
-	credential := map[string]interface{}{
-		authnprovidercm.CredentialTypeProvisionedEntityID: entityID,
-	}
-	authUser, authenticatedClaims, err := p.authnProvider.AuthenticateUser(ctx.Context, nil, credential,
-		nil, nil, execResp.AuthUser)
-	if !authUser.IsAuthenticated() || err != nil {
+	if svcErr := authenticateEntityByID(ctx, p.authnProvider, entityID, execResp.AuthUser, execResp); svcErr != nil {
 		execResp.Status = providers.ExecFailure
 		execResp.Error = errForEntityCategory(ErrEntityAuthFailed, category)
-		return
-	}
-	execResp.AuthUser = authUser
-	for key, value := range authenticatedClaims {
-		execResp.RuntimeData[key] = systemutils.ConvertInterfaceValueToString(value)
 	}
 }
 
@@ -429,7 +538,7 @@ func (p *provisioningExecutor) handleExistingEntity(ctx *providers.NodeContext,
 		return false, nil
 	}
 
-	existingEntity, getEntityErr := p.entityProvider.GetEntity(entityID)
+	existingEntity, getEntityErr := p.entityProvider.GetEntityProfile(entityID)
 	if getEntityErr != nil {
 		return false, errors.New("failed to retrieve the existing entity")
 	}
@@ -583,9 +692,10 @@ func (p *provisioningExecutor) buildMissingInputs(
 	promptOptional := p.isPromptOptionalAttributesEnabled(ctx)
 	promptOptionalCredentials := p.isPromptOptionalCredentialsEnabled(ctx)
 	presentedOptionalInputs := core.GetPresentedOptionalInputs(ctx.RuntimeData)
+	extIdentity := core.GetExternalIdentity(ctx.RuntimeData)
 
 	for _, attr := range schemaAttrs {
-		if p.isAttrSatisfied(ctx, attr.Attribute) {
+		if p.isAttrSatisfied(ctx, extIdentity, attr) {
 			continue
 		}
 		nodeInp, inNodeInputs := nodeInputMap[attr.Attribute]
@@ -715,13 +825,22 @@ func (p *provisioningExecutor) getMaxDynamicInputs(ctx *providers.NodeContext) i
 	return 0
 }
 
-// isAttrSatisfied returns true if the attribute has a non-empty usable value in the user inputs or
-// the runtime data.
-func (p *provisioningExecutor) isAttrSatisfied(ctx *providers.NodeContext, attr string) bool {
-	if val, ok := ctx.UserInputs[attr]; ok && val != "" {
+// isAttrSatisfied returns true if the attribute has a non-empty usable value in the user inputs, the
+// runtime data or, for a non-credential attribute, the external identity's claims. Credentials are
+// never taken from claims, so a claim never stands in for one.
+func (p *provisioningExecutor) isAttrSatisfied(ctx *providers.NodeContext, extIdentity *core.ExternalIdentity,
+	attr entitytype.AttributeInfo) bool {
+	if val, ok := ctx.UserInputs[attr.Attribute]; ok && val != "" {
 		return true
 	}
-	if val, ok := ctx.RuntimeData[attr]; ok && val != "" {
+	if val, ok := ctx.RuntimeData[attr.Attribute]; ok && val != "" {
+		return true
+	}
+	if attr.Credential {
+		return false
+	}
+	// External claims are only a fallback and must never take priority over runtime data.
+	if val, ok := extIdentity.Claim(attr.Attribute); ok && val != "" {
 		return true
 	}
 	return false
@@ -748,6 +867,7 @@ func (p *provisioningExecutor) getAttributesForProvisioning(
 		return identifyingAttrs, credentialAttrs, nil
 	}
 
+	extIdentity := core.GetExternalIdentity(ctx.RuntimeData)
 	for _, a := range schemaAttrs {
 		if a.Credential {
 			if value, exists := ctx.UserInputs[a.Attribute]; exists && value != "" {
@@ -756,10 +876,14 @@ func (p *provisioningExecutor) getAttributesForProvisioning(
 				credentialAttrs[a.Attribute] = runtimeValue
 			}
 		} else {
+			// External claims are only a fallback and must never take priority over runtime data.
 			if value, exists := ctx.UserInputs[a.Attribute]; exists && value != "" {
 				identifyingAttrs[a.Attribute] = convertToSchemaType(value, a.Type)
 			} else if runtimeValue, exists := ctx.RuntimeData[a.Attribute]; exists && runtimeValue != "" {
 				identifyingAttrs[a.Attribute] = convertToSchemaType(runtimeValue, a.Type)
+			} else if claimValue, exists := extIdentity.Claim(a.Attribute); exists &&
+				claimValue != "" {
+				identifyingAttrs[a.Attribute] = convertToSchemaType(claimValue, a.Type)
 			}
 		}
 	}
@@ -791,11 +915,16 @@ func (p *provisioningExecutor) createUserInStore(nodeCtx *providers.NodeContext,
 		return nil, errForEntityCategory(ErrProvisioningFailed, entitytype.TypeCategoryUser)
 	}
 
-	createdUser, svcErr := p.userMgtProvider.CreateUser(nodeCtx.Context, &providers.User{
+	user := &providers.User{
 		OUID:       targetRef.ouID,
 		Type:       targetRef.entityType,
 		Attributes: attributesJSON,
-	})
+	}
+	// The user service records a federated sign-in's link in the same write that creates the user.
+	if federated := federatedIdentityFrom(nodeCtx); federated != nil {
+		user.LinkedAccount = &providers.LinkedAccount{IdpID: federated.IdpID, Sub: federated.Sub}
+	}
+	createdUser, svcErr := p.userMgtProvider.CreateUser(nodeCtx.Context, user)
 	if svcErr != nil {
 		return nil, svcErr
 	}
@@ -807,9 +936,10 @@ func (p *provisioningExecutor) createUserInStore(nodeCtx *providers.NodeContext,
 	return createdUser, nil
 }
 
-// createAgentInStore provisions an agent through the agent management provider. Name, description,
-// logo and owner are columns on the agent record rather than schema attributes, and are forwarded
-// as collected: the agent service owns their validation.
+// createAgentInStore provisions an agent through the agent management provider. Description, logo
+// and owner are carried on the agent record rather than as schema attributes, and are forwarded as
+// collected: the agent service owns their validation. The name is a schema attribute and travels
+// with the other attributes.
 func (p *provisioningExecutor) createAgentInStore(nodeCtx *providers.NodeContext,
 	agentAttributes map[string]interface{}) (*providers.Agent, *tidcommon.ServiceError) {
 	logger := p.logger.With(log.String(log.LoggerKeyExecutionID, nodeCtx.ExecutionID))
@@ -835,7 +965,6 @@ func (p *provisioningExecutor) createAgentInStore(nodeCtx *providers.NodeContext
 	agent := &providers.Agent{
 		OUID:        targetRef.ouID,
 		Type:        targetRef.entityType,
-		Name:        collectedValue(nodeCtx, nameKey),
 		Description: collectedValue(nodeCtx, descriptionKey),
 		LogoURL:     collectedValue(nodeCtx, logoURLKey),
 		Owner:       nodeCtx.RuntimeData[ownerIDKey],
@@ -1141,7 +1270,7 @@ func (p *provisioningExecutor) getDefaultEntityRef(ctx *providers.NodeContext,
 	}
 
 	return &entityRef{
-		entityType: candidates[0].Name,
+		entityType: candidates[0].Handle,
 		ouID:       candidates[0].OUID,
 	}, nil
 }
@@ -1165,11 +1294,11 @@ func (p *provisioningExecutor) selfRegistrableEntityTypes(ctx *providers.NodeCon
 	}
 
 	types := make([]entitytype.EntityType, 0, len(allowed))
-	for _, name := range allowed {
-		entityType, svcErr := p.entityTypeService.GetEntityTypeByName(ctx.Context, category, name)
+	for _, handle := range allowed {
+		entityType, svcErr := p.entityTypeService.GetEntityTypeByHandle(ctx.Context, category, handle)
 		if svcErr != nil {
 			return nil, fmt.Errorf("failed to retrieve entity type %q in category %q: %s",
-				name, category, svcErr.Error.DefaultValue)
+				handle, category, svcErr.Error.DefaultValue)
 		}
 		if entityType.AllowSelfRegistration {
 			types = append(types, *entityType)

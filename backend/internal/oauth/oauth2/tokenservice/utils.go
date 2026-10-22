@@ -18,6 +18,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
 	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+	syscontext "github.com/thunder-id/thunderid/internal/system/context"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	systemutils "github.com/thunder-id/thunderid/internal/system/utils"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
@@ -413,6 +414,9 @@ func ReservedAccessTokenClaimNames() map[string]bool {
 	reserved[constants.ClaimOUID] = true
 	reserved[constants.ClaimOUName] = true
 	reserved[constants.ClaimOUHandle] = true
+	reserved[constants.ClaimUserType] = true
+	reserved[constants.ClaimUserTypeHandle] = true
+	reserved[constants.ClaimUserTypeName] = true
 	reserved[constants.ClaimClaimsRequest] = true
 	reserved[constants.ClaimClaimsLocales] = true
 	reserved[constants.ClaimSubType] = true
@@ -434,13 +438,16 @@ func builderOwnedIDTokenClaimNames() map[string]bool {
 }
 
 // builderOwnedClaimNames returns the access-token claims the builder writes itself, so a configured
-// attribute can never supply one. The reserved set minus the OU claims, which a user-subject token
-// legitimately receives through the attribute channel.
+// attribute can never supply one. The reserved set minus the OU and user-type claims, which a
+// user-subject token legitimately receives through the attribute channel.
 func builderOwnedClaimNames() map[string]bool {
 	owned := ReservedAccessTokenClaimNames()
 	delete(owned, constants.ClaimOUID)
 	delete(owned, constants.ClaimOUName)
 	delete(owned, constants.ClaimOUHandle)
+	delete(owned, constants.ClaimUserType)
+	delete(owned, constants.ClaimUserTypeHandle)
+	delete(owned, constants.ClaimUserTypeName)
 	return owned
 }
 
@@ -464,21 +471,14 @@ func FilterAttributesByAllowList(
 
 // BuildClientAttributes gathers all OAuth client/application-scoped attributes that should be added
 // to an access token for the given OAuth application.
+//
+// The organization claims are not among them: BuildClientEffectiveOUAttributes resolves those, and
+// they travel in a field of their own on the build context.
 func BuildClientAttributes(
-	ctx context.Context,
 	oauthApp *providers.OAuthClient,
-	ouService providers.OrganizationUnitProvider,
 	actorProvider providers.ActorProvider,
 ) (map[string]interface{}, error) {
 	claims := make(map[string]interface{})
-
-	ouClaims, err := resolveClientOUAttributes(ctx, oauthApp, ouService)
-	if err != nil {
-		return nil, err
-	}
-	for k, v := range ouClaims {
-		claims[k] = v
-	}
 
 	entity, err := fetchClientEntity(oauthApp, actorProvider)
 	if err != nil {
@@ -567,14 +567,24 @@ func clientConfigAttributeNames(oauthApp *providers.OAuthClient) []string {
 	return oauthApp.Token.AccessToken.ClientConfig.Attributes
 }
 
-// resolveClientOUAttributes returns the OAuth client's organization unit claims (ouId, ouName,
-// ouHandle) selected by ClientConfig.Attributes. Opt-in for every client (agent and application).
-func resolveClientOUAttributes(
+// BuildClientEffectiveOUAttributes returns the organization unit claims (ouId, ouName, ouHandle) an
+// OAuth client's token should carry, selected by ClientConfig.Attributes.
+func BuildClientEffectiveOUAttributes(
 	ctx context.Context,
 	oauthApp *providers.OAuthClient,
 	ouService providers.OrganizationUnitProvider,
 ) (map[string]interface{}, error) {
-	if oauthApp == nil || oauthApp.OUID == "" || ouService == nil {
+	if oauthApp == nil || ouService == nil {
+		return nil, nil
+	}
+
+	// The guard is split rather than checking the application and the accessing unit at once, so an
+	// application with no organization unit of its own still answers for one a request named.
+	ouID := oauthApp.OUID
+	if accessingOUID := syscontext.GetAccessingOUID(ctx); accessingOUID != "" {
+		ouID = accessingOUID
+	}
+	if ouID == "" {
 		return nil, nil
 	}
 
@@ -586,10 +596,10 @@ func resolveClientOUAttributes(
 		return nil, nil
 	}
 
-	orgUnit, svcErr := ouService.GetOrganizationUnit(ctx, oauthApp.OUID)
+	orgUnit, svcErr := ouService.GetOrganizationUnit(ctx, ouID)
 	if svcErr != nil {
 		return nil, fmt.Errorf("failed to fetch organization unit %s for app %s: %s",
-			oauthApp.OUID, oauthApp.ID, svcErr.Error)
+			ouID, oauthApp.ID, svcErr.Error)
 	}
 
 	claims := make(map[string]interface{})
@@ -635,7 +645,7 @@ func resolveClientEntityAttributes(
 	return filtered, nil
 }
 
-// resolveClientSystemAttributes returns the agent system attributes (name, owner) selected by
+// resolveClientSystemAttributes returns the agent system attribute (owner) selected by
 // ClientConfig.Attributes, read from Entity.SystemAttributes. Restricted to agent entities so an
 // application client can never surface these claims regardless of its stored allow-list.
 func resolveClientSystemAttributes(

@@ -66,7 +66,7 @@ export default function AgentsList(): JSX.Element {
           <ListingTable.CellIcon
             sx={{width: '100%'}}
             icon={<ResourceAvatar size={30} value={params.row.logoUrl} fallback={AgentConstants.DEFAULT_AVATAR} />}
-            primary={params.row.name}
+            primary={params.row.display ?? params.row.id}
             secondary={params.row.description}
           />
         ),
@@ -84,7 +84,7 @@ export default function AgentsList(): JSX.Element {
       },
       {
         field: 'ouHandle',
-        headerName: t('agents:listing.columns.organizationUnit', 'Organization Unit'),
+        headerName: t('agents:listing.columns.organizationUnit', 'Organization unit'),
         flex: 0.5,
         minWidth: 150,
         renderCell: (params: DataGrid.GridRenderCellParams<BasicAgent>): JSX.Element => (
@@ -105,7 +105,7 @@ export default function AgentsList(): JSX.Element {
         renderCell: (params: DataGrid.GridRenderCellParams<BasicAgent>): JSX.Element => (
           <ListingTable.RowActions>
             {params.row.isReadOnly ? (
-              <Tooltip title={t('common:status.readOnly', 'Read Only')}>
+              <Tooltip title={t('common:status.readOnly', 'Read only')}>
                 <IconButton size="small" disableRipple sx={{cursor: 'default'}}>
                   <Eye size={16} />
                 </IconButton>

@@ -1,7 +1,7 @@
 // Copyright 2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import {ExternalLink} from '@thunderid/components';
+import {DocumentTitle, ExternalLink} from '@thunderid/components';
 import {useGetAgentTypes} from '@thunderid/configure-agent-types';
 import {useLogger} from '@thunderid/logger/react';
 import {Button, PageContent, PageTitle} from '@wso2/oxygen-ui';
@@ -11,7 +11,7 @@ import {useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router';
 import AgentsList from '../components/AgentsList';
 import useAgentRoutes from '../hooks/useAgentRoutes';
-import {DEFAULT_AGENT_TYPE_NAME} from '../models/agent';
+import {DEFAULT_AGENT_TYPE_HANDLE} from '../models/agent';
 
 export default function AgentsListPage(): JSX.Element {
   const routes = useAgentRoutes();
@@ -22,7 +22,7 @@ export default function AgentsListPage(): JSX.Element {
   // Agent types are restricted to a single bootstrap-provisioned `default` schema; the Schema
   // button jumps to its edit page so operators can manage attribute definitions in place.
   const {data: agentTypesData, isLoading: isAgentTypesLoading} = useGetAgentTypes();
-  const defaultAgentType = agentTypesData?.types?.find((s) => s.name === DEFAULT_AGENT_TYPE_NAME);
+  const defaultAgentType = agentTypesData?.types?.find((s) => s.handle === DEFAULT_AGENT_TYPE_HANDLE);
 
   const handleSchemaClick = (): void => {
     if (!defaultAgentType) return;
@@ -35,6 +35,7 @@ export default function AgentsListPage(): JSX.Element {
 
   return (
     <PageContent>
+      <DocumentTitle title={t('agents:listing.title', 'Agents')} />
       <PageTitle>
         <PageTitle.Header>{t('agents:listing.title', 'Agents')}</PageTitle.Header>
         <PageTitle.SubHeader>
@@ -63,7 +64,7 @@ export default function AgentsListPage(): JSX.Element {
               });
             }}
           >
-            {t('agents:listing.addAgent', 'Add Agent')}
+            {t('agents:listing.addAgent', 'Add agent')}
           </Button>
         </PageTitle.Actions>
       </PageTitle>

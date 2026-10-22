@@ -41,7 +41,6 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/usermgtprovider"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/common"
-	"github.com/thunder-id/thunderid/pkg/thunderidengine/config"
 	engineconfig "github.com/thunder-id/thunderid/pkg/thunderidengine/config"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 )
@@ -193,26 +192,32 @@ func New(mux *http.ServeMux, opts ...Option) *Engine {
 	engineCtx.flowExecService, err = flowexec.Initialize(mux, engineCtx.flowProvider, engineCtx.actorProvider,
 		engineCtx.execRegistry, engineCtx.interceptorRegistry, engineCtx.observabilitySvc,
 		engineCtx.runtimeCryptoSvc, engineCtx.attestationProvider, engineCtx.graphBuilder,
-		engineCtx.jwtService, engineCtx.runtimeStoreProvider, engineCtx.transactioner, nil, flowConfig)
+		engineCtx.jwtService, engineCtx.runtimeStoreProvider, engineCtx.transactioner, nil, nil, flowConfig)
 	if err != nil {
 		logger.Fatal(ctx, "Failed to initialize flow execution service", log.Error(err))
 	}
 
 	oauthConfig := oauthconfig.Config{
-		DeploymentID:           engineCtx.serverConfig.Identifier,
-		RuntimeTransientDBType: engineCtx.runtimeTransientDBType,
-		BaseURL:                config.GetServerURL(&engineCtx.serverConfig),
-		JWT:                    engineCtx.jwtConfig,
-		OAuth:                  engineCtx.oauthConfig,
-		GateClient:             engineCtx.gateClientConfig,
+		DeploymentID:               engineCtx.serverConfig.Identifier,
+		RuntimeTransientDBType:     engineCtx.runtimeTransientDBType,
+		BaseURL:                    engineconfig.GetServerURL(&engineCtx.serverConfig),
+		JWT:                        engineCtx.jwtConfig,
+		OAuth:                      engineCtx.oauthConfig,
+		GateClient:                 engineCtx.gateClientConfig,
+		EnableOUQualifiedEndpoints: engineCtx.serverConfig.EnableOUQualifiedEndpoints,
 	}
+	// With no SSO session store there is no session termination to deliver, so back-channel logout is
+	// off: no dispatcher is built and discovery does not advertise it.
+	backchannelOff := false
+	oauthConfig.OAuth.Logout.Backchannel.Enabled = &backchannelOff
 
 	engineCtx.dpopVerifier = dpop.Initialize(oauthConfig, jti.Initialize(engineCtx.runtimeStoreProvider),
 		engineCtx.runtimeCryptoSvc)
-	tokenFamilyRevocationTTL := time.Duration(engineCtx.oauthConfig.RefreshToken.ValidityPeriod) * time.Second
-	revocationEnforcer, revocationService := revocation.Initialize(engineCtx.jwtService,
-		engineCtx.observabilitySvc, tokenFamilyRevocationTTL,
-		engineCtx.oauthConfig.Revocation.TokenFamily.OnExplicitRevokeEnabled())
+	revocationEnforcer, revocationService, err := revocation.Initialize(oauthConfig, engineCtx.jwtService,
+		engineCtx.observabilitySvc)
+	if err != nil {
+		logger.Fatal(ctx, "Failed to initialize revocation service", log.Error(err))
+	}
 
 	// CORS origins come from the engine's static OriginConfig; unlike the full server there is no
 	// server-config store to back a dynamic matcher. An empty config leaves CORS disabled (matcher
@@ -229,14 +234,14 @@ func New(mux *http.ServeMux, opts ...Option) *Engine {
 	// resource provider is passed undecorated. Implicit no-resource requests that carry permission
 	// scopes are rejected (the provider resolves no server for an empty identifier); OIDC-only or
 	// scopeless requests do not need resource-server binding.
-	_, err = oauth.Initialize(mux, engineCtx.actorProvider, authnProviderManager, engineCtx.jwtService,
+	_, _, err = oauth.Initialize(mux, engineCtx.actorProvider, authnProviderManager, engineCtx.jwtService,
 		engineCtx.jweService, engineCtx.flowExecService, engineCtx.observabilitySvc, engineCtx.runtimeCryptoSvc,
 		engineCtx.ouProvider, engineCtx.attributeCacheService, engineCtx.authzProvider, engineCtx.resourceProvider,
 		engineCtx.i18nProvider, engineCtx.idpProvider, engineCtx.dpopVerifier, engineCtx.runtimeStoreProvider,
 		engineCtx.transactioner, revocationEnforcer, revocationService,
-		// The embedded engine has no SSO session store, so prompt=none keeps answering
-		// login_required rather than consulting a session.
-		nil, engineCtx.flowProvider, oauthConfig)
+		// The embedded engine has no SSO session store or SSO handle transport, so prompt=none keeps
+		// answering login_required rather than consulting a session.
+		nil, nil, engineCtx.flowProvider, oauthConfig)
 	if err != nil {
 		logger.Fatal(ctx, "Failed to initialize OAuth services", log.Error(err))
 	}

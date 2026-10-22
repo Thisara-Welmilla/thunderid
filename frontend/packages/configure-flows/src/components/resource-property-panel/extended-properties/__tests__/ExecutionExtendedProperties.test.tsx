@@ -1,4 +1,4 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 import {render, screen, fireEvent} from '@testing-library/react';
@@ -32,20 +32,14 @@ vi.mock('react-i18next', async (importOriginal) => ({
         'flows:core.executions.passkey.mode.verify': 'Passkey Verify',
         'flows:core.executions.passkey.mode.registerStart': 'Passkey Register Start',
         'flows:core.executions.passkey.mode.registerFinish': 'Passkey Register Finish',
-        'flows:core.executions.passkey.relyingPartyId.label': 'Relying Party ID',
+        'flows:core.executions.passkey.relyingPartyId.label': 'Relying party ID',
         'flows:core.executions.passkey.relyingPartyId.placeholder': 'Enter relying party ID',
         'flows:core.executions.passkey.relyingPartyId.hint': 'Relying party identifier hint',
-        'flows:core.executions.passkey.relyingPartyName.label': 'Relying Party Name',
+        'flows:core.executions.passkey.relyingPartyName.label': 'Relying party name',
         'flows:core.executions.passkey.relyingPartyName.placeholder': 'Enter relying party name',
         'flows:core.executions.passkey.relyingPartyName.hint': 'Relying party name hint',
-        'flows:core.executions.templateScenarios.userInvite': 'User Invite',
-        'flows:core.executions.templateScenarios.magicLink': 'Magic Link',
-        'flows:core.executions.templateScenarios.selfRegistration': 'Self Registration',
-        'flows:core.executions.templateScenarios.otp': 'OTP Verification',
-        'flows:core.executions.templateScenarios.passwordRecovery': 'Password Recovery',
-        'flows:core.executions.templateScenarios.cibaNotification': 'CIBA Notification',
         'flows:core.executions.consent.description': 'Configure the consent executor settings.',
-        'flows:core.executions.consent.timeout.label': 'Consent Timeout (seconds)',
+        'flows:core.executions.consent.timeout.label': 'Consent timeout (seconds)',
         'flows:core.executions.consent.timeout.placeholder': '0',
         'flows:core.executions.consent.timeout.hint':
           'Time in seconds before the consent request expires. Use 0 for no timeout.',
@@ -63,7 +57,7 @@ vi.mock('react-i18next', async (importOriginal) => ({
         'flows:core.executions.identifying.mode.label': 'Mode',
         'flows:core.executions.identifying.mode.placeholder': 'Select a mode',
         'flows:core.executions.identifying.mode.identify': 'Identify',
-        'flows:core.executions.identifying.mode.resolve': 'Resolve (Disambiguation)',
+        'flows:core.executions.identifying.mode.resolve': 'Resolve (disambiguation)',
       };
       return translations[key] || key;
     },
@@ -82,14 +76,42 @@ vi.mock('../../../../hooks/useValidationStatus', () => ({
   }),
 }));
 
-// Mock useIdentityProviders + useSMSProviders
+// Mock useIdentityProviders + useSMSProviders + useEmailProviders
 const mockIdentityProviders = vi.fn<() => {data: unknown[]; isLoading: boolean}>();
 const mockSMSProviders = vi.fn<() => {data: unknown[]; isLoading: boolean}>();
+const mockEmailProviders = vi.fn<() => {data?: unknown[]; isLoading: boolean; isError?: boolean}>();
 vi.mock('@thunderid/configure-connections', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@thunderid/configure-connections')>()),
+  useEmailProviders: () => mockEmailProviders(),
   useIdentityProviders: () => mockIdentityProviders(),
   useSMSProviders: () => mockSMSProviders(),
 }));
+
+// Mock useGetNotificationTemplates, which backs the Email/SMS template pickers.
+interface TemplatesState {
+  data: unknown[] | undefined;
+  isLoading: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+}
+const mockNotificationTemplates = vi.fn<() => TemplatesState>();
+vi.mock('../../../../api/useGetNotificationTemplates', () => ({
+  default: () => mockNotificationTemplates(),
+}));
+
+/** Builds a resolved (successful) query state for the template hook mock. */
+const loaded = (data: unknown[]): TemplatesState => ({data, isLoading: false, isSuccess: true, isError: false});
+
+/** Builds a failed query state for the template hook mock. */
+const failed = (): TemplatesState => ({data: undefined, isLoading: false, isSuccess: false, isError: true});
+
+const emailTemplates = [
+  {id: 'id-1', handle: 'otp', displayName: 'OTP Verification', self: ''},
+  {id: 'id-2', handle: 'user-invite', displayName: 'User Invite', self: ''},
+  {id: 'id-3', handle: 'password-recovery', displayName: 'Password recovery', self: ''},
+  {id: 'id-4', handle: 'magic-link', displayName: 'Magic link', self: ''},
+];
+const smsTemplates = [{id: 'sms-1', handle: 'otp', displayName: 'OTP Verification', self: ''}];
 
 describe('ExecutionExtendedProperties', () => {
   const mockOnChange = vi.fn();
@@ -101,6 +123,11 @@ describe('ExecutionExtendedProperties', () => {
       isLoading: false,
     });
     mockSMSProviders.mockReturnValue({
+      data: [],
+      isLoading: false,
+    });
+    mockNotificationTemplates.mockReturnValue(loaded([]));
+    mockEmailProviders.mockReturnValue({
       data: [],
       isLoading: false,
     });
@@ -484,8 +511,8 @@ describe('ExecutionExtendedProperties', () => {
 
       render(<ExecutionExtendedProperties resource={resourceWithChallengeMode} onChange={mockOnChange} />);
 
-      expect(screen.getByLabelText('Relying Party ID')).toBeInTheDocument();
-      expect(screen.getByLabelText('Relying Party Name')).toBeInTheDocument();
+      expect(screen.getByLabelText('Relying party ID')).toBeInTheDocument();
+      expect(screen.getByLabelText('Relying party name')).toBeInTheDocument();
     });
 
     it('should show relying party fields for register_start mode', () => {
@@ -504,8 +531,8 @@ describe('ExecutionExtendedProperties', () => {
 
       render(<ExecutionExtendedProperties resource={resourceWithRegisterStartMode} onChange={mockOnChange} />);
 
-      expect(screen.getByLabelText('Relying Party ID')).toBeInTheDocument();
-      expect(screen.getByLabelText('Relying Party Name')).toBeInTheDocument();
+      expect(screen.getByLabelText('Relying party ID')).toBeInTheDocument();
+      expect(screen.getByLabelText('Relying party name')).toBeInTheDocument();
     });
 
     it('should not show relying party fields for verify mode', () => {
@@ -524,8 +551,8 @@ describe('ExecutionExtendedProperties', () => {
 
       render(<ExecutionExtendedProperties resource={resourceWithVerifyMode} onChange={mockOnChange} />);
 
-      expect(screen.queryByLabelText('Relying Party ID')).not.toBeInTheDocument();
-      expect(screen.queryByLabelText('Relying Party Name')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Relying party ID')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Relying party name')).not.toBeInTheDocument();
     });
 
     it('should call onChange for relying party fields', () => {
@@ -544,8 +571,8 @@ describe('ExecutionExtendedProperties', () => {
 
       render(<ExecutionExtendedProperties resource={resourceWithChallengeMode} onChange={mockOnChange} />);
 
-      const relyingPartyIdInput = screen.getByLabelText('Relying Party ID');
-      const relyingPartyNameInput = screen.getByLabelText('Relying Party Name');
+      const relyingPartyIdInput = screen.getByLabelText('Relying party ID');
+      const relyingPartyNameInput = screen.getByLabelText('Relying party name');
 
       fireEvent.change(relyingPartyIdInput, {target: {value: 'localhost'}});
       fireEvent.blur(relyingPartyIdInput);
@@ -632,7 +659,7 @@ describe('ExecutionExtendedProperties', () => {
       render(<ExecutionExtendedProperties resource={consentResource} onChange={mockOnChange} />);
 
       expect(screen.getByText('Configure the consent executor settings.')).toBeInTheDocument();
-      expect(screen.getByLabelText('Consent Timeout (seconds)')).toBeInTheDocument();
+      expect(screen.getByLabelText('Consent timeout (seconds)')).toBeInTheDocument();
       expect(
         screen.getByText('Time in seconds before the consent request expires. Use 0 for no timeout.'),
       ).toBeInTheDocument();
@@ -641,7 +668,7 @@ describe('ExecutionExtendedProperties', () => {
     it('should default timeout to 0 when value is not set', () => {
       render(<ExecutionExtendedProperties resource={consentResource} onChange={mockOnChange} />);
 
-      expect(screen.getByLabelText('Consent Timeout (seconds)')).toHaveValue(0);
+      expect(screen.getByLabelText('Consent timeout (seconds)')).toHaveValue(0);
     });
 
     it('should commit the timeout on blur', () => {
@@ -657,7 +684,7 @@ describe('ExecutionExtendedProperties', () => {
 
       render(<ExecutionExtendedProperties resource={consentResourceWithTimeout} onChange={mockOnChange} />);
 
-      const timeoutInput = screen.getByLabelText('Consent Timeout (seconds)');
+      const timeoutInput = screen.getByLabelText('Consent timeout (seconds)');
       fireEvent.change(timeoutInput, {
         target: {value: '45'},
       });
@@ -669,7 +696,7 @@ describe('ExecutionExtendedProperties', () => {
     it('should not commit the timeout while typing', () => {
       render(<ExecutionExtendedProperties resource={consentResource} onChange={mockOnChange} />);
 
-      const timeoutInput = screen.getByLabelText('Consent Timeout (seconds)');
+      const timeoutInput = screen.getByLabelText('Consent timeout (seconds)');
       fireEvent.change(timeoutInput, {target: {value: '45'}});
 
       expect(mockOnChange).not.toHaveBeenCalled();
@@ -687,7 +714,7 @@ describe('ExecutionExtendedProperties', () => {
 
       render(<ExecutionExtendedProperties resource={consentResourceWithTimeout} onChange={mockOnChange} />);
 
-      const timeoutInput = screen.getByLabelText('Consent Timeout (seconds)');
+      const timeoutInput = screen.getByLabelText('Consent timeout (seconds)');
       fireEvent.change(timeoutInput, {target: {value: ''}});
       fireEvent.blur(timeoutInput);
 
@@ -705,7 +732,7 @@ describe('ExecutionExtendedProperties', () => {
 
       render(<ExecutionExtendedProperties resource={consentResourceWithTimeout} onChange={mockOnChange} />);
 
-      const timeoutInput = screen.getByLabelText('Consent Timeout (seconds)');
+      const timeoutInput = screen.getByLabelText('Consent timeout (seconds)');
       fireEvent.change(timeoutInput, {target: {value: '-5'}});
       fireEvent.blur(timeoutInput);
 
@@ -715,7 +742,7 @@ describe('ExecutionExtendedProperties', () => {
     it('should floor decimal timeout to integer on blur', () => {
       render(<ExecutionExtendedProperties resource={consentResource} onChange={mockOnChange} />);
 
-      const timeoutInput = screen.getByLabelText('Consent Timeout (seconds)');
+      const timeoutInput = screen.getByLabelText('Consent timeout (seconds)');
       fireEvent.change(timeoutInput, {target: {value: '3.7'}});
       fireEvent.blur(timeoutInput);
 
@@ -725,7 +752,7 @@ describe('ExecutionExtendedProperties', () => {
     it('should commit the timeout on Enter', () => {
       render(<ExecutionExtendedProperties resource={consentResource} onChange={mockOnChange} />);
 
-      const timeoutInput = screen.getByLabelText('Consent Timeout (seconds)');
+      const timeoutInput = screen.getByLabelText('Consent timeout (seconds)');
       fireEvent.change(timeoutInput, {target: {value: '15'}});
       fireEvent.keyDown(timeoutInput, {key: 'Enter'});
 
@@ -878,6 +905,10 @@ describe('ExecutionExtendedProperties', () => {
       },
     } as unknown as Resource;
 
+    beforeEach(() => {
+      mockNotificationTemplates.mockReturnValue(loaded(emailTemplates));
+    });
+
     it('should render email template configuration', () => {
       render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
 
@@ -885,31 +916,31 @@ describe('ExecutionExtendedProperties', () => {
       expect(screen.getByLabelText('flows:core.executions.email.emailTemplate.label')).toBeInTheDocument();
     });
 
-    it('should offer the supported template scenarios with readable labels', async () => {
+    it('should offer the fetched templates with their display names as labels', async () => {
       render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
 
       await userEvent.click(screen.getByLabelText('flows:core.executions.email.emailTemplate.label'));
 
       expect(screen.getByRole('option', {name: 'OTP Verification'})).toBeInTheDocument();
       expect(screen.getByRole('option', {name: 'User Invite'})).toBeInTheDocument();
-      expect(screen.getByRole('option', {name: 'Password Recovery'})).toBeInTheDocument();
+      expect(screen.getByRole('option', {name: 'Password recovery'})).toBeInTheDocument();
     });
 
-    it('should commit the raw scenario value for the selected label', async () => {
+    it('should commit the template handle for the selected label', async () => {
       render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
 
       await userEvent.click(screen.getByLabelText('flows:core.executions.email.emailTemplate.label'));
-      await userEvent.click(screen.getByRole('option', {name: 'Magic Link'}));
+      await userEvent.click(screen.getByRole('option', {name: 'Magic link'}));
 
-      expect(mockOnChange).toHaveBeenCalledWith('data.properties.emailTemplate', 'MAGIC_LINK', emailResource);
+      expect(mockOnChange).toHaveBeenCalledWith('data.properties.emailTemplate', 'magic-link', emailResource);
     });
 
-    it('should find a scenario by searching its readable label', async () => {
+    it('should find a template by searching its display name', async () => {
       render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
 
-      await userEvent.type(screen.getByLabelText('flows:core.executions.email.emailTemplate.label'), 'recov');
+      await userEvent.type(screen.getByLabelText('flows:core.executions.email.emailTemplate.label'), 'Recovery');
 
-      expect(screen.getByRole('option', {name: 'Password Recovery'})).toBeInTheDocument();
+      expect(screen.getByRole('option', {name: 'Password recovery'})).toBeInTheDocument();
       expect(screen.queryByRole('option', {name: 'User Invite'})).not.toBeInTheDocument();
     });
 
@@ -918,31 +949,80 @@ describe('ExecutionExtendedProperties', () => {
         ...emailResource,
         data: {
           ...(emailResource as unknown as {data: object}).data,
-          properties: {emailTemplate: 'PASSWORD_RECOVERY'},
+          properties: {emailTemplate: 'password-recovery'},
         },
       } as unknown as Resource;
 
       render(<ExecutionExtendedProperties resource={resourceWithTemplate} onChange={mockOnChange} />);
 
-      expect(screen.getByLabelText('flows:core.executions.email.emailTemplate.label')).toHaveValue('Password Recovery');
+      expect(screen.getByLabelText('flows:core.executions.email.emailTemplate.label')).toHaveValue('Password recovery');
     });
 
-    it('should preserve a template scenario it does not know about', async () => {
+    // A failed read must not tell the user to create providers that may already exist.
+    it('should report a failed provider read instead of the no-providers warning', () => {
+      mockEmailProviders.mockReturnValue({data: undefined, isLoading: false, isError: true});
+      render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.email.sender.loadError')).toBeInTheDocument();
+      expect(screen.queryByText('flows:core.executions.email.sender.noSenders')).not.toBeInTheDocument();
+    });
+
+    it('should warn when the provider read succeeds with no providers', () => {
+      render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.email.sender.noSenders')).toBeInTheDocument();
+      expect(screen.queryByText('flows:core.executions.email.sender.loadError')).not.toBeInTheDocument();
+    });
+
+    // A failed read must not tell the user to create providers that may already exist.
+    it('should report a failed provider read instead of the no-providers warning', () => {
+      mockEmailProviders.mockReturnValue({data: undefined, isLoading: false, isError: true});
+      render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.email.sender.loadError')).toBeInTheDocument();
+      expect(screen.queryByText('flows:core.executions.email.sender.noSenders')).not.toBeInTheDocument();
+    });
+
+    it('should warn when the provider read succeeds with no providers', () => {
+      render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.email.sender.noSenders')).toBeInTheDocument();
+      expect(screen.queryByText('flows:core.executions.email.sender.loadError')).not.toBeInTheDocument();
+    });
+
+    it('should preserve a template handle it does not know about', async () => {
       const resourceWithUnknownTemplate = {
         ...emailResource,
         data: {
           ...(emailResource as unknown as {data: object}).data,
-          properties: {emailTemplate: 'CUSTOM_SCENARIO'},
+          properties: {emailTemplate: 'custom-handle'},
         },
       } as unknown as Resource;
 
       render(<ExecutionExtendedProperties resource={resourceWithUnknownTemplate} onChange={mockOnChange} />);
 
       const input = screen.getByLabelText('flows:core.executions.email.emailTemplate.label');
-      expect(input).toHaveValue('CUSTOM_SCENARIO');
+      expect(input).toHaveValue('custom-handle');
 
       await userEvent.click(input);
-      expect(screen.getByRole('option', {name: 'CUSTOM_SCENARIO'})).toBeInTheDocument();
+      expect(screen.getByRole('option', {name: 'custom-handle'})).toBeInTheDocument();
+    });
+
+    it('should warn when no email templates are available', () => {
+      mockNotificationTemplates.mockReturnValue(loaded([]));
+
+      render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.email.emailTemplate.noTemplates')).toBeInTheDocument();
+    });
+
+    it('should report a load error without the empty-templates warning', () => {
+      mockNotificationTemplates.mockReturnValue(failed());
+
+      render(<ExecutionExtendedProperties resource={emailResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.email.emailTemplate.loadError')).toBeInTheDocument();
+      expect(screen.queryByText('flows:core.executions.email.emailTemplate.noTemplates')).not.toBeInTheDocument();
     });
   });
 
@@ -963,6 +1043,10 @@ describe('ExecutionExtendedProperties', () => {
       },
     } as unknown as Resource;
 
+    beforeEach(() => {
+      mockNotificationTemplates.mockReturnValue(loaded(smsTemplates));
+    });
+
     it('should render SMS template and sender configuration', () => {
       mockSMSProviders.mockReturnValue({
         data: [{id: 'sender-1', name: 'Twilio'}],
@@ -976,7 +1060,7 @@ describe('ExecutionExtendedProperties', () => {
       expect(screen.getByText('Sender')).toBeInTheDocument();
     });
 
-    it('should commit the selected SMS template immediately', async () => {
+    it('should commit the selected SMS template handle immediately', async () => {
       mockSMSProviders.mockReturnValue({
         data: [],
         isLoading: false,
@@ -987,7 +1071,24 @@ describe('ExecutionExtendedProperties', () => {
       await userEvent.click(screen.getByLabelText('flows:core.executions.sms.smsTemplate.label'));
       await userEvent.click(screen.getByRole('option', {name: 'OTP Verification'}));
 
-      expect(mockOnChange).toHaveBeenCalledWith('data.properties.smsTemplate', 'OTP', smsResource);
+      expect(mockOnChange).toHaveBeenCalledWith('data.properties.smsTemplate', 'otp', smsResource);
+    });
+
+    it('should warn when no SMS templates are available', () => {
+      mockNotificationTemplates.mockReturnValue(loaded([]));
+
+      render(<ExecutionExtendedProperties resource={smsResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.sms.smsTemplate.noTemplates')).toBeInTheDocument();
+    });
+
+    it('should report a load error without the empty-templates warning', () => {
+      mockNotificationTemplates.mockReturnValue(failed());
+
+      render(<ExecutionExtendedProperties resource={smsResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.sms.smsTemplate.loadError')).toBeInTheDocument();
+      expect(screen.queryByText('flows:core.executions.sms.smsTemplate.noTemplates')).not.toBeInTheDocument();
     });
 
     it('should show warning when no senders are available', () => {
@@ -1696,6 +1797,26 @@ describe('ExecutionExtendedProperties', () => {
     });
   });
 
+  describe('Account Linking Executor', () => {
+    const linkingResource = {
+      id: 'linking-1',
+      data: {
+        action: {
+          executor: {
+            name: ExecutionTypes.AccountLinking,
+          },
+        },
+        properties: {},
+      },
+    } as unknown as Resource;
+
+    it('should render NoConfigProperties message', () => {
+      render(<ExecutionExtendedProperties resource={linkingResource} onChange={mockOnChange} />);
+
+      expect(screen.getByText('flows:core.executions.noConfig.description')).toBeInTheDocument();
+    });
+  });
+
   describe('Identifying Executor', () => {
     const identifyingResource = {
       id: 'identifying-executor-1',
@@ -1728,7 +1849,7 @@ describe('ExecutionExtendedProperties', () => {
       await user.click(select);
 
       expect(screen.getByText('Identify')).toBeInTheDocument();
-      expect(screen.getByText('Resolve (Disambiguation)')).toBeInTheDocument();
+      expect(screen.getByText('Resolve (disambiguation)')).toBeInTheDocument();
     });
 
     it('should call onChange with updated data when identify mode is selected', async () => {
@@ -1763,7 +1884,7 @@ describe('ExecutionExtendedProperties', () => {
 
       const select = screen.getByRole('combobox');
       await user.click(select);
-      await user.click(screen.getByText('Resolve (Disambiguation)'));
+      await user.click(screen.getByText('Resolve (disambiguation)'));
 
       expect(mockOnChange).toHaveBeenCalledWith(
         'data',
@@ -1779,6 +1900,31 @@ describe('ExecutionExtendedProperties', () => {
         }),
         identifyingResource,
       );
+    });
+  });
+
+  describe('Access change executors', () => {
+    const makeResource = (name: string, mode: string): Resource =>
+      ({
+        id: `${name}-1`,
+        data: {
+          action: {
+            executor: {name, mode},
+          },
+        },
+      }) as unknown as Resource;
+
+    it.each([
+      [ExecutionTypes.AccessChangeValidator, 'role_deletion', 'accessChangeValidator'],
+      [ExecutionTypes.RoleExecutor, 'role_deletion', 'roleExecutor'],
+      [ExecutionTypes.GroupExecutor, 'group_membership_removal', 'groupExecutor'],
+      [ExecutionTypes.CriteriaRevocation, 'advance_cutoff', 'criteriaRevocation'],
+    ])('should route %s to its mode selector and hide the inputs editor', (name, mode, namespace) => {
+      render(<ExecutionExtendedProperties resource={makeResource(name, mode)} onChange={mockOnChange} />);
+
+      expect(screen.getByText(`flows:core.executions.${namespace}.description`)).toBeInTheDocument();
+      expect(screen.getByText(`flows:core.executions.${namespace}.mode.label`)).toBeInTheDocument();
+      expect(screen.queryByText('flows:core.executions.inputs.title')).not.toBeInTheDocument();
     });
   });
 

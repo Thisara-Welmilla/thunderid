@@ -57,19 +57,19 @@ describe('EditAgentAttributes', () => {
     id: 'agent-1',
     ouId: 'ou-1',
     type: 'default',
-    name: 'Test',
     attributes: {email: 'a@b.com', count: 5},
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseGetAgentTypes.mockReturnValue({
-      data: {types: [{id: 'schema-1', name: 'default', ouId: 'ou-1'}]},
+      data: {types: [{id: 'schema-1', handle: 'default', displayName: 'Default', ouId: 'ou-1'}]},
     });
     mockUseGetAgentType.mockReturnValue({
       data: {
         id: 'schema-1',
-        name: 'default',
+        handle: 'default',
+        displayName: 'Default',
         ouId: 'ou-1',
         schema: {
           email: {type: 'string', required: true},
@@ -106,7 +106,13 @@ describe('EditAgentAttributes', () => {
 
   it('shows a message when the schema has no editable fields', () => {
     mockUseGetAgentType.mockReturnValue({
-      data: {id: 'schema-1', name: 'default', ouId: 'ou-1', schema: {password: {type: 'string', credential: true}}},
+      data: {
+        id: 'schema-1',
+        handle: 'default',
+        displayName: 'Default',
+        ouId: 'ou-1',
+        schema: {password: {type: 'string', credential: true}},
+      },
       isLoading: false,
     });
     render(<EditAgentAttributes agent={baseAgent} editedAgent={{}} onFieldChange={mockOnFieldChange} />);
@@ -133,7 +139,8 @@ describe('EditAgentAttributes', () => {
     mockUseGetAgentType.mockReturnValue({
       data: {
         id: 'schema-1',
-        name: 'default',
+        handle: 'default',
+        displayName: 'Default',
         ouId: 'ou-1',
         schema: {email: {type: 'string', required: true}, count: {type: 'number'}},
       },

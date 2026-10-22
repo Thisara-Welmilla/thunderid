@@ -1,8 +1,19 @@
 // Copyright 2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import {PageLoadingAnimation, QueryErrorNotice, ResourceAvatar, UnsavedChangesBar} from '@thunderid/components';
+import {
+  DocumentTitle,
+  PageLoadingAnimation,
+  QueryErrorNotice,
+  ResourceAvatar,
+  UnsavedChangesBar,
+} from '@thunderid/components';
 import {useGetAgentType, useGetAgentTypes} from '@thunderid/configure-agent-types';
+import {
+  getBackchannelLogoutUriServerError,
+  hasUserAccess,
+  validateBackchannelLogoutUri,
+} from '@thunderid/configure-applications';
 import {dropNonConformingOptionalAttributes} from '@thunderid/configure-users';
 import {useLogger} from '@thunderid/logger/react';
 import {getErrorMessage, isEqualIgnoringEmpty} from '@thunderid/utils';
@@ -89,7 +100,7 @@ export default function AgentEditPage(): JSX.Element {
 
   // The agent's type schema, used to drop stale attribute values on save.
   const {data: agentTypesData, isLoading: isTypesLoading} = useGetAgentTypes();
-  const matchedSchema = agentTypesData?.types?.find((s) => s.name === agent?.type);
+  const matchedSchema = agentTypesData?.types?.find((s) => s.handle === agent?.type);
   const {data: agentTypeDetails, isLoading: isTypeLoading} = useGetAgentType(matchedSchema?.id);
   // Block save until the schema settles, else stale values bypass sanitization.
   const isSchemaResolving = isTypesLoading || isTypeLoading;
@@ -97,9 +108,7 @@ export default function AgentEditPage(): JSX.Element {
   const [activeTab, setActiveTab] = useState(0);
   const [editedAgent, setEditedAgent] = useState<Partial<Agent>>({});
   const [sectionResetKey, setSectionResetKey] = useState(0);
-  const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
-  const [tempName, setTempName] = useState('');
   const [tempDescription, setTempDescription] = useState('');
   const [validationErrorSources, setValidationErrorSources] = useState<Record<string, boolean>>({});
   const handleValidationChange = useCallback(
@@ -113,6 +122,7 @@ export default function AgentEditPage(): JSX.Element {
     [],
   );
   const hasAnyOtherValidationError = Object.values(validationErrorSources).some(Boolean);
+  const [backchannelLogoutUriInvalid, setBackchannelLogoutUriInvalid] = useState(false);
 
   const handleBack = async () => {
     await navigate(routes.agents.list());
@@ -136,23 +146,12 @@ export default function AgentEditPage(): JSX.Element {
     [isUpdateAgentError, resetUpdateAgent],
   );
 
-  const commitName = useCallback(
-    (value: string): void => {
-      const trimmedName = value.trim();
-      // The API rejects names outside these bounds, so an out of range rename is discarded here.
-      if (trimmedName.length < AgentConstants.NAME_MIN_LENGTH || trimmedName.length > AgentConstants.NAME_MAX_LENGTH) {
-        return;
-      }
-      handleFieldChange('name', trimmedName);
-    },
-    [handleFieldChange],
-  );
-
   const handleSave = useCallback(async () => {
     if (!agent || !agentId) return;
 
-    const {certificate, ...updatedData} = {...agent, ...editedAgent} as Agent & {certificate?: unknown};
+    const {certificate, display, ...updatedData} = {...agent, ...editedAgent} as Agent & {certificate?: unknown};
     void certificate;
+    void display;
 
     // Drop stale optional attribute values so an untouched mismatch doesn't block the update.
     const attributes = dropNonConformingOptionalAttributes(updatedData.attributes ?? {}, agentTypeDetails?.schema);
@@ -172,13 +171,21 @@ export default function AgentEditPage(): JSX.Element {
     [editedAgent, agent],
   );
 
+  const resourceTypeTitle = t('agents:listing.title', 'Agents');
+
   if (isLoading || isSchemaResolving) {
-    return <PageLoadingAnimation />;
+    return (
+      <>
+        <DocumentTitle title={resourceTypeTitle} />
+        <PageLoadingAnimation />
+      </>
+    );
   }
 
   if (error) {
     return (
       <PageContent>
+        <DocumentTitle title={resourceTypeTitle} />
         <QueryErrorNotice
           error={error}
           t={tForErrors}
@@ -198,6 +205,7 @@ export default function AgentEditPage(): JSX.Element {
   if (!agent) {
     return (
       <PageContent>
+        <DocumentTitle title={resourceTypeTitle} />
         <Alert severity="warning" sx={{mb: 2}}>
           {t('agents:edit.page.notFound', 'Agent not found')}
         </Alert>
@@ -231,8 +239,18 @@ export default function AgentEditPage(): JSX.Element {
   const isMissingAllowedUserType = hasAuthorizationCodeGrant && allowedUserTypes.length === 0;
   const isMissingCertificate =
     oauth2Config?.tokenEndpointAuthMethod === 'private_key_jwt' && !oauth2Config?.certificate?.value;
+  // The field shows only with a user-facing grant, so a hidden value never blocks saving. The field
+  // also reports a typed value it has not committed because it is invalid.
+  const isInvalidBackchannelLogoutUri =
+    hasUserAccess(oauth2Config?.grantTypes) &&
+    (backchannelLogoutUriInvalid ||
+      !validateBackchannelLogoutUri(oauth2Config?.backchannelLogoutUri, oauth2Config?.publicClient ?? false).valid);
   const hasAnyValidationError =
-    hasAnyOtherValidationError || isMissingRedirectUri || isMissingAllowedUserType || isMissingCertificate;
+    hasAnyOtherValidationError ||
+    isMissingRedirectUri ||
+    isMissingAllowedUserType ||
+    isMissingCertificate ||
+    isInvalidBackchannelLogoutUri;
 
   // ResourceAvatar opens its picker on any avatar click while onSelect is set, so a read-only
   // agent has to withhold the callback rather than rely on `editable` alone.
@@ -251,6 +269,11 @@ export default function AgentEditPage(): JSX.Element {
   }
   if (isMissingCertificate) {
     validationIssues.push(t('agents:edit.page.validation.missingCertificate', 'add a certificate'));
+  }
+  if (isInvalidBackchannelLogoutUri) {
+    validationIssues.push(
+      t('agents:edit.page.validation.invalidBackchannelLogoutUri', 'fix the back-channel logout URI'),
+    );
   }
   if (hasAnyOtherValidationError) {
     validationIssues.push(t('agents:edit.page.validation.tokenSettings', 'fix the token settings'));
@@ -360,10 +383,12 @@ export default function AgentEditPage(): JSX.Element {
     label: t('agents:edit.page.tabs.advanced', 'Advanced'),
     render: () => (
       <EditAdvancedSettings
+        key={sectionResetKey}
         agent={agent}
         editedAgent={editedAgent}
         oauth2Config={oauth2Config}
         onFieldChange={handleFieldChange}
+        onBackchannelLogoutUriValidationChange={setBackchannelLogoutUriInvalid}
         onDeleteSuccess={() => {
           void handleBack();
         }}
@@ -385,6 +410,7 @@ export default function AgentEditPage(): JSX.Element {
 
   return (
     <PageContent>
+      <DocumentTitle title={agent.display ?? agent.id} />
       {agent.isReadOnly && (
         <Alert severity="info" sx={{mb: 2}}>
           {t('common:messages.readOnlyResource', 'This resource is read-only and cannot be modified.')}
@@ -401,7 +427,7 @@ export default function AgentEditPage(): JSX.Element {
             editable={isLogoEditable}
             value={editedAgent.logoUrl ?? agent.logoUrl}
             fallback={AgentConstants.DEFAULT_AVATAR}
-            editAriaLabel={t('agents:edit.page.logoUpdate.label', 'Update Logo')}
+            editAriaLabel={t('agents:edit.page.logoUpdate.label', 'Update logo')}
             onSelect={
               isLogoEditable
                 ? (newLogoUrl: string) => {
@@ -427,41 +453,7 @@ export default function AgentEditPage(): JSX.Element {
         </PageTitle.Avatar>
         <PageTitle.Header>
           <Stack direction="row" alignItems="center" spacing={1} mb={1}>
-            {isEditingName ? (
-              <TextField
-                value={tempName}
-                onChange={(e) => setTempName(e.target.value)}
-                onBlur={() => {
-                  commitName(tempName);
-                  setIsEditingName(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    commitName(tempName);
-                    setIsEditingName(false);
-                  } else if (e.key === 'Escape') {
-                    setIsEditingName(false);
-                  }
-                }}
-                size="small"
-              />
-            ) : (
-              <>
-                <Typography variant="h3">{editedAgent.name ?? agent.name}</Typography>
-                {!agent.isReadOnly && (
-                  <IconButton
-                    size="small"
-                    onClick={() => {
-                      setTempName(editedAgent.name ?? agent.name);
-                      setIsEditingName(true);
-                    }}
-                    sx={{opacity: 0.6, '&:hover': {opacity: 1}}}
-                  >
-                    <Edit size={16} />
-                  </IconButton>
-                )}
-              </>
-            )}
+            <Typography variant="h3">{agent.display ?? agent.id}</Typography>
           </Stack>
         </PageTitle.Header>
         <PageTitle.SubHeader>
@@ -541,12 +533,13 @@ export default function AgentEditPage(): JSX.Element {
           saveDisabled={hasAnyValidationError || agent.isReadOnly === true}
           error={
             updateAgent.error
-              ? getErrorMessage(
+              ? (getBackchannelLogoutUriServerError(updateAgent.error, tForErrors) ??
+                getErrorMessage(
                   updateAgent.error,
                   tForErrors,
                   'update.error',
                   'Failed to update agent. Please try again.',
-                )
+                ))
               : undefined
           }
           onReset={() => {

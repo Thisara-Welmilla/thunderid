@@ -21,6 +21,7 @@ interface EditAdvancedSettingsProps {
   oauth2Config?: OAuthAgentConfig;
   onFieldChange: (field: keyof Agent, value: unknown) => void;
   onDeleteSuccess?: () => void;
+  onBackchannelLogoutUriValidationChange?: (hasError: boolean) => void;
 }
 
 export default function EditAdvancedSettings({
@@ -29,6 +30,7 @@ export default function EditAdvancedSettings({
   oauth2Config = undefined,
   onFieldChange,
   onDeleteSuccess = undefined,
+  onBackchannelLogoutUriValidationChange = undefined,
 }: EditAdvancedSettingsProps) {
   const {t} = useTranslation();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -60,7 +62,7 @@ export default function EditAdvancedSettings({
 
   return (
     <Stack spacing={3}>
-      <SettingsCard title={t('agents:edit.advanced.mode.title', 'Operating Mode')}>
+      <SettingsCard title={t('agents:edit.advanced.mode.title', 'Operating mode')}>
         <Box>
           <FormControlLabel
             control={
@@ -80,11 +82,11 @@ export default function EditAdvancedSettings({
             {isUnlocked
               ? t(
                   'agents:edit.advanced.mode.onBehalfOfUser.description',
-                  'This agent acts on behalf of a signed-in user, using Authorization Code with PKCE.',
+                  'This agent acts on behalf of a signed-in user, using authorization code with PKCE.',
                 )
               : t(
                   'agents:edit.advanced.mode.onOwnBehalf.description',
-                  'This agent authenticates with its own credentials without user interaction, using Client Credentials.',
+                  'This agent authenticates with its own credentials without user interaction, using client credentials.',
                 )}
           </Typography>
         </Box>
@@ -106,6 +108,7 @@ export default function EditAdvancedSettings({
       <OperationModesSection
         oauth2Config={oauth2Config}
         onOAuth2ConfigChange={handleOAuth2ConfigChange}
+        onBackchannelLogoutUriValidationChange={onBackchannelLogoutUriValidationChange}
         disabled={agent.isReadOnly}
       />
       {!agent.isReadOnly && <DangerZoneSection onDeleteClick={() => setDeleteDialogOpen(true)} />}

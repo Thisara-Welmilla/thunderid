@@ -1,4 +1,4 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package tokenservice
@@ -278,6 +278,12 @@ func (tb *tokenBuilder) buildAccessTokenClaims(
 		claims[key] = value
 	}
 
+	// Set after merging subject attributes so the organization the token was issued for wins over
+	// any organization claim the subject's own attributes carried.
+	for key, value := range ctx.OUAttributes {
+		claims[key] = value
+	}
+
 	// Set after merging subject attributes to prevent them from overwriting this system claim.
 	if ctx.AttributeCacheID != "" {
 		claims["aci"] = ctx.AttributeCacheID
@@ -437,7 +443,7 @@ func (tb *tokenBuilder) buildRefreshTokenClaims(ctx *RefreshTokenBuildContext) (
 	}
 
 	claims["access_token_sub"] = ctx.AccessTokenSubject
-	claims["access_token_aud"] = ctx.AccessTokenAudiences
+	claims[constants.ClaimAccessTokenAudience] = ctx.AccessTokenAudiences
 	claims["grant_type"] = ctx.GrantType
 
 	if ctx.ActorSub != "" {

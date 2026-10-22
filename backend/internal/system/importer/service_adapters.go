@@ -16,12 +16,15 @@ import (
 	thememgt "github.com/thunder-id/thunderid/internal/design/theme/mgt"
 	"github.com/thunder-id/thunderid/internal/entitytype"
 	"github.com/thunder-id/thunderid/internal/group"
+	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/user"
 	"github.com/thunder-id/thunderid/internal/vc/credential"
 	"github.com/thunder-id/thunderid/internal/vc/presentation"
 )
@@ -53,6 +56,18 @@ func (s *importService) resolveImportOUHandle(
 	return ouID, nil
 }
 
+// documentState returns a document's top-level state and whether it has a non-empty one.
+func documentState(doc parsedDocument) (string, bool) {
+	for i := 0; i+1 < len(doc.Node.Content); i += 2 {
+		if doc.Node.Content[i].Value != "state" {
+			continue
+		}
+		value := doc.Node.Content[i+1]
+		return value.Value, value.Value != "" || len(value.Content) > 0
+	}
+	return "", false
+}
+
 type roleDeclarativeYAML struct {
 	ID          string                     `yaml:"id"`
 	Name        string                     `yaml:"name"`
@@ -64,18 +79,20 @@ type roleDeclarativeYAML struct {
 }
 
 type userDeclarativeYAML struct {
-	ID          string                 `yaml:"id"`
-	Type        string                 `yaml:"type"`
-	OUID        string                 `yaml:"ouId,omitempty"`
-	OUHandle    string                 `yaml:"ouHandle,omitempty"`
-	Attributes  map[string]interface{} `yaml:"attributes"`
-	Credentials map[string]interface{} `yaml:"credentials,omitempty"`
+	ID              string                  `yaml:"id"`
+	Type            string                  `yaml:"type"`
+	OUID            string                  `yaml:"ouId,omitempty"`
+	OUHandle        string                  `yaml:"ouHandle,omitempty"`
+	Attributes      map[string]interface{}  `yaml:"attributes"`
+	Credentials     map[string]interface{}  `yaml:"credentials,omitempty"`
+	SharingPolicies []sharing.PolicyRequest `yaml:"sharingPolicies,omitempty"`
 }
 
 type entityTypeDeclarativeYAML struct {
 	ID                    string                       `yaml:"id"`
 	Category              entitytype.TypeCategory      `yaml:"category,omitempty"`
-	Name                  string                       `yaml:"name"`
+	Handle                string                       `yaml:"handle"`
+	DisplayName           string                       `yaml:"displayName"`
 	OUID                  string                       `yaml:"ouId,omitempty"`
 	OUHandle              string                       `yaml:"ouHandle,omitempty"`
 	AllowSelfRegistration bool                         `yaml:"allowSelfRegistration,omitempty"`
@@ -97,6 +114,24 @@ type layoutDeclarativeYAML struct {
 	DisplayName string      `yaml:"displayName"`
 	Description string      `yaml:"description,omitempty"`
 	Layout      interface{} `yaml:"layout"`
+}
+
+// notificationTemplateDeclarativeYAML is the import shape for a notification template.
+// It mirrors the API create model with an added channel discriminator.
+type notificationTemplateDeclarativeYAML struct {
+	Channel     string `yaml:"channel"`
+	Handle      string `yaml:"handle"`
+	OUID        string `yaml:"ouId,omitempty"`
+	OUHandle    string `yaml:"ouHandle,omitempty"`
+	DisplayName string `yaml:"displayName"`
+	Description string `yaml:"description"`
+	Content     struct {
+		Subject string `yaml:"subject"`
+		Body    string `yaml:"body"`
+	} `yaml:"content"`
+	Design *struct {
+		ColorScheme string `yaml:"colorScheme"`
+	} `yaml:"design"`
 }
 
 func (s *importService) importOrganizationUnit(
@@ -182,7 +217,7 @@ func (s *importService) importEntityType(
 
 	var req entityTypeDeclarativeYAML
 	if err := doc.Node.Decode(&req); err != nil {
-		return decodeErrorOutcome(resourceTypeEntityType, req.ID, req.Name, err)
+		return decodeErrorOutcome(resourceTypeEntityType, req.ID, req.DisplayName, err)
 	}
 
 	var (
@@ -198,7 +233,7 @@ func (s *importService) importEntityType(
 			return ImportItemOutcome{
 				ResourceType: resourceTypeEntityType,
 				ResourceID:   req.ID,
-				ResourceName: req.Name,
+				ResourceName: req.DisplayName,
 				Status:       statusFailed,
 				Code:         ErrorInvalidYAMLContent.Code,
 				Message:      fmt.Sprintf("failed to marshal schema: %v", err),
@@ -218,7 +253,7 @@ func (s *importService) importEntityType(
 		return ImportItemOutcome{
 			ResourceType: resourceTypeEntityType,
 			ResourceID:   req.ID,
-			ResourceName: req.Name,
+			ResourceName: req.DisplayName,
 			Status:       statusFailed,
 			Code:         ErrorInvalidYAMLContent.Code,
 			Message:      fmt.Sprintf("invalid entity type category %q", string(category)),
@@ -227,7 +262,8 @@ func (s *importService) importEntityType(
 
 	createReq := entitytype.CreateEntityTypeRequestWithID{
 		ID:                    req.ID,
-		Name:                  req.Name,
+		Handle:                req.Handle,
+		DisplayName:           req.DisplayName,
 		OUID:                  req.OUID,
 		OUHandle:              req.OUHandle,
 		AllowSelfRegistration: req.AllowSelfRegistration,
@@ -235,7 +271,8 @@ func (s *importService) importEntityType(
 		Schema:                schemaBytes,
 	}
 	updateReq := entitytype.UpdateEntityTypeRequest{
-		Name:                  createReq.Name,
+		Handle:                createReq.Handle,
+		DisplayName:           createReq.DisplayName,
 		OUID:                  createReq.OUID,
 		OUHandle:              createReq.OUHandle,
 		AllowSelfRegistration: createReq.AllowSelfRegistration,
@@ -247,39 +284,39 @@ func (s *importService) importEntityType(
 		if options.IsUpsertEnabled() && req.ID != "" {
 			_, svcErr := s.entityTypeService.GetEntityType(ctx, category, req.ID, false)
 			if svcErr == nil {
-				return successOutcome(resourceTypeEntityType, req.ID, req.Name, operationUpdate)
+				return successOutcome(resourceTypeEntityType, req.ID, req.DisplayName, operationUpdate)
 			}
 
 			if !isNotFoundServiceError(svcErr) {
-				return serviceErrorOutcome(resourceTypeEntityType, req.ID, req.Name, operationUpdate, svcErr)
+				return serviceErrorOutcome(resourceTypeEntityType, req.ID, req.DisplayName, operationUpdate, svcErr)
 			}
 		}
 
-		return successOutcome(resourceTypeEntityType, req.ID, req.Name, operationCreate)
+		return successOutcome(resourceTypeEntityType, req.ID, req.DisplayName, operationCreate)
 	}
 
 	if options.IsUpsertEnabled() && req.ID != "" {
 		updated, svcErr := s.entityTypeService.UpdateEntityType(ctx, category, req.ID, updateReq)
 		if svcErr == nil {
-			return successOutcome(resourceTypeEntityType, updated.ID, updated.Name, operationUpdate)
+			return successOutcome(resourceTypeEntityType, updated.ID, updated.DisplayName, operationUpdate)
 		}
 
 		if !isNotFoundServiceError(svcErr) {
-			return serviceErrorOutcome(resourceTypeEntityType, req.ID, req.Name, operationUpdate, svcErr)
+			return serviceErrorOutcome(resourceTypeEntityType, req.ID, req.DisplayName, operationUpdate, svcErr)
 		}
 
 		created, createErr := s.entityTypeService.CreateEntityType(ctx, category, createReq)
 		if createErr != nil {
-			return serviceErrorOutcome(resourceTypeEntityType, req.ID, req.Name, operationCreate, createErr)
+			return serviceErrorOutcome(resourceTypeEntityType, req.ID, req.DisplayName, operationCreate, createErr)
 		}
-		return successOutcome(resourceTypeEntityType, created.ID, created.Name, operationCreate)
+		return successOutcome(resourceTypeEntityType, created.ID, created.DisplayName, operationCreate)
 	}
 
 	created, svcErr := s.entityTypeService.CreateEntityType(ctx, category, createReq)
 	if svcErr != nil {
-		return serviceErrorOutcome(resourceTypeEntityType, req.ID, req.Name, operationCreate, svcErr)
+		return serviceErrorOutcome(resourceTypeEntityType, req.ID, req.DisplayName, operationCreate, svcErr)
 	}
-	return successOutcome(resourceTypeEntityType, created.ID, created.Name, operationCreate)
+	return successOutcome(resourceTypeEntityType, created.ID, created.DisplayName, operationCreate)
 }
 
 func (s *importService) importRole(
@@ -741,6 +778,10 @@ func (s *importService) importUser(
 					}
 				}
 			}
+			if outcome := s.applySharingPolicies(ctx, user.UserSharingType, resourceTypeUser,
+				updated.ID, "", updated.OUID, req.SharingPolicies, operationUpdate); outcome != nil {
+				return *outcome
+			}
 			return successOutcome(resourceTypeUser, updated.ID, "", operationUpdate)
 		}
 
@@ -787,6 +828,17 @@ func (s *importService) importUser(
 
 			return serviceErrorOutcome(resourceTypeUser, created.ID, "", operationCreate, credErr)
 		}
+	}
+
+	// The policies come after the user exists, because a policy names the user it governs. A refusal
+	// therefore undoes the create, so a retry does not meet a half-imported user.
+	if outcome := s.applySharingPolicies(ctx, user.UserSharingType, resourceTypeUser,
+		created.ID, "", created.OUID, req.SharingPolicies, operationCreate); outcome != nil {
+		if delErr := s.userService.DeleteUser(ctx, created.ID); delErr != nil {
+			log.GetLogger().Error(ctx, "Failed to remove a user whose sharing policies were refused",
+				log.MaskedString(log.LoggerKeyUserID, created.ID), log.String("code", delErr.Code))
+		}
+		return *outcome
 	}
 
 	return successOutcome(resourceTypeUser, created.ID, "", operationCreate)
@@ -842,15 +894,19 @@ func (s *importService) importResourceServerChildren(
 		}
 	}
 
-	// handleToID maps resource handle → created/resolved ID for parent resolution.
-	handleToID := make(map[string]string)
+	// pathToID maps a resource path (its permission) → created/resolved ID for parent resolution.
+	pathToID := make(map[string]string)
 
-	for i := range rs.Resources {
-		res := rs.Resources[i]
+	// A child is written after its parent, whichever order the document lists them in, so its
+	// parent path always resolves to an id already created or found. An export lists resources
+	// newest first, which puts a child before its parent.
+	ordered := parentsFirst(rs.Resources)
+	for i := range ordered {
+		res := ordered[i]
 
-		// Resolve ParentHandle to the parent ID using handles seen so far in this import.
+		// Resolve the parent path to the parent ID using resources seen so far in this import.
 		if res.ParentHandle != "" {
-			if parentID, ok := handleToID[res.ParentHandle]; ok {
+			if parentID, ok := pathToID[res.ParentHandle]; ok {
 				res.Parent = &parentID
 			}
 		}
@@ -863,7 +919,7 @@ func (s *importService) importResourceServerChildren(
 			// Resource already exists — look it up under the same parent scope to get its ID.
 			var parentID *string
 			if res.ParentHandle != "" {
-				if pid, ok := handleToID[res.ParentHandle]; ok {
+				if pid, ok := pathToID[res.ParentHandle]; ok {
 					parentID = &pid
 				}
 			}
@@ -884,7 +940,7 @@ func (s *importService) importResourceServerChildren(
 			created = &providers.Resource{ID: existingID}
 		}
 
-		handleToID[res.Handle] = created.ID
+		pathToID[res.Permission] = created.ID
 
 		for j := range res.Actions {
 			action := res.Actions[j]
@@ -898,6 +954,44 @@ func (s *importService) importResourceServerChildren(
 	return nil
 }
 
+// parentsFirst orders resources so each comes after the resource its parent path names. A parent
+// the document does not hold, or a cycle, which ProcessResourceServer refuses before this, leaves
+// the resource where it is rather than dropping it. Resources are tracked by position rather than by
+// path, so two sharing a path, which ProcessResourceServer also refuses, are both kept and the
+// ordering still ends.
+func parentsFirst(resources []providers.Resource) []providers.Resource {
+	held := make(map[string]bool, len(resources))
+	for _, res := range resources {
+		held[res.Permission] = true
+	}
+	ordered := make([]providers.Resource, 0, len(resources))
+	placed := make([]bool, len(resources))
+	placedPaths := make(map[string]bool, len(resources))
+	for len(ordered) < len(resources) {
+		progressed := false
+		for i, res := range resources {
+			if placed[i] {
+				continue
+			}
+			if res.ParentHandle == "" || placedPaths[res.ParentHandle] || !held[res.ParentHandle] {
+				ordered = append(ordered, res)
+				placed[i] = true
+				placedPaths[res.Permission] = true
+				progressed = true
+			}
+		}
+		if !progressed {
+			for i, res := range resources {
+				if !placed[i] {
+					ordered = append(ordered, res)
+					placed[i] = true
+				}
+			}
+		}
+	}
+	return ordered
+}
+
 func (s *importService) importAgent(
 	ctx context.Context, doc parsedDocument, options *ImportOptions, dryRun bool, flowIDAliases map[string]string,
 ) ImportItemOutcome {
@@ -907,7 +1001,7 @@ func (s *importService) importAgent(
 
 	var req agentmodel.AgentRequestWithID
 	if err := doc.Node.Decode(&req); err != nil {
-		return decodeErrorOutcome(resourceTypeAgent, req.ID, req.Name, err)
+		return decodeErrorOutcome(resourceTypeAgent, req.ID, "", err)
 	}
 
 	if mappedFlowID, ok := flowIDAliases[req.AuthFlowID]; ok {
@@ -924,7 +1018,6 @@ func (s *importService) importAgent(
 			return ImportItemOutcome{
 				ResourceType: resourceTypeAgent,
 				ResourceID:   req.ID,
-				ResourceName: req.Name,
 				Status:       statusFailed,
 				Code:         ErrorInvalidYAMLContent.Code,
 				Message:      fmt.Sprintf("failed to marshal agent attributes: %v", err),
@@ -940,7 +1033,6 @@ func (s *importService) importAgent(
 		OUID:        req.OUID,
 		OUHandle:    req.OUHandle,
 		Type:        req.Type,
-		Name:        req.Name,
 		Description: req.Description,
 		LogoURL:     req.LogoURL,
 		Owner:       req.Owner,
@@ -971,7 +1063,6 @@ func (s *importService) importAgent(
 		OUID:                  req.OUID,
 		OUHandle:              req.OUHandle,
 		Type:                  req.Type,
-		Name:                  req.Name,
 		Description:           req.Description,
 		LogoURL:               req.LogoURL,
 		Owner:                 req.Owner,
@@ -984,15 +1075,15 @@ func (s *importService) importAgent(
 		if options.IsUpsertEnabled() && req.ID != "" {
 			_, svcErr := s.agentService.GetAgent(ctx, req.ID, false)
 			if svcErr == nil {
-				return successOutcome(resourceTypeAgent, req.ID, req.Name, operationUpdate)
+				return successOutcome(resourceTypeAgent, req.ID, "", operationUpdate)
 			}
 
 			if !isNotFoundServiceError(svcErr) {
-				return serviceErrorOutcome(resourceTypeAgent, req.ID, req.Name, operationUpdate, svcErr)
+				return serviceErrorOutcome(resourceTypeAgent, req.ID, "", operationUpdate, svcErr)
 			}
 		}
 
-		return successOutcome(resourceTypeAgent, req.ID, req.Name, operationCreate)
+		return successOutcome(resourceTypeAgent, req.ID, "", operationCreate)
 	}
 
 	if options.IsUpsertEnabled() && req.ID != "" {
@@ -1000,21 +1091,21 @@ func (s *importService) importAgent(
 		if svcErr == nil {
 			updated, updateErr := s.agentService.UpdateAgent(ctx, req.ID, updateReq)
 			if updateErr != nil {
-				return serviceErrorOutcome(resourceTypeAgent, req.ID, req.Name, operationUpdate, updateErr)
+				return serviceErrorOutcome(resourceTypeAgent, req.ID, "", operationUpdate, updateErr)
 			}
-			return successOutcome(resourceTypeAgent, updated.ID, updated.Name, operationUpdate)
+			return successOutcome(resourceTypeAgent, updated.ID, "", operationUpdate)
 		}
 
 		if !isNotFoundServiceError(svcErr) {
-			return serviceErrorOutcome(resourceTypeAgent, req.ID, req.Name, operationUpdate, svcErr)
+			return serviceErrorOutcome(resourceTypeAgent, req.ID, "", operationUpdate, svcErr)
 		}
 	}
 
 	created, svcErr := s.agentService.CreateAgent(ctx, createReq)
 	if svcErr != nil {
-		return serviceErrorOutcome(resourceTypeAgent, req.ID, req.Name, operationCreate, svcErr)
+		return serviceErrorOutcome(resourceTypeAgent, req.ID, "", operationCreate, svcErr)
 	}
-	return successOutcome(resourceTypeAgent, created.ID, created.Name, operationCreate)
+	return successOutcome(resourceTypeAgent, created.ID, "", operationCreate)
 }
 
 func getAgentOAuthConfigForImport(req *agentmodel.AgentRequestWithID) *providers.OAuthConfigWithSecret {
@@ -1043,10 +1134,49 @@ func normalizeAgentOAuthConfigForImport(ctx context.Context, req *agentmodel.Age
 		log.GetLogger().Debug(ctx,
 			"Dropping client_secret for public agent import with token endpoint auth method 'none'",
 			log.String("agentID", req.ID),
-			log.String("name", req.Name),
 			log.String("clientID", oauthConfig.ClientID))
 		oauthConfig.ClientSecret = ""
 	}
+}
+
+// applySharingPolicies replays the sharing policies a document carries for one resource, the way
+// role assignments and resource server children are applied: by the importer, after the resource
+// itself is written, rather than by the resource's own create and update.
+func (s *importService) applySharingPolicies(
+	ctx context.Context, rt sharing.ResourceType, resourceType, resourceID, resourceName, owningOUID string,
+	policies []sharing.PolicyRequest, operation string,
+) *ImportItemOutcome {
+	if len(policies) == 0 {
+		return nil
+	}
+	if s.sharingService == nil {
+		outcome := unsupportedAdapterOutcome(resourceType, "sharing")
+		return &outcome
+	}
+
+	replay, replayErr := s.sharingService.ReplacePoliciesForResource(ctx, rt, resourceID, owningOUID, policies)
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ImportService"))
+	for _, skipped := range replay.Skipped {
+		logger.Warn(ctx, "Sharing policy in the document was skipped; a declared policy governs this unit",
+			log.String("resourceType", resourceType), log.String("resourceID", resourceID),
+			log.Int("policyIndex", skipped.Index+1),
+			log.String("initiatingOUID", skipped.InitiatingOUID),
+			log.String("declaredPolicyID", skipped.DeclaredPolicyID))
+	}
+	if replayErr == nil {
+		return nil
+	}
+
+	// A document names its policies only by position, so the refusal says which one.
+	detail := tidcommon.CustomServiceError(*replayErr.Err, tidcommon.I18nMessage{
+		Key: replayErr.Err.ErrorDescription.Key,
+		DefaultValue: fmt.Sprintf("sharing policy %d (organization unit %s): %s",
+			replayErr.Index+1, replayErr.InitiatingOUID, replayErr.Err.ErrorDescription.DefaultValue),
+	})
+	outcome := serviceErrorOutcome(resourceType, resourceID, resourceName, operation, detail)
+	// The title alone says what kind of refusal it was; the description is what names the entry.
+	outcome.Message = detail.ErrorDescription.DefaultValue
+	return &outcome
 }
 
 func unsupportedAdapterOutcome(resourceType, name string) ImportItemOutcome {
@@ -1217,4 +1347,125 @@ func (s *importService) importCredentialConfiguration(
 		return serviceErrorOutcome(resourceTypeCredentialConfiguration, dto.ID, dto.Handle, operationCreate, svcErr)
 	}
 	return successOutcome(resourceTypeCredentialConfiguration, created.ID, created.Handle, operationCreate)
+}
+
+// importNotificationTemplate imports a notification_template document.
+// Templates are keyed by (channel, handle); with upsert, existing templates are matched by handle and updated.
+func (s *importService) importNotificationTemplate(
+	ctx context.Context, doc parsedDocument, options *ImportOptions, dryRun bool,
+) ImportItemOutcome {
+	if s.notifTemplateService == nil {
+		return unsupportedAdapterOutcome(resourceTypeNotificationTemplate, "notification template")
+	}
+
+	var raw notificationTemplateDeclarativeYAML
+	if err := doc.Node.Decode(&raw); err != nil {
+		return decodeErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, err)
+	}
+
+	resolvedOUID, svcErr := s.resolveImportOUHandle(
+		ctx, resourceTypeNotificationTemplate, "", raw.Handle, raw.OUID, raw.OUHandle)
+	if svcErr != nil {
+		return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationCreate, svcErr)
+	}
+	raw.OUID = resolvedOUID
+
+	channel := notificationtemplate.ChannelType(raw.Channel)
+	content := notificationtemplate.TemplateContent{Subject: raw.Content.Subject, Body: raw.Content.Body}
+	var design *notificationtemplate.TemplateDesign
+	if raw.Design != nil {
+		design = &notificationtemplate.TemplateDesign{ColorScheme: raw.Design.ColorScheme}
+	}
+	createReq := notificationtemplate.CreateTemplateRequest{
+		Handle:      raw.Handle,
+		OUID:        raw.OUID,
+		DisplayName: raw.DisplayName,
+		Description: raw.Description,
+		Design:      design,
+		Content:     content,
+	}
+
+	// Validate before the handle lookup so an invalid or missing handle surfaces as a validation
+	// failure, consistently between a dry run and the real apply, rather than being reported by the
+	// handle-based lookup (which would otherwise mislabel it as an update).
+	if svcErr := s.notifTemplateService.ValidateTemplate(ctx, channel, createReq); svcErr != nil {
+		return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationCreate, svcErr)
+	}
+
+	// Resolve whether the handle already exists so the dry run can predict the real apply's outcome and
+	// upsert can target the existing template. For a real non-upsert apply the create path surfaces any
+	// conflict, so the lookup is only needed for a dry run or an upsert.
+	existingID := ""
+	existingOUID := ""
+	if dryRun || options.IsUpsertEnabled() {
+		existing, lookupErr := s.notifTemplateService.GetTemplateByHandle(ctx, channel, raw.Handle)
+		if lookupErr != nil && !isNotFoundServiceError(lookupErr) {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationUpdate, lookupErr)
+		}
+		if existing != nil {
+			existingID = existing.ID
+			existingOUID = existing.OUID
+		}
+	}
+
+	// The ouId is immutable; an update that moves an existing template to a different OU is rejected
+	// rather than silently ignored (UpdateTemplate preserves the stored OU). Checked for both the dry
+	// run and the real apply so the prediction matches.
+	ouMismatch := func() bool { return existingID != "" && raw.OUID != "" && raw.OUID != existingOUID }
+
+	if dryRun {
+		op := operationCreate
+		if existingID != "" && options.IsUpsertEnabled() {
+			op = operationUpdate
+		}
+		// Without upsert, an existing (channel, handle) is a conflict the real apply would hit.
+		if existingID != "" && !options.IsUpsertEnabled() {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle,
+				operationCreate, &notificationtemplate.ErrorTemplateHandleConflict)
+		}
+		if op == operationUpdate && ouMismatch() {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle,
+				operationUpdate, &notificationtemplate.ErrorOUImmutable)
+		}
+		return successOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle, op)
+	}
+
+	if existingID == "" {
+		created, svcErr := s.notifTemplateService.CreateTemplate(ctx, channel, createReq)
+		if svcErr == nil {
+			return successOutcome(resourceTypeNotificationTemplate, created.ID, created.Handle, operationCreate)
+		}
+		// Create race: the handle appeared between the existence check and the insert. Fall back to
+		// updating it when upsert is on; otherwise surface the conflict as a create failure.
+		if svcErr.Code != notificationtemplate.ErrorTemplateHandleConflict.Code || !options.IsUpsertEnabled() {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationCreate, svcErr)
+		}
+		existing, lookupErr := s.notifTemplateService.GetTemplateByHandle(ctx, channel, raw.Handle)
+		if lookupErr != nil && !isNotFoundServiceError(lookupErr) {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationUpdate, lookupErr)
+		}
+		if existing == nil {
+			return serviceErrorOutcome(resourceTypeNotificationTemplate, "", raw.Handle, operationCreate, svcErr)
+		}
+		existingID = existing.ID
+		existingOUID = existing.OUID
+	}
+
+	// Reject an attempt to move an existing template to a different OU (ouId is immutable).
+	if ouMismatch() {
+		return serviceErrorOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle,
+			operationUpdate, &notificationtemplate.ErrorOUImmutable)
+	}
+
+	updated, updErr := s.notifTemplateService.UpdateTemplate(ctx, channel, existingID,
+		notificationtemplate.UpdateTemplateRequest{
+			DisplayName: raw.DisplayName,
+			Description: raw.Description,
+			Design:      design,
+			Content:     content,
+		})
+	if updErr != nil {
+		return serviceErrorOutcome(resourceTypeNotificationTemplate, existingID, raw.Handle, operationUpdate, updErr)
+	}
+	return successOutcome(resourceTypeNotificationTemplate, updated.ID, updated.Handle, operationUpdate)
 }

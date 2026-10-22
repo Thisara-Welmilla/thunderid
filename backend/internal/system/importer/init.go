@@ -17,10 +17,12 @@ import (
 	"github.com/thunder-id/thunderid/internal/group"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/notification"
+	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
 	"github.com/thunder-id/thunderid/internal/serverconfig"
+	"github.com/thunder-id/thunderid/internal/sharing"
 	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 	"github.com/thunder-id/thunderid/internal/system/middleware"
 	"github.com/thunder-id/thunderid/internal/system/secretresolver"
@@ -51,7 +53,9 @@ func Initialize(
 	credentialConfigurationService credential.CredentialConfigurationServiceInterface,
 	serverConfigService serverconfig.ServerConfigService,
 	gatewayService gateway.ServiceInterface,
+	notifTemplateService notificationtemplate.NotificationTemplateServiceInterface,
 	authZENPDPService authzenpdp.AuthZENPDPServiceInterface,
+	sharingService sharing.SharingServiceInterface,
 	references *secretresolver.Resolver,
 ) ImportServiceInterface {
 	service := newImportService(
@@ -74,10 +78,12 @@ func Initialize(
 		credentialConfigurationService,
 		serverConfigService,
 		gatewayService,
+		notifTemplateService,
 		authZENPDPService,
 	)
 	// Set here rather than passed to newImportService, which every test constructs without one.
 	service.(*importService).references = references
+	service.(*importService).sharingService = sharingService
 	importHandler := newImportHandler(service)
 
 	registerRoutes(mux, importHandler)

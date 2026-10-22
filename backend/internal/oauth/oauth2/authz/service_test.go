@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -162,7 +163,8 @@ func (suite *AuthorizeServiceTestSuite) SetupTest() {
 
 // newService builds an authorizeService with all mocked dependencies.
 func (suite *AuthorizeServiceTestSuite) newService() *authorizeService {
-	inboundClient := actorprovider.Initialize(suite.mockInboundClient, suite.mockEntityProvider, noopAuthnMgr(), nil)
+	inboundClient := actorprovider.Initialize(
+		suite.mockInboundClient, suite.mockEntityProvider, noopAuthnMgr(), nil, nil)
 	return &authorizeService{
 		cfg:             authorizeServiceCfgFromRuntime(),
 		inboundClient:   inboundClient,
@@ -490,6 +492,38 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_De
 	suite.Require().NotNil(captured)
 	assert.Equal(suite.T(), "https://rs-default.example.com",
 		captured.RuntimeData[flowcm.RuntimeKeyResourceServerIdentifier])
+}
+
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_StripsSensitiveParams() {
+	app := suite.testApp()
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+
+	var captured *flowexec.FlowInitContext
+	suite.mockFlowExecService.EXPECT().InitiateFlow(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, ic *flowexec.FlowInitContext) { captured = ic }).
+		Return("test-flow-id", nil)
+	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).Return(testAuthID, nil)
+
+	msg := suite.testMsg()
+	msg.RequestQueryParams["client_secret"] = []string{"supersecret"}
+	msg.RequestHeaders = map[string][]string{
+		"User-Agent":    {"curl/8.0"},
+		"Authorization": {"Bearer secret"},
+	}
+
+	svc := suite.newService()
+	_, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+
+	suite.Require().Nil(authErr)
+	suite.Require().NotNil(captured)
+	suite.Require().NotNil(captured.InitiatorRequest)
+	// Credential query params and headers must not surface through the captured initiator request.
+	suite.NotContains(captured.InitiatorRequest.QueryParams, "client_secret")
+	suite.Empty(http.Header(captured.InitiatorRequest.Headers).Get("Authorization"))
+	// Non-sensitive values are preserved.
+	suite.Equal("curl/8.0", http.Header(captured.InitiatorRequest.Headers).Get("User-Agent"))
 }
 
 func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_NoResourceNoDefaultRejects() {

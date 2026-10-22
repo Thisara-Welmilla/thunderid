@@ -5,8 +5,11 @@
 package config
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -31,6 +34,57 @@ type TrustedIssuerConfig struct {
 	JWKSURL        string          `yaml:"jwks_url"        json:"jwks_url"`
 	Audience       string          `yaml:"audience"        json:"audience"`
 	RequiredClaims []RequiredClaim `yaml:"required_claims" json:"required_claims"`
+	// UserIDClaim names the claim a caller's id is read from where the caller is recorded, such as who
+	// captured a configuration version or applied one to a gateway. It defaults to sub.
+	UserIDClaim string `yaml:"user_id_claim" json:"user_id_claim"`
+	// UserLookup is how a recorded user's id is put a name to when the record is read. Names are not
+	// stored; they are read from the issuer's user API with a token the configured client obtains.
+	UserLookup UserLookupConfig `yaml:"user_lookup" json:"user_lookup"`
+}
+
+// UserIDClaimOrDefault reports the claim a caller's id is read from, sub by default.
+func (c TrustedIssuerConfig) UserIDClaimOrDefault() string {
+	return cmp.Or(strings.TrimSpace(c.UserIDClaim), "sub")
+}
+
+// UserLookupConfig names the trusted issuer's user API and the client that may call it, so a control
+// plane shows who captured or applied a version by name without keeping names in its own store.
+type UserLookupConfig struct {
+	// URL is the issuer's endpoint for one user, with {id} where the user's id goes, such as
+	// https://cloud.example.com/users/{id}. Unset, recorded users are shown by id alone.
+	URL string `yaml:"url" json:"url"`
+	// TokenURL is the issuer's token endpoint, asked for a client credentials token for the lookups.
+	TokenURL string `yaml:"token_url" json:"token_url"`
+	// ClientID and ClientSecret are the machine-to-machine application registered at the issuer for
+	// the lookups.
+	ClientID     string `yaml:"client_id"     json:"client_id"`
+	ClientSecret string `yaml:"client_secret" json:"client_secret"`
+	// Scopes are what the token is asked for, as the user endpoint requires.
+	Scopes []string `yaml:"scopes" json:"scopes"`
+	// NameAttribute is the attribute of the user the name is read from, username by default.
+	NameAttribute string `yaml:"name_attribute" json:"name_attribute"`
+	// CacheTTL is how long a name once read is kept, in seconds, 300 by default.
+	CacheTTL int `yaml:"cache_ttl" json:"cache_ttl"`
+}
+
+// Enabled reports whether recorded users are put a name to at all.
+func (c UserLookupConfig) Enabled() bool {
+	return strings.TrimSpace(c.URL) != ""
+}
+
+// UserURL is the URL of one user's record at the issuer.
+func (c UserLookupConfig) UserURL(id string) string {
+	return strings.ReplaceAll(strings.TrimSpace(c.URL), "{id}", url.PathEscape(id))
+}
+
+// NameAttributeOrDefault reports the attribute a user's name is read from, username by default.
+func (c UserLookupConfig) NameAttributeOrDefault() string {
+	return cmp.Or(strings.TrimSpace(c.NameAttribute), "username")
+}
+
+// CacheTTLOrDefault reports how long a name once read is kept, five minutes by default.
+func (c UserLookupConfig) CacheTTLOrDefault() time.Duration {
+	return time.Duration(cmp.Or(c.CacheTTL, 300)) * time.Second
 }
 
 // SecurityConfig holds the security-related configuration details.
@@ -152,12 +206,13 @@ type RedisConfig struct {
 
 // ServerConfig holds the server configuration details.
 type ServerConfig struct {
-	Hostname       string         `yaml:"hostname"   json:"hostname"`
-	Port           int            `yaml:"port"       json:"port"`
-	HTTPOnly       bool           `yaml:"http_only"  json:"http_only"`
-	PublicURL      string         `yaml:"public_url" json:"public_url"`
-	Identifier     string         `yaml:"identifier" json:"identifier"`
-	SecurityConfig SecurityConfig `yaml:"security"   json:"security"`
+	Hostname                   string         `yaml:"hostname"   json:"hostname"`
+	Port                       int            `yaml:"port"       json:"port"`
+	HTTPOnly                   bool           `yaml:"http_only"  json:"http_only"`
+	PublicURL                  string         `yaml:"public_url" json:"public_url"`
+	Identifier                 string         `yaml:"identifier" json:"identifier"`
+	SecurityConfig             SecurityConfig `yaml:"security"   json:"security"`
+	EnableOUQualifiedEndpoints bool           `yaml:"enable_ou_qualified_endpoints" json:"enable_ou_qualified_endpoints"` //nolint:lll // one tag pair
 }
 
 // GateClientConfig holds the client configuration details.
@@ -241,6 +296,17 @@ func (c DCRConfig) IsEnabled() bool {
 	return c.Enabled != nil && *c.Enabled
 }
 
+// CIMDConfig holds the OAuth Client ID Metadata Document configuration.
+type CIMDConfig struct {
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+}
+
+// IsEnabled returns whether CIMD is enabled, defaulting to false if unset
+// (an explicit default lives in default.json).
+func (c CIMDConfig) IsEnabled() bool {
+	return c.Enabled != nil && *c.Enabled
+}
+
 // PARConfig holds the Pushed Authorization Request (RFC 9126) configuration.
 type PARConfig struct {
 	RequirePAR bool  `yaml:"require_par" json:"require_par"`
@@ -275,6 +341,7 @@ type OAuthConfig struct {
 	AuthorizationCode    AuthorizationCodeConfig    `yaml:"authorization_code"          json:"authorization_code"`
 	AuthorizationRequest AuthorizationRequestConfig `yaml:"authorization_request"       json:"authorization_request"`
 	DCR                  DCRConfig                  `yaml:"dcr"                         json:"dcr"`
+	CIMD                 CIMDConfig                 `yaml:"cimd"                        json:"cimd"`
 	PAR                  PARConfig                  `yaml:"par"                         json:"par"`
 	DPoP                 DPoPConfig                 `yaml:"dpop"                        json:"dpop"`
 	AuthClass            AuthClassConfig            `yaml:"auth_class"                  json:"auth_class"`
@@ -385,6 +452,13 @@ func (c LogoutConfig) IsEnabled() bool {
 // RevocationConfig holds grant-scoped (token family) revocation settings.
 type RevocationConfig struct {
 	TokenFamily TokenFamilyRevocationConfig `yaml:"token_family" json:"token_family"`
+	Criteria    CriteriaRevocationConfig    `yaml:"criteria"     json:"criteria"`
+}
+
+// CriteriaRevocationConfig bounds what one criteria-based revocation may write.
+type CriteriaRevocationConfig struct {
+	// MaxEntriesPerChange caps the deny-list rows one administrative revocation may write; 0 refuses every one.
+	MaxEntriesPerChange int `yaml:"max_entries_per_change" json:"max_entries_per_change"`
 }
 
 // TokenFamilyRevocationConfig toggles the triggers that revoke a whole token family (one authorization

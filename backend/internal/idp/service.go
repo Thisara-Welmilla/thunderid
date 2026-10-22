@@ -1,4 +1,4 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 // Package idp provides the implementation for identity provider management operations.
@@ -62,7 +62,7 @@ type idpService struct {
 
 // userTypeAttributes holds a user type's non-credential schema attributes.
 type userTypeAttributes struct {
-	name       string
+	handle     string
 	attributes []entitytype.AttributeInfo
 }
 
@@ -416,14 +416,14 @@ func (is *idpService) loadCandidateUserTypes(ctx context.Context) []userTypeAttr
 	candidates := make([]userTypeAttributes, 0, len(response.Types))
 	for _, userType := range response.Types {
 		attributes, attrErr := is.entityTypeService.GetAttributes(
-			ctx, entitytype.TypeCategoryUser, userType.Name,
+			ctx, entitytype.TypeCategoryUser, userType.Handle,
 			entitytype.AttributeFilter{AllowNonCredential: true})
 		if attrErr != nil {
 			is.logger.Warn(ctx, "Could not read user type attributes, skipping connection default seeding",
-				log.String("userType", userType.Name))
+				log.String("userType", userType.Handle))
 			return nil
 		}
-		candidates = append(candidates, userTypeAttributes{name: userType.Name, attributes: attributes})
+		candidates = append(candidates, userTypeAttributes{handle: userType.Handle, attributes: attributes})
 	}
 	return candidates
 }
@@ -443,7 +443,7 @@ func (is *idpService) seedEmailAccountLinking(
 	for _, userType := range candidateUserTypes {
 		if !userType.isUnique(defaultAccountLinkingAttribute) {
 			is.logger.Debug(ctx, "Email is not unique on a candidate user type, skipping linking default",
-				log.String("userType", userType.name))
+				log.String("userType", userType.handle))
 			return
 		}
 	}
@@ -480,7 +480,7 @@ func (is *idpService) seedUserTypeDefaults(
 	usernameRequiredUserTypes := make([]string, 0, len(candidateUserTypes))
 	for _, userType := range candidateUserTypes {
 		if userType.isRequired(localUsernameAttribute) {
-			usernameRequiredUserTypes = append(usernameRequiredUserTypes, userType.name)
+			usernameRequiredUserTypes = append(usernameRequiredUserTypes, userType.handle)
 		}
 	}
 
@@ -515,7 +515,7 @@ func (is *idpService) seedUserTypeDefaults(
 func firstUserTypeMatchableByEmail(candidateUserTypes []userTypeAttributes) string {
 	for _, userType := range candidateUserTypes {
 		if userType.isUnique(defaultAccountLinkingAttribute) {
-			return userType.name
+			return userType.handle
 		}
 	}
 	return ""
@@ -616,11 +616,9 @@ func (is *idpService) ensureNoBlockingDependencies(ctx context.Context, idpID st
 	})
 }
 
-// validateAttributeConfiguration validates the IDP's attribute configuration: a default user type is
-// required only when user-type attribute mappings are configured (it selects which mapping profile
-// applies), and for each user type's attributes a valid claim-mapping shape with every local (target)
-// claim a non-credential attribute defined in that user type's schema. No-op when no profile is
-// configured.
+// validateAttributeConfiguration validates the IDP's attribute configuration: a default user type
+// when user-type mappings are configured, mappings whose local claims are non-credential schema
+// attributes, and account linking per validateAccountLinking. No-op when no profile is configured.
 func (is *idpService) validateAttributeConfiguration(
 	ctx context.Context,
 	idp *providers.IDPDTO,
@@ -707,7 +705,7 @@ func (is *idpService) validateAttributeConfiguration(
 			}
 		}
 	}
-	return nil
+	return validateAccountLinking(profile)
 }
 
 // validateUserTypeResolution validates claim-driven user-type resolution. A value mapping requires an

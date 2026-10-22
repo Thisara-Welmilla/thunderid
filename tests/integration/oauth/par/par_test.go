@@ -27,7 +27,8 @@ var (
 	testOUID string
 
 	testUserType = testutils.UserType{
-		Name: "par-test-person",
+		Handle:      "par-test-person",
+		DisplayName: "Par Test Person",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
@@ -267,15 +268,15 @@ func (ts *PARTestSuite) TearDownSuite() {
 		}
 	}
 
-	if testOUID != "" {
-		if err := testutils.DeleteOrganizationUnit(testOUID); err != nil {
-			ts.T().Logf("Failed to delete test organization unit: %v", err)
-		}
-	}
-
 	if ts.entityTypeID != "" {
 		if err := testutils.DeleteUserType(ts.entityTypeID); err != nil {
 			ts.T().Errorf("Failed to delete test user type: %v", err)
+		}
+	}
+
+	if testOUID != "" {
+		if err := testutils.DeleteOrganizationUnit(testOUID); err != nil {
+			ts.T().Logf("Failed to delete test organization unit: %v", err)
 		}
 	}
 }

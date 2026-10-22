@@ -513,20 +513,6 @@ var (
 		},
 	}
 
-	// ErrEmailSendFailed is returned when the email fails to send.
-	ErrEmailSendFailed = tidcommon.ServiceError{
-		Type: tidcommon.ClientErrorType,
-		Code: "FET-1036",
-		Error: tidcommon.I18nMessage{
-			Key:          "flows.executor.errors.email_send_failed",
-			DefaultValue: "Failed to send email",
-		},
-		ErrorDescription: tidcommon.I18nMessage{
-			Key:          "flows.executor.errors.email_send_failed_desc",
-			DefaultValue: "An error occurred while sending the email",
-		},
-	}
-
 	// ErrEmailRecipientMissing is returned when the email recipient is not provided.
 	ErrEmailRecipientMissing = tidcommon.ServiceError{
 		Type: tidcommon.ClientErrorType,
@@ -541,17 +527,17 @@ var (
 		},
 	}
 
-	// ErrEmailServiceNotConfigured is returned when the email service is not configured.
-	ErrEmailServiceNotConfigured = tidcommon.ServiceError{
+	// ErrEmailProviderNotConfigured is returned when no email provider is configured.
+	ErrEmailProviderNotConfigured = tidcommon.ServiceError{
 		Type: tidcommon.ClientErrorType,
 		Code: "FET-1038",
 		Error: tidcommon.I18nMessage{
-			Key:          "flows.executor.errors.email_service_not_configured",
-			DefaultValue: "Email service is not configured",
+			Key:          "flows.executor.errors.email_provider_not_configured",
+			DefaultValue: "Email provider is not configured",
 		},
 		ErrorDescription: tidcommon.I18nMessage{
-			Key:          "flows.executor.errors.email_service_not_configured_desc",
-			DefaultValue: "The email notification service has not been configured",
+			Key:          "flows.executor.errors.email_provider_not_configured_desc",
+			DefaultValue: "The email notification provider has not been configured",
 		},
 	}
 
@@ -1320,6 +1306,266 @@ var (
 		ErrorDescription: tidcommon.I18nMessage{
 			Key:          "flows.executor.errors.self_reg_not_supported_for_agents_desc",
 			DefaultValue: "An agent is created by an administrator and cannot register itself",
+		},
+	}
+
+	// ErrNonCandidateVerified is returned when the entity that completed a verification step is not
+	// one of the candidates the linking executor sent to it.
+	ErrNonCandidateVerified = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1093",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.non_candidate_verified",
+			DefaultValue: "Verification completed by a different account",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.non_candidate_verified_desc",
+			DefaultValue: "The account that verified is not the account being linked",
+		},
+	}
+
+	// ErrVerificationNotCompleted is returned when the linking executor is reached a second time
+	// with nobody authenticated.
+	ErrVerificationNotCompleted = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1094",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.verification_not_completed",
+			DefaultValue: "Account verification was not completed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.verification_not_completed_desc",
+			DefaultValue: "The account being linked was not verified, so nothing was linked",
+		},
+	}
+
+	// ErrUnverifiedLinkingCandidate is returned when provisioning is reached with a linking
+	// candidate resolved and nobody authenticated.
+	ErrUnverifiedLinkingCandidate = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1095",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.unverified_linking_candidate",
+			DefaultValue: "Account verification is required",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.unverified_linking_candidate_desc",
+			DefaultValue: "An existing account matched this identity but was not verified",
+		},
+	}
+
+	// ErrLinkingWriteFailed is returned when recording the federated identity against the account
+	// the linking executor settled on fails.
+	ErrLinkingWriteFailed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1096",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.linking_write_failed",
+			DefaultValue: "Failed to link the account",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.linking_write_failed_desc",
+			DefaultValue: "The federated identity could not be recorded against the account",
+		},
+	}
+
+	// ErrRoleAssignmentRemovalNotAllowed is returned when the role assignment cannot be removed.
+	ErrRoleAssignmentRemovalNotAllowed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1098",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_assignment_removal_not_allowed",
+			DefaultValue: "Role assignment removal not allowed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_assignment_removal_not_allowed_desc",
+			DefaultValue: "The role or the assignee may not exist, or the caller may not change who holds the role",
+		},
+	}
+
+	// ErrRoleAssignmentRemovalFailed is returned when removing the role assignment was refused.
+	ErrRoleAssignmentRemovalFailed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1099",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_assignment_removal_failed",
+			DefaultValue: "Role assignment removal failed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_assignment_removal_failed_desc",
+			DefaultValue: "The assignment may already be gone, or the caller may no longer change who holds the role",
+		},
+	}
+
+	// ErrRoleDeletionNotAllowed is returned when the role cannot be deleted.
+	ErrRoleDeletionNotAllowed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1100",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_deletion_not_allowed",
+			DefaultValue: "Role deletion not allowed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_deletion_not_allowed_desc",
+			DefaultValue: "The role is declarative, immutable, or no longer exists",
+		},
+	}
+
+	// ErrRoleDeletionFailed is returned when a validated role deletion was refused.
+	ErrRoleDeletionFailed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1101",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_deletion_failed",
+			DefaultValue: "Role deletion failed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_deletion_failed_desc",
+			DefaultValue: "The role may already be deleted, or it changed after the request was validated",
+		},
+	}
+
+	// ErrRolePermissionRemovalNotAllowed is returned when the role's permissions cannot be changed.
+	ErrRolePermissionRemovalNotAllowed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1102",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_permission_removal_not_allowed",
+			DefaultValue: "Role permission change not allowed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "flows.executor.errors.role_permission_removal_not_allowed_desc",
+			DefaultValue: "The role is declarative or no longer exists, or the caller may not grant the new " +
+				"permissions",
+		},
+	}
+
+	// ErrRolePermissionRemovalFailed is returned when a validated role permission change was refused.
+	ErrRolePermissionRemovalFailed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1103",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.role_permission_removal_failed",
+			DefaultValue: "Role permission change failed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "flows.executor.errors.role_permission_removal_failed_desc",
+			DefaultValue: "The role changed after the request was validated, or the caller may no longer grant the " +
+				"new permissions",
+		},
+	}
+
+	// ErrGroupDeletionNotAllowed is returned when the group cannot be deleted.
+	ErrGroupDeletionNotAllowed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1104",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.group_deletion_not_allowed",
+			DefaultValue: "Group deletion not allowed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.group_deletion_not_allowed_desc",
+			DefaultValue: "The group is read-only or no longer exists, or the caller may not delete it",
+		},
+	}
+
+	// ErrGroupDeletionFailed is returned when a validated group deletion was refused.
+	ErrGroupDeletionFailed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1105",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.group_deletion_failed",
+			DefaultValue: "Group deletion failed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.group_deletion_failed_desc",
+			DefaultValue: "The group may already be deleted, or it changed after the request was validated",
+		},
+	}
+
+	// ErrGroupMembershipRemovalNotAllowed is returned when the member cannot be removed from the group.
+	ErrGroupMembershipRemovalNotAllowed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1106",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.group_membership_removal_not_allowed",
+			DefaultValue: "Group membership removal not allowed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "flows.executor.errors.group_membership_removal_not_allowed_desc",
+			DefaultValue: "The principal is not a direct member, the group is read-only, or the caller may not " +
+				"change its members",
+		},
+	}
+
+	// ErrGroupMembershipRemovalFailed is returned when a validated group membership removal was refused.
+	ErrGroupMembershipRemovalFailed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1107",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.group_membership_removal_failed",
+			DefaultValue: "Group membership removal failed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.group_membership_removal_failed_desc",
+			DefaultValue: "The member may already be removed, or the caller may no longer change the group's members",
+		},
+	}
+
+	// ErrActionDeletionNotAllowed is returned when the action cannot be deleted.
+	ErrActionDeletionNotAllowed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1108",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.action_deletion_not_allowed",
+			DefaultValue: "Action deletion not allowed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "flows.executor.errors.action_deletion_not_allowed_desc",
+			DefaultValue: "The resource server is declarative, or the resource server, resource or action no " +
+				"longer exists",
+		},
+	}
+
+	// ErrActionDeletionFailed is returned when a validated action deletion was refused.
+	ErrActionDeletionFailed = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1109",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.action_deletion_failed",
+			DefaultValue: "Action deletion failed",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.action_deletion_failed_desc",
+			DefaultValue: "The action may already be deleted, or it changed after the request was validated",
+		},
+	}
+
+	// ErrInvalidRolePermissions is returned when the permission set for a role permission change is malformed.
+	ErrInvalidRolePermissions = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1110",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.invalid_role_permissions",
+			DefaultValue: "Invalid role permissions",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.invalid_role_permissions_desc",
+			DefaultValue: "The permissions supplied for the role could not be read",
+		},
+	}
+
+	// ErrRequiredInputEmpty is returned when a required input is supplied with an empty value.
+	ErrRequiredInputEmpty = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "FET-1111",
+		Error: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.required_input_empty",
+			DefaultValue: "Required input is empty",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "flows.executor.errors.required_input_empty_desc",
+			DefaultValue: "The {{param(input)}} input is required and must not be empty",
 		},
 	}
 )

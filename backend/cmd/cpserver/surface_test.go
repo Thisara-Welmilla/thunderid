@@ -86,6 +86,7 @@ func TestControlPlaneLinksManagement(t *testing.T) {
 	for _, pkg := range []string{
 		"internal/application",
 		"internal/agent",
+		"internal/cimd",
 		"internal/flow/mgt",
 		"internal/flow/executormeta",
 		"internal/idp",
@@ -104,7 +105,7 @@ func TestControlPlaneLinksManagement(t *testing.T) {
 // listDeps returns the full transitive package list of the given package.
 func listDeps(t *testing.T, pkg string) []string {
 	t.Helper()
-	out, err := exec.Command("go", "list", "-deps", pkg).Output()
+	out, err := exec.Command("go", "list", "-deps", pkg).Output() //nolint:gosec // test helper uses controlled args
 	require.NoError(t, err, "go list -deps %s", pkg)
 	return strings.Fields(string(out))
 }

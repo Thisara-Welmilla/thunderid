@@ -37,18 +37,18 @@ export default function SubjectMappingCategory({
   if (categoryTypes.length === 0) {
     return null;
   }
-  const usedTypeNames = new Set(
+  const usedTypeHandles = new Set(
     categoryGroups.map((group) => group.userType).filter((userType) => userType.trim() !== ''),
   );
-  const showAddMapping = categoryTypes.some((type) => !usedTypeNames.has(type.name));
+  const showAddMapping = categoryTypes.some((type) => !usedTypeHandles.has(type.handle));
   const sectionTitle =
     category === 'user'
       ? t('subjectMapping.mappings.user', 'User mappings')
       : t('subjectMapping.mappings.agent', 'Agent mappings');
   const addLabel =
     category === 'user'
-      ? t('subjectMapping.mappings.addUser', 'Add User Mapping')
-      : t('subjectMapping.mappings.addAgent', 'Add Agent Mapping');
+      ? t('subjectMapping.mappings.addUser', 'Add user mapping')
+      : t('subjectMapping.mappings.addAgent', 'Add agent mapping');
 
   return (
     <Stack direction="column" spacing={2} data-testid={`subject-mapping-category-${category}`}>

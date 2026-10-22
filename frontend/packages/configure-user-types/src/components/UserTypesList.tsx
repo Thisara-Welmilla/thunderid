@@ -1,4 +1,4 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 import {QueryErrorNotice} from '@thunderid/components';
@@ -8,6 +8,7 @@ import {getErrorMessage} from '@thunderid/utils';
 import {
   Chip,
   IconButton,
+  Stack,
   Tooltip,
   Typography,
   Alert,
@@ -83,17 +84,24 @@ export default function UserTypesList() {
   const columns: GridColDef<UserTypeListItem>[] = useMemo(
     () => [
       {
-        field: 'name',
+        field: 'displayName',
         headerName: t('userTypes:listing.columns.name', 'Name'),
         flex: 1.5,
         minWidth: 220,
         renderCell: (params: DataGrid.GridRenderCellParams<UserTypeListItem>) => (
-          <Typography variant="body2">{params.row.name}</Typography>
+          <Stack justifyContent="center" sx={{height: '100%'}}>
+            <Typography variant="body2" sx={{fontWeight: 500, lineHeight: 1.3}}>
+              {params.row.displayName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{lineHeight: 1.2}}>
+              {params.row.handle}
+            </Typography>
+          </Stack>
         ),
       },
       {
         field: 'id',
-        headerName: t('userTypes:listing.columns.id', 'User Type ID'),
+        headerName: t('userTypes:listing.columns.id', 'User type ID'),
         width: 350,
         renderCell: (params: DataGrid.GridRenderCellParams<UserTypeListItem>) => (
           <Typography variant="body2" sx={{fontFamily: 'monospace', fontSize: '0.875rem'}}>
@@ -103,7 +111,7 @@ export default function UserTypesList() {
       },
       {
         field: 'ouHandle',
-        headerName: t('userTypes:listing.columns.organizationUnit', 'Organization Unit'),
+        headerName: t('userTypes:listing.columns.organizationUnit', 'Organization unit'),
         flex: 1,
         minWidth: 220,
         renderCell: (params: DataGrid.GridRenderCellParams<UserTypeListItem>) => (
@@ -114,7 +122,7 @@ export default function UserTypesList() {
       },
       {
         field: 'allowSelfRegistration',
-        headerName: t('userTypes:listing.columns.allowSelfRegistration', 'Self Registration'),
+        headerName: t('userTypes:listing.columns.allowSelfRegistration', 'Self registration'),
         width: 200,
         renderCell: (params: GridRenderCellParams<UserTypeListItem>) => (
           <Chip
@@ -136,7 +144,7 @@ export default function UserTypesList() {
         renderCell: (params: GridRenderCellParams<UserTypeListItem>) => (
           <ListingTable.RowActions>
             {params.row.isReadOnly ? (
-              <Tooltip title={t('common:status.readOnly', 'Read Only')}>
+              <Tooltip title={t('common:status.readOnly', 'Read only')}>
                 <IconButton size="small" disableRipple sx={{cursor: 'default'}}>
                   <Eye size={16} />
                 </IconButton>

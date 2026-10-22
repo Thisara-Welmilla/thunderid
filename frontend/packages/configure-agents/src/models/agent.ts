@@ -3,10 +3,10 @@
 
 import type {AssertionConfig, OAuth2Config} from '@thunderid/configure-applications';
 /**
- * Names the bootstrap-provisioned `default` agent type, which the agent listing's Schema button
+ * Handle of the bootstrap-provisioned `default` agent type, which the agent listing's Schema button
  * looks up to show the schema behind the listed agents.
  */
-export const DEFAULT_AGENT_TYPE_NAME = 'default';
+export const DEFAULT_AGENT_TYPE_HANDLE = 'default';
 
 export type OAuthAgentConfig = OAuth2Config;
 
@@ -24,7 +24,7 @@ export interface Agent {
   ouId: string;
   ouHandle?: string;
   type: string;
-  name: string;
+  display?: string;
   description?: string;
   logoUrl?: string;
   owner?: string;
@@ -48,10 +48,11 @@ export interface BasicAgent {
   ouId: string;
   ouHandle?: string;
   type: string;
-  name: string;
+  display?: string;
   description?: string;
   logoUrl?: string;
   clientId?: string;
+  attributes?: Record<string, unknown>;
   isReadOnly?: boolean;
 }
 
@@ -65,7 +66,6 @@ export interface AgentListResponse {
 export interface CreateAgentRequest {
   ouId: string;
   type: string;
-  name: string;
   description?: string;
   logoUrl?: string;
   owner?: string;
@@ -76,7 +76,6 @@ export interface CreateAgentRequest {
 export interface UpdateAgentRequest {
   ouId?: string;
   type?: string;
-  name?: string;
   description?: string;
   logoUrl?: string;
   owner?: string;

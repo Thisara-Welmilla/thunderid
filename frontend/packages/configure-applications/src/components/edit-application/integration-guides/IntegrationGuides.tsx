@@ -320,6 +320,7 @@ export default function IntegrationGuides({
   // The endpoints below are for someone to copy into their own application, so they have to
   // name the deployment that answers them rather than the one the console is configured against.
   const runtimeUrl = useRuntimeUrl();
+  const isDirectApiEnabled = config.direct_api?.enabled !== false;
   const flowEndpoints = [
     {
       key: 'flowExecute',
@@ -331,16 +332,20 @@ export default function IntegrationGuides({
       label: t('applications:edit.overview.endpoints.flowMeta', 'Flow metadata endpoint'),
       url: `${runtimeUrl}/flow/meta`,
     },
-    {
-      key: 'passkeyRegisterStart',
-      label: t('applications:edit.overview.endpoints.passkeyRegisterStart', 'Passkey registration (start)'),
-      url: `${runtimeUrl}/register/passkey/start`,
-    },
-    {
-      key: 'passkeyRegisterFinish',
-      label: t('applications:edit.overview.endpoints.passkeyRegisterFinish', 'Passkey registration (finish)'),
-      url: `${runtimeUrl}/register/passkey/finish`,
-    },
+    ...(isDirectApiEnabled
+      ? [
+          {
+            key: 'passkeyRegisterStart',
+            label: t('applications:edit.overview.endpoints.passkeyRegisterStart', 'Passkey registration (start)'),
+            url: `${runtimeUrl}/register/passkey/start`,
+          },
+          {
+            key: 'passkeyRegisterFinish',
+            label: t('applications:edit.overview.endpoints.passkeyRegisterFinish', 'Passkey registration (finish)'),
+            url: `${runtimeUrl}/register/passkey/finish`,
+          },
+        ]
+      : []),
   ];
   const oauthEndpoints = [
     {
@@ -380,7 +385,7 @@ export default function IntegrationGuides({
   const hasVisibleQuickstart = Boolean(primaryQuickstartDocsUrl) || visibleQuickstarts.length > 0;
   const endpointsCard = (showOAuthEndpoints || showFlowEndpoints) && (
     <OverviewCard
-      title={t('applications:edit.overview.endpoints.appNativeTitle', 'Useful Endpoints')}
+      title={t('applications:edit.overview.endpoints.appNativeTitle', 'Useful endpoints')}
       description={t(
         'applications:edit.overview.endpoints.appNativeDescription',
         'For driving sign-in and registration with a fully custom UI.',
@@ -414,13 +419,13 @@ export default function IntegrationGuides({
         )}
         {application.ouId && (
           <CopyableField
-            label={t('applications:edit.overview.appDetails.organizationUnitId', 'Organization Unit ID')}
+            label={t('applications:edit.overview.appDetails.organizationUnitId', 'Organization unit ID')}
             value={application.ouId}
           />
         )}
         {organizationUnit?.handle && (
           <CopyableField
-            label={t('applications:edit.overview.appDetails.organizationUnitHandle', 'Organization Unit Handle')}
+            label={t('applications:edit.overview.appDetails.organizationUnitHandle', 'Organization unit handle')}
             value={organizationUnit.handle}
           />
         )}
@@ -623,7 +628,7 @@ export default function IntegrationGuides({
                       </Typography>
                       {onGoToCustomization && (
                         <Button size="small" endIcon={<ArrowRight size={11} />} onClick={onGoToCustomization}>
-                          {t('applications:edit.overview.signInPreview.editCustomization', 'Edit in Customization')}
+                          {t('applications:edit.overview.signInPreview.editCustomization', 'Edit in customization')}
                         </Button>
                       )}
                     </Stack>
@@ -664,7 +669,7 @@ export default function IntegrationGuides({
                       </Typography>
                       {onGoToFlows && (
                         <Button size="small" endIcon={<ArrowRight size={11} />} onClick={onGoToFlows}>
-                          {t('applications:edit.overview.signInPreview.editFlows', 'Edit in Flows')}
+                          {t('applications:edit.overview.signInPreview.editFlows', 'Edit in flows')}
                         </Button>
                       )}
                     </Stack>

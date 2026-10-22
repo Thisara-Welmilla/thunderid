@@ -53,7 +53,7 @@ func newCredentialsAuthExecutor(
 		log.String(log.LoggerKeyExecutorName, ExecutorNameCredentialsAuth))
 
 	identifyExec := newIdentifyingExecutor(ExecutorNameCredentialsAuth, defaultInputs, []providers.Input{},
-		flowFactory, entityProvider)
+		flowFactory, entityProvider, nil)
 	base := flowFactory.CreateExecutor(ExecutorNameCredentialsAuth, providers.ExecutorTypeAuthentication,
 		defaultInputs, []providers.Input{}, &providers.ExecutorMeta{})
 
@@ -112,7 +112,7 @@ func (b *credentialsAuthExecutor) Execute(ctx *providers.NodeContext) (*provider
 	if execResp.Status == providers.ExecFailure || execResp.Status == providers.ExecUserInputRequired {
 		return execResp, nil
 	}
-	if !execResp.AuthUser.IsAuthenticated() && ctx.FlowType != providers.FlowTypeRegistration {
+	if !execResp.AuthUser.IsAuthenticated() && !isRegistrationFlow(ctx) {
 		execResp.Status = providers.ExecUserInputRequired
 		if hasPreResolvedUser {
 			execResp.Inputs = b.getCredentialInputs(ctx)
@@ -168,7 +168,7 @@ func (b *credentialsAuthExecutor) authenticateUser(ctx *providers.NodeContext,
 	}
 
 	// For registration flows, only check if user exists.
-	if ctx.FlowType == providers.FlowTypeRegistration {
+	if isRegistrationFlow(ctx) {
 		_, err := b.IdentifyEntity(ctx.Context, userIdentifiers, execResp, entitytype.TypeCategoryUser)
 		if err != nil {
 			return err

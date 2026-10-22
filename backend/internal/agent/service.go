@@ -17,12 +17,15 @@ import (
 	"github.com/thunder-id/thunderid/internal/agent/model"
 	"github.com/thunder-id/thunderid/internal/cert"
 	"github.com/thunder-id/thunderid/internal/entity"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/identitygovernance"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
 	oauthutils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
 	oupkg "github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/role"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 	"github.com/thunder-id/thunderid/internal/system/security"
@@ -56,10 +59,13 @@ type agentService struct {
 	logger               *log.Logger
 	authzService         sysauthz.SystemAuthorizationServiceInterface
 	entityService        entity.EntityServiceInterface
+	governance           identitygovernance.IdentityGovernanceServiceInterface
 	inboundClientService inboundclient.InboundClientServiceInterface
 	ouService            oupkg.OrganizationUnitServiceInterface
 	dependencyRegistry   resourcedependency.Registry
 	roleService          role.RoleServiceInterface
+	valueCapturer        declarativeresource.ValueCapturer
+	entityTypeService    entitytype.EntityTypeServiceInterface
 }
 
 func newAgentService(
@@ -68,14 +74,20 @@ func newAgentService(
 	inboundClientService inboundclient.InboundClientServiceInterface,
 	ouService oupkg.OrganizationUnitServiceInterface,
 	roleService role.RoleServiceInterface,
+	governance identitygovernance.IdentityGovernanceServiceInterface,
+	valueCapturer declarativeresource.ValueCapturer,
+	entityTypeService entitytype.EntityTypeServiceInterface,
 ) AgentServiceInterface {
 	return &agentService{
 		logger:               log.GetLogger().With(log.String(log.LoggerKeyComponentName, "AgentService")),
 		authzService:         authzService,
 		entityService:        entityService,
+		governance:           governance,
 		inboundClientService: inboundClientService,
 		ouService:            ouService,
 		roleService:          roleService,
+		valueCapturer:        valueCapturer,
+		entityTypeService:    entityTypeService,
 	}
 }
 
@@ -117,13 +129,13 @@ func (s *agentService) CreateAgent(ctx context.Context, agent *providers.Agent) 
 	}
 
 	e, sysCredsJSON, buildErr := buildAgentEntity(agentID, agent.Type, agent.OUID, agent.Attributes,
-		agent.Name, agent.Description, owner, clientID, clientSecret)
+		agent.Description, owner, clientID, clientSecret)
 	if buildErr != nil {
 		s.logger.Error(ctx, "Failed to build agent entity", log.Error(buildErr))
 		return nil, &tidcommon.InternalServerError
 	}
 
-	createdEntity, entErr := s.entityService.CreateEntity(ctx, e, sysCredsJSON)
+	createdEntity, entErr := s.entityService.CreateEntity(ctx, e, sysCredsJSON, nil)
 	if entErr != nil {
 		if mapped := mapEntityError(entErr); mapped != nil {
 			return nil, mapped
@@ -156,12 +168,13 @@ func (s *agentService) CreateAgent(ctx context.Context, agent *providers.Agent) 
 	}
 
 	resp := buildCompleteResponse(agentID, owner, clientID, clientSecret,
-		agent.Type, agent.Name, agent.Description, agent.LogoURL, createdEntity.Attributes,
+		agent.Type, agent.Description, agent.LogoURL, createdEntity.Attributes,
 		authFlowID, regFlowID, agent.IsRegistrationFlowEnabled,
 		agent.ThemeID, agent.LayoutID, assertion, loginConsent,
 		agent.AllowedUserTypes, agent.AllowedAgentTypes, inboundConfigs)
 	resp.OUID = agent.OUID
 	s.populateOUHandleForComplete(ctx, resp)
+	s.captureValues(ctx, resp)
 	return resp, nil
 }
 
@@ -196,6 +209,8 @@ func (s *agentService) GetAgent(ctx context.Context, agentID string, includeDisp
 	}
 
 	if includeDisplay {
+		displayPaths := s.resolveDisplayPaths(ctx, []string{e.Type})
+		resp.Display = sysutils.ResolveDisplay(e.ID, e.Type, e.Attributes, displayPaths)
 		s.populateOUHandleForGet(ctx, resp)
 	}
 
@@ -285,13 +300,13 @@ func (s *agentService) UpdateAgent(ctx context.Context, agentID string,
 	if req == nil {
 		return nil, &ErrorInvalidRequestFormat
 	}
-	if svcErr := validateBaseFields(req.Name, req.Type); svcErr != nil {
+	if svcErr := validateBaseFields(req.Type); svcErr != nil {
 		return nil, svcErr
 	}
 	if svcErr := validateLogoURL(req.LogoURL); svcErr != nil {
 		return nil, svcErr
 	}
-	existing, err := s.entityService.GetEntity(ctx, agentID)
+	existing, err := s.entityService.GetEntityProfile(ctx, agentID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			return nil, &ErrorAgentNotFound
@@ -313,12 +328,7 @@ func (s *agentService) UpdateAgent(ctx context.Context, agentID string,
 		return nil, svcErr
 	}
 
-	currentName, _, currentOwner, currentClientID := readSystemAttributes(existing.SystemAttributes)
-	if req.Name != currentName {
-		if svcErr := s.validateNameUnique(ctx, req.Name, agentID); svcErr != nil {
-			return nil, svcErr
-		}
-	}
+	_, currentOwner, currentClientID := readSystemAttributes(existing.SystemAttributes)
 
 	normalizeLoginConsent(req.LoginConsent)
 
@@ -378,14 +388,15 @@ func (s *agentService) UpdateAgent(ctx context.Context, agentID string,
 		OUID:       ouID,
 		Attributes: req.Attributes,
 	}
-	sysAttrsJSON, marshalErr := buildSystemAttributesJSON(req.Name, req.Description, owner, clientID)
+	sysAttrsJSON, marshalErr := buildSystemAttributesJSON(req.Description, owner, clientID)
 	if marshalErr != nil {
 		s.logger.Error(ctx, "Failed to build system attributes for update", log.Error(marshalErr))
 		return nil, &tidcommon.InternalServerError
 	}
 	updatedEntity.SystemAttributes = sysAttrsJSON
 
-	if _, err := s.entityService.UpdateEntity(ctx, agentID, updatedEntity); err != nil {
+	updated, err := s.entityService.UpdateEntity(ctx, agentID, updatedEntity)
+	if err != nil {
 		if mapped := mapEntityError(err); mapped != nil {
 			return nil, mapped
 		}
@@ -417,12 +428,15 @@ func (s *agentService) UpdateAgent(ctx context.Context, agentID string,
 	}
 
 	resp := buildCompleteResponse(agentID, owner, clientID, clientSecret,
-		req.Type, req.Name, req.Description, req.LogoURL, req.Attributes,
+		req.Type, req.Description, req.LogoURL, req.Attributes,
 		authFlowID, regFlowID, resolvedClient.IsRegistrationFlowEnabled,
 		req.ThemeID, req.LayoutID, assertion, loginConsent,
 		req.AllowedUserTypes, req.AllowedAgentTypes, inboundConfigs)
 	resp.OUID = ouID
+	access := s.governance.ReadEntityAccess(ctx, *updated)
+	resp.Status = &access.Status
 	s.populateOUHandleForComplete(ctx, resp)
+	s.captureValues(ctx, resp)
 	return resp, nil
 }
 
@@ -438,7 +452,7 @@ func (s *agentService) DeleteAgent(ctx context.Context, agentID string) *tidcomm
 		return &ErrorMissingAgentID
 	}
 
-	existing, err := s.entityService.GetEntity(ctx, agentID)
+	existing, err := s.entityService.GetEntityProfile(ctx, agentID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			return &ErrorAgentNotFound
@@ -523,50 +537,43 @@ func (s *agentService) GetResourceDependencies(
 		return nil, err
 	}
 
+	displayPaths := s.resolveDisplayPaths(ctx, entityTypes(entities))
 	usages := make([]resourcedependency.ResourceDependency, 0, len(entities))
 	for _, e := range entities {
 		// Applications and agents share the inbound-client store; only report agents.
 		if e.Category != providers.EntityCategoryAgent {
 			continue
 		}
-		name, _, _, _ := readSystemAttributes(e.SystemAttributes)
 		usages = append(usages, resourcedependency.ResourceDependency{
 			ResourceType:     resourcedependency.ResourceTypeAgent,
 			ID:               e.ID,
-			DisplayName:      name,
+			DisplayName:      sysutils.ResolveDisplay(e.ID, e.Type, e.Attributes, displayPaths),
 			BehaviorOnDelete: resourcedependency.BehaviorFallback,
 		})
 	}
 	return usages, nil
 }
 
-// getAgentsByOwner returns the agents that list the given user as their owner. The owner is stored
-// in the agent entity's system attributes, which the entity list filter does not search (it only
-// matches the public attributes column), so agents are listed and matched on owner in memory. The
-// number of agents scanned is bounded by MaxCompositeStoreRecords.
+// getAgentsByOwner returns the agents that list the given user as their owner, found through the owner
+// in the agents' system attributes. The number of agents returned is bounded by MaxCompositeStoreRecords.
 func (s *agentService) getAgentsByOwner(
 	ctx context.Context, ownerID string) ([]resourcedependency.ResourceDependency, error) {
-	entities, err := s.entityService.GetEntityList(
-		ctx, providers.EntityCategoryAgent, serverconst.MaxCompositeStoreRecords, 0, nil)
+	entities, err := s.entityService.GetEntityListBySystemAttributes(ctx, providers.EntityCategoryAgent,
+		entity.SystemAttributeQuery{SystemAttributes: map[string]interface{}{fieldOwner: ownerID}},
+		serverconst.MaxCompositeStoreRecords, 0)
 	if err != nil {
 		s.logger.Error(ctx, "Failed to list agents", log.Error(err))
 		return nil, err
 	}
 
+	displayPaths := s.resolveDisplayPaths(ctx, entityTypes(entities))
 	usages := make([]resourcedependency.ResourceDependency, 0)
 	for _, e := range entities {
-		if e.Category != providers.EntityCategoryAgent {
-			continue
-		}
-		name, _, owner, _ := readSystemAttributes(e.SystemAttributes)
-		if owner != ownerID {
-			continue
-		}
 		// An agent cannot exist without its owner, so ownership blocks the owner's deletion.
 		usages = append(usages, resourcedependency.ResourceDependency{
 			ResourceType:     resourcedependency.ResourceTypeAgent,
 			ID:               e.ID,
-			DisplayName:      name,
+			DisplayName:      sysutils.ResolveDisplay(e.ID, e.Type, e.Attributes, displayPaths),
 			BehaviorOnDelete: resourcedependency.BehaviorRestrict,
 		})
 	}
@@ -586,7 +593,7 @@ func (s *agentService) GetAgentGroups(ctx context.Context, agentID string, limit
 		limit = 30
 	}
 
-	existing, err := s.entityService.GetEntity(ctx, agentID)
+	existing, err := s.entityService.GetEntityProfile(ctx, agentID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			return nil, &ErrorAgentNotFound
@@ -648,7 +655,7 @@ func (s *agentService) GetAgentRoles(ctx context.Context, agentID string, limit,
 		limit = 30
 	}
 
-	existing, err := s.entityService.GetEntity(ctx, agentID)
+	existing, err := s.entityService.GetEntityProfile(ctx, agentID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			return nil, &ErrorAgentNotFound
@@ -721,7 +728,7 @@ func (s *agentService) ValidateAgent(ctx context.Context, agent *providers.Agent
 	if agent == nil {
 		return "", "", inboundmodel.InboundClient{}, &ErrorInvalidRequestFormat
 	}
-	if svcErr := validateBaseFields(agent.Name, agent.Type); svcErr != nil {
+	if svcErr := validateBaseFields(agent.Type); svcErr != nil {
 		return "", "", inboundmodel.InboundClient{}, svcErr
 	}
 	if svcErr := validateLogoURL(agent.LogoURL); svcErr != nil {
@@ -739,9 +746,6 @@ func (s *agentService) ValidateAgent(ctx context.Context, agent *providers.Agent
 		agent.OUID = ou.ID
 	}
 	if svcErr := s.validateOUExists(ctx, agent.OUID); svcErr != nil {
-		return "", "", inboundmodel.InboundClient{}, svcErr
-	}
-	if svcErr := s.validateNameUnique(ctx, agent.Name, excludeID); svcErr != nil {
 		return "", "", inboundmodel.InboundClient{}, svcErr
 	}
 
@@ -792,7 +796,7 @@ func (s *agentService) ValidateAgent(ctx context.Context, agent *providers.Agent
 	if needsInboundClient(agent) {
 		oauthProfile := buildOAuthProfile(agent.InboundAuthConfig)
 		hasSecret := clientSecret != ""
-		if err := s.inboundClientService.Validate(ctx, &client, oauthProfile, hasSecret); err != nil {
+		if err := s.inboundClientService.Validate(ctx, &client, oauthProfile, hasSecret, clientID); err != nil {
 			if svcErr := s.translateInboundClientError(ctx, err); svcErr != nil {
 				return "", "", inboundmodel.InboundClient{}, svcErr
 			}
@@ -896,7 +900,7 @@ func (s *agentService) validateOwnerExists(ctx context.Context, ownerID string) 
 	if ownerID == "" {
 		return nil
 	}
-	_, err := s.entityService.GetEntity(ctx, ownerID)
+	_, err := s.entityService.GetEntityProfile(ctx, ownerID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			return &ErrorOwnerNotFound
@@ -906,38 +910,6 @@ func (s *agentService) validateOwnerExists(ctx context.Context, ownerID string) 
 		return &tidcommon.InternalServerError
 	}
 	return nil
-}
-
-// validateNameUnique returns an error if another agent already uses the given name (excludeID is exempt on updates).
-func (s *agentService) validateNameUnique(ctx context.Context, name, excludeID string) *tidcommon.ServiceError {
-	if name == "" {
-		return &ErrorInvalidAgentName
-	}
-	id, err := s.entityService.IdentifyEntity(ctx, map[string]interface{}{fieldName: name})
-	if err != nil {
-		if errors.Is(err, entity.ErrEntityNotFound) {
-			return nil
-		}
-		if errors.Is(err, entity.ErrAmbiguousEntity) {
-			return &ErrorAgentAlreadyExistsWithName
-		}
-		s.logger.Error(ctx, "Failed to verify agent name uniqueness", log.Error(err))
-		return &tidcommon.InternalServerError
-	}
-	if id == nil || *id == "" {
-		return nil
-	}
-	if excludeID != "" && *id == excludeID {
-		return nil
-	}
-	// Verify the found entity is actually an agent before treating it as a name conflict.
-	// IdentifyEntity searches across all entity categories; apps also store their name in
-	// system attributes under the same key.
-	found, getErr := s.entityService.GetEntity(ctx, *id)
-	if getErr != nil || found.Category != providers.EntityCategoryAgent {
-		return nil
-	}
-	return &ErrorAgentAlreadyExistsWithName
 }
 
 // resolveOAuthCredentials resolves the clientID and clientSecret for an agent OAuth profile.
@@ -1113,18 +1085,19 @@ func (s *agentService) reconcileInboundForUpdate(ctx context.Context, agentID st
 // composeGetResponse builds the GET response by loading inbound client, OAuth profile, and certificates for the entity.
 func (s *agentService) composeGetResponse(ctx context.Context, e *providers.Entity) (
 	*model.AgentGetResponse, *tidcommon.ServiceError) {
-	name, description, owner, clientID := readSystemAttributes(e.SystemAttributes)
+	description, owner, clientID := readSystemAttributes(e.SystemAttributes)
 
+	access := s.governance.ReadEntityAccess(ctx, *e)
 	resp := &model.AgentGetResponse{
 		ID:          e.ID,
 		OUID:        e.OUID,
 		OUHandle:    e.OUHandle,
 		Type:        e.Type,
-		Name:        name,
 		Description: description,
 		Owner:       owner,
 		ClientID:    clientID,
 		Attributes:  e.Attributes,
+		Status:      &access.Status,
 	}
 
 	inbound, err := s.inboundClientService.GetInboundClientByEntityID(ctx, e.ID)
@@ -1181,26 +1154,33 @@ func (s *agentService) composeGetResponse(ctx context.Context, e *providers.Enti
 func (s *agentService) buildListResponse(ctx context.Context, entities []providers.Entity,
 	totalCount, limit, offset int, includeDisplay bool) *model.AgentListResponse {
 	logoByID := s.agentLogoMap(ctx, entities)
+	// One read for the page, so the policy resolves once.
+	reads := s.governance.ReadAccess(ctx, entities)
 	agents := make([]model.BasicAgentResponse, 0, len(entities))
 	for i := range entities {
 		e := &entities[i]
-		name, description, owner, clientID := readSystemAttributes(e.SystemAttributes)
+		description, owner, clientID := readSystemAttributes(e.SystemAttributes)
 		agents = append(agents, model.BasicAgentResponse{
 			ID:          e.ID,
 			OUID:        e.OUID,
 			OUHandle:    e.OUHandle,
 			Type:        e.Type,
-			Name:        name,
 			Description: description,
 			LogoURL:     logoByID[e.ID],
 			ClientID:    clientID,
 			Owner:       owner,
 			Attributes:  e.Attributes,
 			IsReadOnly:  e.IsReadOnly,
+			Status:      &reads[i].Status,
 		})
 	}
 
 	if includeDisplay {
+		displayPaths := s.resolveDisplayPaths(ctx, entityTypes(entities))
+		for i := range agents {
+			agents[i].Display = sysutils.ResolveDisplay(
+				agents[i].ID, agents[i].Type, agents[i].Attributes, displayPaths)
+		}
 		s.populateOUHandlesForList(ctx, agents)
 	}
 
@@ -1318,10 +1298,7 @@ func validateLogoURL(logoURL string) *tidcommon.ServiceError {
 }
 
 // validateBaseFields validates the mandatory top-level fields required for both create and update.
-func validateBaseFields(name, agentType string) *tidcommon.ServiceError {
-	if name == "" {
-		return &ErrorInvalidAgentName
-	}
+func validateBaseFields(agentType string) *tidcommon.ServiceError {
 	if agentType == "" {
 		return &ErrorInvalidAgentType
 	}
@@ -1393,8 +1370,8 @@ func requiresClientSecret(cfg *providers.OAuthConfigWithSecret) bool {
 
 // buildAgentEntity constructs the entity row and system credentials JSON for a new or updated agent.
 func buildAgentEntity(agentID, agentType, ouID string, attributes json.RawMessage,
-	name, description, owner, clientID, clientSecret string) (*providers.Entity, json.RawMessage, error) {
-	sysAttrsJSON, err := buildSystemAttributesJSON(name, description, owner, clientID)
+	description, owner, clientID, clientSecret string) (*providers.Entity, json.RawMessage, error) {
+	sysAttrsJSON, err := buildSystemAttributesJSON(description, owner, clientID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build agent system attributes: %w", err)
 	}
@@ -1416,12 +1393,9 @@ func buildAgentEntity(agentID, agentType, ouID string, attributes json.RawMessag
 	return e, sysCredsJSON, nil
 }
 
-// buildSystemAttributesJSON serializes agent name, description, owner, and clientID into the systemAttributes blob.
-func buildSystemAttributesJSON(name, description, owner, clientID string) (json.RawMessage, error) {
+// buildSystemAttributesJSON serializes agent description, owner, and clientID into the systemAttributes blob.
+func buildSystemAttributesJSON(description, owner, clientID string) (json.RawMessage, error) {
 	attrs := map[string]interface{}{}
-	if name != "" {
-		attrs[fieldName] = name
-	}
 	if description != "" {
 		attrs[fieldDescription] = description
 	}
@@ -1448,16 +1422,13 @@ func buildSystemCredentialsJSON(clientSecret string) (json.RawMessage, error) {
 }
 
 // readSystemAttributes deserializes the systemAttributes JSON blob back into individual string fields.
-func readSystemAttributes(raw json.RawMessage) (name, description, owner, clientID string) {
+func readSystemAttributes(raw json.RawMessage) (description, owner, clientID string) {
 	if len(raw) == 0 {
-		return "", "", "", ""
+		return "", "", ""
 	}
 	var attrs map[string]interface{}
 	if err := json.Unmarshal(raw, &attrs); err != nil {
-		return "", "", "", ""
-	}
-	if v, ok := attrs[fieldName].(string); ok {
-		name = v
+		return "", "", ""
 	}
 	if v, ok := attrs[fieldDescription].(string); ok {
 		description = v
@@ -1468,7 +1439,22 @@ func readSystemAttributes(raw json.RawMessage) (name, description, owner, client
 	if v, ok := attrs[fieldClientID].(string); ok {
 		clientID = v
 	}
-	return name, description, owner, clientID
+	return description, owner, clientID
+}
+
+// resolveDisplayPaths resolves the display attribute path of each given agent type.
+func (s *agentService) resolveDisplayPaths(ctx context.Context, agentTypes []string) map[string]string {
+	return entitytype.ResolveDisplayAttributePaths(
+		ctx, entitytype.TypeCategoryAgent, agentTypes, s.entityTypeService, s.logger)
+}
+
+// entityTypes returns the type name of each entity.
+func entityTypes(entities []providers.Entity) []string {
+	types := make([]string, 0, len(entities))
+	for i := range entities {
+		types = append(types, entities[i].Type)
+	}
+	return types
 }
 
 // buildInboundClientRecord constructs an InboundClient record from the agent's identity and inbound auth fields.
@@ -1631,7 +1617,7 @@ func convertGrantAndResponseTypes(
 }
 
 // buildCompleteResponse constructs the full create/update response including credentials and all inbound auth fields.
-func buildCompleteResponse(agentID, owner, clientID, clientSecret, agentType, name, description, logoURL string,
+func buildCompleteResponse(agentID, owner, clientID, clientSecret, agentType, description, logoURL string,
 	attributes json.RawMessage, authFlowID, regFlowID string, isRegEnabled bool,
 	themeID, layoutID string, assertion *inboundmodel.AssertionConfig,
 	loginConsent *inboundmodel.LoginConsentConfig, allowedUserTypes, allowedAgentTypes []string,
@@ -1640,7 +1626,6 @@ func buildCompleteResponse(agentID, owner, clientID, clientSecret, agentType, na
 	resp := &model.AgentCompleteResponse{
 		ID:          agentID,
 		Type:        agentType,
-		Name:        name,
 		Description: description,
 		LogoURL:     logoURL,
 		Owner:       owner,
@@ -1794,6 +1779,18 @@ func translateOAuthValidationError(err error) *tidcommon.ServiceError {
 			Key:          "error.agentservice.response_types_require_authorization_code_description",
 			DefaultValue: "Response types can only be configured with the authorization_code grant type",
 		})
+	case errors.Is(err, inboundclient.ErrOAuthClientIDJAGRequiresTokenExchange):
+		return tidcommon.CustomServiceError(ErrorInvalidOAuthConfiguration, tidcommon.I18nMessage{
+			Key: "error.agentservice.idjag_requires_token_exchange_description",
+			DefaultValue: "ID-JAG configuration requires the " +
+				"urn:ietf:params:oauth:grant-type:token-exchange grant type",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthClientIDJAGRequiresAllowedAudience):
+		return tidcommon.CustomServiceError(ErrorInvalidOAuthConfiguration, tidcommon.I18nMessage{
+			Key: "error.agentservice.idjag_requires_allowed_audience_description",
+			DefaultValue: "ID-JAG configuration requires at least one allowed audience, and allowed " +
+				"audiences must not be blank",
+		})
 
 	// OAuth: token endpoint auth method
 	case errors.Is(err, inboundclient.ErrOAuthInvalidTokenEndpointAuthMethod):
@@ -1827,6 +1824,18 @@ func translateOAuthValidationError(err error) *tidcommon.ServiceError {
 		return tidcommon.CustomServiceError(ErrorInvalidOAuthConfiguration, tidcommon.I18nMessage{
 			Key:          "error.agentservice.client_credentials_cannot_use_none_auth_description",
 			DefaultValue: "client_credentials grant type cannot use 'none' authentication method",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthClientJWTBearerCannotUseNoneAuth):
+		return tidcommon.CustomServiceError(ErrorInvalidOAuthConfiguration, tidcommon.I18nMessage{
+			Key: "error.agentservice.jwt_bearer_cannot_use_none_auth_description",
+			DefaultValue: "jwt-bearer grant type requires a confidential client and cannot use 'none' " +
+				"token endpoint authentication method",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthClientIDJAGCannotUseNoneAuth):
+		return tidcommon.CustomServiceError(ErrorInvalidOAuthConfiguration, tidcommon.I18nMessage{
+			Key: "error.agentservice.idjag_cannot_use_none_auth_description",
+			DefaultValue: "ID-JAG configuration requires a confidential client and cannot use 'none' " +
+				"token endpoint authentication method",
 		})
 
 	// OAuth: public client

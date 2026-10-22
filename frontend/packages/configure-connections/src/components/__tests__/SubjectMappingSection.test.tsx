@@ -11,8 +11,8 @@ vi.mock('@thunderid/components', () => ({
   SettingsCard: ({children}: {children: React.ReactNode}) => <section>{children}</section>,
 }));
 
-let userTypes: {id: string; name: string}[] = [];
-let agentTypes: {id: string; name: string}[] = [];
+let userTypes: {id: string; handle: string; displayName: string}[] = [];
+let agentTypes: {id: string; handle: string; displayName: string}[] = [];
 let subjectTypesLoading = false;
 let subjectTypesError: Error | null = null;
 const refetchSubjectTypes = vi.fn();
@@ -95,9 +95,9 @@ describe('SubjectMappingSection', () => {
     ['user', 'agent'],
   ] as const)('hides the %s mapping section when that category has no types', (hiddenCategory, visibleCategory) => {
     if (visibleCategory === 'user') {
-      userTypes = [{id: 'employee-id', name: 'employee'}];
+      userTypes = [{id: 'employee-id', handle: 'employee', displayName: 'Employee'}];
     } else {
-      agentTypes = [{id: 'assistant-id', name: 'assistant'}];
+      agentTypes = [{id: 'assistant-id', handle: 'assistant', displayName: 'Assistant'}];
     }
 
     render(<SubjectMappingSection values={{}} onChange={vi.fn()} />);
@@ -107,8 +107,8 @@ describe('SubjectMappingSection', () => {
   });
 
   it('selects the sole user and agent types without displaying entity-type fields', async () => {
-    userTypes = [{id: 'employee-id', name: 'employee'}];
-    agentTypes = [{id: 'assistant-id', name: 'assistant'}];
+    userTypes = [{id: 'employee-id', handle: 'employee', displayName: 'Employee'}];
+    agentTypes = [{id: 'assistant-id', handle: 'assistant', displayName: 'Assistant'}];
     const onChange = vi.fn();
 
     render(<SubjectMappingSection values={{}} onChange={onChange} />);
@@ -120,7 +120,7 @@ describe('SubjectMappingSection', () => {
     expect(screen.queryByDisplayValue('assistant')).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getAllByLabelText('ThunderID Attribute')[0], {target: {value: 'email'}});
+    fireEvent.change(screen.getAllByLabelText('ThunderID attribute')[0], {target: {value: 'email'}});
 
     expect(onChange).toHaveBeenLastCalledWith('subjectAttributeMappings', [
       {
@@ -131,7 +131,7 @@ describe('SubjectMappingSection', () => {
   });
 
   it('hides the built-in default agent type while retaining it in the mapping payload', async () => {
-    agentTypes = [{id: 'default-agent-id', name: 'default'}];
+    agentTypes = [{id: 'default-agent-id', handle: 'default', displayName: 'Default'}];
     const onChange = vi.fn();
 
     render(<SubjectMappingSection values={{}} onChange={onChange} />);
@@ -140,7 +140,7 @@ describe('SubjectMappingSection', () => {
       expect(screen.queryByDisplayValue('default')).not.toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText('ThunderID Attribute'), {target: {value: 'groups'}});
+    fireEvent.change(screen.getByLabelText('ThunderID attribute'), {target: {value: 'groups'}});
 
     expect(onChange).toHaveBeenLastCalledWith('subjectAttributeMappings', [
       {
@@ -151,7 +151,7 @@ describe('SubjectMappingSection', () => {
   });
 
   it('only sends explicitly entered values when an attribute edit is undone', () => {
-    userTypes = [{id: 'employee-id', name: 'employee'}];
+    userTypes = [{id: 'employee-id', handle: 'employee', displayName: 'Employee'}];
     const onChange = vi.fn();
 
     render(
@@ -175,8 +175,8 @@ describe('SubjectMappingSection', () => {
 
   it('keeps the type dropdown when a category has multiple types', () => {
     userTypes = [
-      {id: 'employee-id', name: 'employee'},
-      {id: 'customer-id', name: 'customer'},
+      {id: 'employee-id', handle: 'employee', displayName: 'Employee'},
+      {id: 'customer-id', handle: 'customer', displayName: 'Customer'},
     ];
 
     render(<ControlledSubjectMappingSection />);
@@ -189,7 +189,7 @@ describe('SubjectMappingSection', () => {
   });
 
   it('shows a legacy mapping when its entity type identifies one subject category', () => {
-    userTypes = [{id: 'customer-id', name: 'customer'}];
+    userTypes = [{id: 'customer-id', handle: 'customer', displayName: 'Customer'}];
 
     render(
       <SubjectMappingSection
@@ -232,7 +232,7 @@ describe('SubjectMappingSection', () => {
   });
 
   it('keeps an unresolved mapping when another mapping is edited', () => {
-    userTypes = [{id: 'employee-id', name: 'employee'}];
+    userTypes = [{id: 'employee-id', handle: 'employee', displayName: 'Employee'}];
     const onChange = vi.fn();
 
     render(
@@ -256,8 +256,8 @@ describe('SubjectMappingSection', () => {
   });
 
   it('shows an ambiguous entity type as unresolved and lets the user remove it', () => {
-    userTypes = [{id: 'shared-user-id', name: 'shared'}];
-    agentTypes = [{id: 'shared-agent-id', name: 'shared'}];
+    userTypes = [{id: 'shared-user-id', handle: 'shared', displayName: 'Shared'}];
+    agentTypes = [{id: 'shared-agent-id', handle: 'shared', displayName: 'Shared'}];
     const onChange = vi.fn();
 
     render(
@@ -275,9 +275,9 @@ describe('SubjectMappingSection', () => {
 
   it('selects the final remaining user type without displaying an entity-type field', async () => {
     userTypes = [
-      {id: 'employee-id', name: 'employee'},
-      {id: 'customer-id', name: 'customer'},
-      {id: 'partner-id', name: 'partner'},
+      {id: 'employee-id', handle: 'employee', displayName: 'Employee'},
+      {id: 'customer-id', handle: 'customer', displayName: 'Customer'},
+      {id: 'partner-id', handle: 'partner', displayName: 'Partner'},
     ];
 
     render(<ControlledSubjectMappingSection />);
@@ -285,11 +285,11 @@ describe('SubjectMappingSection', () => {
     const userMappings = screen.getByTestId('subject-mapping-category-user');
     const [firstSelect] = within(userMappings).getAllByTestId(/subject-mapping-group-user-type-select-/);
     fireEvent.mouseDown(firstSelect.querySelector('[role="combobox"]')!);
-    fireEvent.click(screen.getByRole('option', {name: 'employee'}));
+    fireEvent.click(screen.getByRole('option', {name: 'Employee'}));
     fireEvent.click(screen.getByTestId('subject-mapping-add-user'));
     const [, secondSelect] = within(userMappings).getAllByTestId(/subject-mapping-group-user-type-select-/);
     fireEvent.mouseDown(secondSelect.querySelector('[role="combobox"]')!);
-    fireEvent.click(screen.getByRole('option', {name: 'customer'}));
+    fireEvent.click(screen.getByRole('option', {name: 'Customer'}));
     fireEvent.click(screen.getByTestId('subject-mapping-add-user'));
 
     await waitFor(() => {
@@ -302,8 +302,8 @@ describe('SubjectMappingSection', () => {
 
   it('adds, updates, and removes attribute rows and subject mappings', async () => {
     userTypes = [
-      {id: 'employee-id', name: 'employee'},
-      {id: 'customer-id', name: 'customer'},
+      {id: 'employee-id', handle: 'employee', displayName: 'Employee'},
+      {id: 'customer-id', handle: 'customer', displayName: 'Customer'},
     ];
 
     render(<ControlledSubjectMappingSection />);
@@ -311,17 +311,17 @@ describe('SubjectMappingSection', () => {
     const userMappings = screen.getByTestId('subject-mapping-category-user');
     const typeSelect = within(userMappings).getByTestId(/subject-mapping-group-user-type-select-/);
     fireEvent.mouseDown(typeSelect.querySelector('[role="combobox"]')!);
-    fireEvent.click(screen.getByRole('option', {name: 'employee'}));
+    fireEvent.click(screen.getByRole('option', {name: 'Employee'}));
 
-    fireEvent.change(within(userMappings).getByLabelText('ThunderID Attribute'), {
+    fireEvent.change(within(userMappings).getByLabelText('ThunderID attribute'), {
       target: {value: 'email'},
     });
-    fireEvent.click(within(userMappings).getByRole('button', {name: 'Add Mapping'}));
+    fireEvent.click(within(userMappings).getByRole('button', {name: 'Add mapping'}));
 
-    const attributes = within(userMappings).getAllByLabelText('ThunderID Attribute');
+    const attributes = within(userMappings).getAllByLabelText('ThunderID attribute');
     fireEvent.change(attributes[1], {target: {value: 'groups'}});
     fireEvent.click(within(userMappings).getAllByRole('button', {name: 'Map to a different PDP attribute'})[1]);
-    fireEvent.change(within(userMappings).getByLabelText('PDP Attribute'), {target: {value: 'roles'}});
+    fireEvent.change(within(userMappings).getByLabelText('PDP attribute'), {target: {value: 'roles'}});
 
     fireEvent.change(attributes[1], {target: {value: 'email'}});
     expect(attributes[1]).toHaveValue('email');
@@ -335,7 +335,7 @@ describe('SubjectMappingSection', () => {
 
     fireEvent.click(within(userMappings).getByTestId(/subject-mapping-remove-\d+-2/));
     await waitFor(() => {
-      expect(within(userMappings).getAllByLabelText('ThunderID Attribute')).toHaveLength(1);
+      expect(within(userMappings).getAllByLabelText('ThunderID attribute')).toHaveLength(1);
     });
 
     fireEvent.click(screen.getByTestId('subject-mapping-add-user'));

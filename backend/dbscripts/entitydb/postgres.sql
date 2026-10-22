@@ -20,8 +20,7 @@ CREATE TABLE "ENTITY" (
     DEPLOYMENT_ID       VARCHAR(255) NOT NULL,
     ID                  VARCHAR(36) NOT NULL,
     CATEGORY            VARCHAR(50)  NOT NULL,
-    TYPE                VARCHAR(50)  NOT NULL,
-    STATE               VARCHAR(50)  NOT NULL,
+    TYPE                VARCHAR(100) NOT NULL,
     OU_ID               VARCHAR(36)  NOT NULL,
     ATTRIBUTES          JSONB,
     SYSTEM_ATTRIBUTES   JSONB,
@@ -37,6 +36,9 @@ CREATE INDEX idx_entity_category_deployment ON "ENTITY" (DEPLOYMENT_ID, CATEGORY
 
 -- Composite index for OU-based entity listing
 CREATE INDEX idx_entity_ou_deployment ON "ENTITY" (DEPLOYMENT_ID, OU_ID);
+
+-- Expression index for looking up agents by their owner
+CREATE INDEX idx_entity_owner ON "ENTITY" (DEPLOYMENT_ID, (SYSTEM_ATTRIBUTES->>'owner'));
 
 -- Table to store Groups
 CREATE TABLE "GROUP" (
@@ -65,6 +67,7 @@ CREATE TABLE "GROUP_MEMBER_REFERENCE" (
 );
 
 -- Table to store indexed entity identifiers for fast lookups (authentication, identification)
+-- An entity may hold multiple values for the same NAME (e.g. more than one email address).
 CREATE TABLE "ENTITY_IDENTIFIER" (
     DEPLOYMENT_ID   VARCHAR(255) NOT NULL,
     ENTITY_ID       VARCHAR(36)  NOT NULL,
@@ -72,7 +75,7 @@ CREATE TABLE "ENTITY_IDENTIFIER" (
     VALUE           TEXT         NOT NULL,
     SOURCE          VARCHAR(50)  NOT NULL,
     CREATED_AT      TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (ENTITY_ID, DEPLOYMENT_ID, NAME),
+    PRIMARY KEY (ENTITY_ID, DEPLOYMENT_ID, NAME, VALUE),
     FOREIGN KEY (DEPLOYMENT_ID, ENTITY_ID)
         REFERENCES "ENTITY" (DEPLOYMENT_ID, ID) ON DELETE CASCADE
 );

@@ -227,6 +227,18 @@ func (s *CacheBackedEntityStoreTestSuite) TestIdentifyEntity_StoreError() {
 	s.mockStore.AssertExpectations(s.T())
 }
 
+func (s *CacheBackedEntityStoreTestSuite) TestResolveLinkedAccounts_PassesThroughUncached() {
+	s.mockStore.On("ResolveLinkedAccounts", mock.Anything, "idp-a", "sub-1").
+		Return([]string{testEntityID}, nil).Twice()
+
+	for range 2 {
+		result, err := s.cachedStore.ResolveLinkedAccounts(context.Background(), "idp-a", "sub-1")
+		s.Require().NoError(err)
+		s.Equal([]string{testEntityID}, result)
+	}
+	s.mockStore.AssertExpectations(s.T())
+}
+
 // UpdateSystemAttributes tests
 
 func (s *CacheBackedEntityStoreTestSuite) TestUpdateSystemAttributes_InvalidatesEntityCache() {
@@ -673,4 +685,51 @@ func (s *CacheBackedEntityStoreTestSuite) TestUpdateCredentials_DoesNotInvalidat
 		cache.CacheKey{Key: "clientId:client-1"})
 	s.True(ok)
 	s.Equal(entity.ID, *cachedID)
+}
+
+// A stale cached copy would let the locked read-modify-write drop another writer's change, so the
+// entity read under the lock bypasses the cache in both directions.
+func (s *CacheBackedEntityStoreTestSuite) TestLockEntity_BypassesCache() {
+	stale := providers.Entity{ID: testEntityID, SystemAttributes: json.RawMessage(`{"stale":true}`)}
+	s.entityByIDData[testEntityID] = &stale
+	locked := providers.Entity{ID: testEntityID, SystemAttributes: json.RawMessage(`{"fresh":true}`)}
+	s.mockStore.On("LockEntity", mock.Anything, testEntityID).Return(locked, nil).Once()
+
+	got, err := s.cachedStore.LockEntity(context.Background(), testEntityID)
+	s.Require().NoError(err)
+	s.Equal(locked, got)
+	s.Same(&stale, s.entityByIDData[testEntityID])
+	s.mockStore.AssertExpectations(s.T())
+}
+
+func (s *CacheBackedEntityStoreTestSuite) TestGetEntityListBySystemAttributes_PassThrough() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	s.mockStore.On("GetEntityListCountBySystemAttributes", mock.Anything, "agent", sysQuery).Return(2, nil)
+	s.mockStore.On("GetEntityListBySystemAttributes", mock.Anything, "agent", sysQuery, 10, 0).
+		Return([]providers.Entity{{ID: "e1"}}, nil)
+
+	count, err := s.cachedStore.GetEntityListCountBySystemAttributes(context.Background(), "agent", sysQuery)
+	s.NoError(err)
+	s.Equal(2, count)
+	list, err := s.cachedStore.GetEntityListBySystemAttributes(context.Background(), "agent", sysQuery, 10, 0)
+	s.NoError(err)
+	s.Len(list, 1)
+}
+
+func (s *CacheBackedEntityStoreTestSuite) TestGetEntityListBySystemAttributesAndOUIDs_PassThrough() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	ouIDs := []string{"ou1"}
+	s.mockStore.On("GetEntityListCountBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs).
+		Return(2, nil)
+	s.mockStore.On("GetEntityListBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs, 10, 0).
+		Return([]providers.Entity{{ID: "e1"}}, nil)
+
+	count, err := s.cachedStore.GetEntityListCountBySystemAttributesAndOUIDs(
+		context.Background(), "agent", sysQuery, ouIDs)
+	s.NoError(err)
+	s.Equal(2, count)
+	list, err := s.cachedStore.GetEntityListBySystemAttributesAndOUIDs(
+		context.Background(), "agent", sysQuery, ouIDs, 10, 0)
+	s.NoError(err)
+	s.Len(list, 1)
 }

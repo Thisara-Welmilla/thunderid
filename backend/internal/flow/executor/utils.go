@@ -8,18 +8,49 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"time"
 
 	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	authnprovidercm "github.com/thunder-id/thunderid/internal/authnprovider/common"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
 	entitytypemodel "github.com/thunder-id/thunderid/internal/entitytype/model"
 	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/revocation"
+	"github.com/thunder-id/thunderid/internal/role"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	systemutils "github.com/thunder-id/thunderid/internal/system/utils"
+	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 )
+
+// setExternalIdentity stores what an external party (a federated identity provider or a
+// credential issuer) asserted as one RuntimeData entry, replacing any earlier one whole so the claims of
+// two sign-ins never mix. Claims never reach RuntimeData under their own names, so none can stand in
+// for flow control state. Token metadata is dropped, and so is the sub claim when it is set as
+// the subject.
+func setExternalIdentity(execResp *providers.ExecutorResponse, idpID, sub string,
+	claims map[string]interface{}) error {
+	claims = maps.Clone(claims)
+	for _, key := range tokenMetadataClaims {
+		delete(claims, key)
+	}
+	if sub != "" {
+		delete(claims, userAttributeSub)
+	}
+	encoded, err := json.Marshal(core.ExternalIdentity{IdpID: idpID, Sub: sub, Claims: claims})
+	if err != nil {
+		return fmt.Errorf("failed to encode the external identity: %w", err)
+	}
+	if execResp.RuntimeData == nil {
+		execResp.RuntimeData = make(map[string]string)
+	}
+	execResp.RuntimeData[common.RuntimeKeyExternalIdentity] = string(encoded)
+	return nil
+}
 
 // revocationPlan is the trusted intent a flow's pre-processing node produces and the executors that
 // follow act on. It is never built from request input, so the criteria, breadth and reason recorded
@@ -33,6 +64,11 @@ type revocationPlan struct {
 	// application revocation is keyed by the OAuth client id while the delete and the session detachment
 	// need the application id, so the two travel separately rather than one being re-derived.
 	TargetID string `json:"targetId,omitempty"`
+	// AssigneeID is the principal losing a role or leaving a group, when the action names one.
+	AssigneeID   string `json:"assigneeId,omitempty"`
+	AssigneeType string `json:"assigneeType,omitempty"`
+	// ActionArgs carries further acting-node arguments, keyed by the flow input they came from.
+	ActionArgs map[string]string `json:"actionArgs,omitempty"`
 	// TTLSeconds is how long the deny-list row must live to outlast the artifacts the criteria match.
 	// Zero leaves the revocation service on its configured default.
 	TTLSeconds int64 `json:"ttlSeconds,omitempty"`
@@ -68,19 +104,29 @@ func decodeRevocationPlan(data map[string]string) (revocationPlan, error) {
 	return plan, nil
 }
 
-// applicationTargetFromPlan returns the application the trusted plan acts on. The reason check makes a
-// mispaired graph fail cleanly, since flow validation does not stop one action's preparatory node being
-// wired to another's acting node.
-func applicationTargetFromPlan(data map[string]string, want revocation.Reason) (string, error) {
+// revocationPlanFor returns the trusted plan an acting node acts on. The reason check makes a mispaired
+// graph fail cleanly, since flow validation does not stop one action's preparatory node being wired to
+// another's acting node.
+func revocationPlanFor(data map[string]string, want revocation.Reason) (revocationPlan, error) {
 	plan, err := decodeRevocationPlan(data)
 	if err != nil {
-		return "", err
+		return revocationPlan{}, err
 	}
 	if plan.Reason != want {
-		return "", fmt.Errorf("trusted revocation plan was produced for %q, not %q", plan.Reason, want)
+		return revocationPlan{}, fmt.Errorf("trusted revocation plan was produced for %q, not %q",
+			plan.Reason, want)
 	}
 	if plan.TargetID == "" {
-		return "", errors.New("trusted revocation plan has no target application")
+		return revocationPlan{}, errors.New("trusted revocation plan has no target")
+	}
+	return plan, nil
+}
+
+// applicationTargetFromPlan returns the application the trusted plan acts on.
+func applicationTargetFromPlan(data map[string]string, want revocation.Reason) (string, error) {
+	plan, err := revocationPlanFor(data, want)
+	if err != nil {
+		return "", err
 	}
 	return plan.TargetID, nil
 }
@@ -227,64 +273,64 @@ func isCrossOUProvisioningAllowed(ctx *providers.NodeContext) bool {
 }
 
 // setFederatedEntityState records whether federated authentication resolved a concrete local user
-// (via account linking) into the entityState runtime key.
+// (via account linking) into the entityState runtime key. Several users holding the link is recorded
+// as ambiguous, for a later node to let the user pick between them.
 func setFederatedEntityState(ctx context.Context, execResp *providers.ExecutorResponse,
 	authnProvider providers.AuthnProviderManager) {
 	execResp.RuntimeData[common.RuntimeKeyEntityState] = entityStateNotExists
-	authUser, entityRef, svcErr := authnProvider.GetEntityReference(ctx, execResp.AuthUser)
-	execResp.AuthUser = authUser
-	if svcErr == nil && entityRef != nil {
-		execResp.RuntimeData[common.RuntimeKeyEntityState] = entityStateExists
-	}
-}
 
-// reservedAuthorizationRuntimeKeys must never be overwritten by an external claim of the same name.
-var reservedAuthorizationRuntimeKeys = map[string]bool{
-	common.RuntimeKeyMappedRoleIDs:     true,
-	common.RuntimeKeyMappedGroupIDs:    true,
-	common.RuntimeKeyMappedPermissions: true,
-}
-
-// copyFederatedAttributesToRuntimeData copies federatedAttributes into execResp.RuntimeData, skipping
-// reservedAuthorizationRuntimeKeys.
-func copyFederatedAttributesToRuntimeData(
-	execResp *providers.ExecutorResponse, federatedAttributes map[string]interface{},
-) {
-	if len(federatedAttributes) == 0 {
+	// An unauthenticated AuthUser names nobody, and GetEntityReference would log it as an error.
+	if !execResp.AuthUser.IsAuthenticated() {
 		return
 	}
-	if execResp.RuntimeData == nil {
-		execResp.RuntimeData = make(map[string]string)
+
+	authUser, entityRef, svcErr := authnProvider.GetEntityReference(ctx, execResp.AuthUser)
+	execResp.AuthUser = authUser
+	switch {
+	case svcErr == nil && entityRef != nil:
+		execResp.RuntimeData[common.RuntimeKeyEntityState] = entityStateExists
+	case svcErr != nil && svcErr.Code == authnprovidermgr.ErrorAmbiguousUser.Code:
+		execResp.RuntimeData[common.RuntimeKeyEntityState] = entityStateAmbiguous
 	}
-	for key, value := range federatedAttributes {
-		if reservedAuthorizationRuntimeKeys[key] {
-			continue
-		}
+}
+
+// authenticateEntityByID signs in an entity whose ID the flow already trusts, such as one it just
+// provisioned or the federated link's holder the user picked, onto base. On success it sets the
+// AuthUser and copies the authenticated claims into runtime data. It returns the authentication
+// provider's error as is, and ErrEntityAuthFailed when the AuthUser comes back unauthenticated.
+func authenticateEntityByID(ctx *providers.NodeContext, authnProvider providers.AuthnProviderManager,
+	entityID string, base providers.AuthUser, execResp *providers.ExecutorResponse) *tidcommon.ServiceError {
+	credential := map[string]interface{}{authnprovidercm.CredentialTypeProvisionedEntityID: entityID}
+	authUser, authenticatedClaims, svcErr := authnProvider.AuthenticateUser(ctx.Context, nil, credential,
+		nil, nil, base)
+	if svcErr != nil {
+		return svcErr
+	}
+	if !authUser.IsAuthenticated() {
+		return &ErrEntityAuthFailed
+	}
+	execResp.AuthUser = authUser
+	for key, value := range authenticatedClaims {
 		execResp.RuntimeData[key] = systemutils.ConvertInterfaceValueToString(value)
 	}
+	return nil
 }
 
 // resolveAndSetMappedAuthorizationTargets resolves the IDP's AuthorizationRuleMapping (explicit value
 // rules) and AuthorizationDirectMapping (direct name-based lookup) against federatedAttributes,
 // unions their targets, and stores the result as runtime data for later executors. Logs and continues
-// without the affected targets when the IDP or direct targets can't be resolved, rather than failing
-// the federated login over what is best-effort enrichment of its runtime state.
+// without the direct targets when they can't be resolved, rather than failing the federated login over
+// what is best-effort enrichment of its runtime state.
 func resolveAndSetMappedAuthorizationTargets(
 	ctx context.Context, execResp *providers.ExecutorResponse,
-	idpService providers.IDPProvider, idpID string, federatedAttributes map[string]interface{},
+	idpService providers.IDPProvider, idpDTO *providers.IDPDTO, federatedAttributes map[string]interface{},
 	logger *log.Logger,
 ) {
-	idpDTO, svcErr := idpService.GetIdentityProvider(ctx, idpID)
-	if svcErr != nil {
-		logger.Warn(ctx, "Failed to resolve IDP for authorization mapping, skipping",
-			log.String("idpId", idpID), log.String("error", svcErr.Error.DefaultValue))
-		return
-	}
 	targets := idp.GetRuleAuthorizationTargets(idpDTO, federatedAttributes)
 	directTargets, svcErr := idpService.GetDirectAuthorizationTargets(ctx, idpDTO, federatedAttributes)
 	if svcErr != nil {
 		logger.Warn(ctx, "Failed to resolve direct authorization targets, continuing with rule-based targets only",
-			log.String("idpId", idpID), log.String("error", svcErr.Error.DefaultValue))
+			log.String("idpId", idpDTO.ID), log.String("error", svcErr.Error.DefaultValue))
 	} else {
 		targets = append(targets, directTargets...)
 	}
@@ -308,6 +354,14 @@ func setMappedAuthorizationTargets(execResp *providers.ExecutorResponse, targets
 	execResp.RuntimeData[common.RuntimeKeyMappedPermissions] = string(encoded)
 }
 
+// isRegistrationFlow reports whether executors should apply their registration behavior. A linking
+// verification segment verifies an existing account, so it runs with authentication behavior even
+// inside a registration flow.
+func isRegistrationFlow(ctx *providers.NodeContext) bool {
+	return ctx.FlowType == providers.FlowTypeRegistration &&
+		ctx.RuntimeData[common.RuntimeKeyLinkingVerificationRequested] != dataValueTrue
+}
+
 // isAllowAuthenticationWithoutLocalUserRuntimeFlagSet checks if the runtime flag for allowing authentication without
 // a local user is set in the context.
 func isAllowRegistrationWithExistingUserRuntimeFlagSet(ctx *providers.NodeContext) bool {
@@ -315,39 +369,101 @@ func isAllowRegistrationWithExistingUserRuntimeFlagSet(ctx *providers.NodeContex
 	return ok && val == dataValueTrue
 }
 
-// validateFederatedIdentifierConsistency checks if the federated identifiers from the authentication result
-// are consistent with any existing identifiers in the context (runtime data, user inputs, authenticated
-// user attributes).
-func validateFederatedIdentifierConsistency(ctx *providers.NodeContext,
+// validateFederatedIdentifierConsistency checks if the federated identity from the authentication result
+// is consistent with what the flow already holds. An earlier federated sign-in must be the same
+// identity: subjects are unique only within a connection, so the connection and subject are compared
+// together. The local attributes the connection's account-linking attributes match on are compared with
+// runtime data, the earlier external identity's claims, user inputs and the authenticated user's
+// attributes. A connection without account-linking attributes is compared on email.
+func validateFederatedIdentifierConsistency(ctx *providers.NodeContext, idpDTO *providers.IDPDTO,
 	federatedIdentifiers, existingIdentifiers map[string]interface{}) bool {
 	if len(federatedIdentifiers) == 0 {
 		return true
 	}
 
-	// TODO: Refine this well-known-key comparison when IDP-to-local attribute mapping is supported
-	fedIdfConsistencyKeys := []string{userAttributeEmail, userAttributeSub}
-	for _, key := range fedIdfConsistencyKeys {
-		federatedValue := ""
-		if value, ok := federatedIdentifiers[key]; ok {
-			federatedValue = systemutils.ConvertInterfaceValueToString(value)
-		}
+	sub := systemutils.ConvertInterfaceValueToString(federatedIdentifiers[userAttributeSub])
+	earlier := core.GetExternalIdentity(ctx.RuntimeData)
+	if earlier != nil && earlier.Sub != "" && (earlier.IdpID != idpDTO.ID || earlier.Sub != sub) {
+		return false
+	}
 
-		if federatedValue == "" {
-			continue
-		}
-
-		if value, ok := ctx.RuntimeData[key]; ok && value != "" && value != federatedValue {
+	var linking *providers.AccountLinking
+	if idpDTO.AttributeConfiguration != nil {
+		linking = idpDTO.AttributeConfiguration.AccountLinking
+	}
+	if linking == nil || len(linking.Attributes) == 0 {
+		linking = &providers.AccountLinking{Attributes: []string{userAttributeEmail}}
+	}
+	mappings := idp.GetAttributeMappings(idpDTO, federatedIdentifiers)
+	for _, attr := range idp.GetAccountLinkingLocalAttributes(linking, federatedIdentifiers, mappings) {
+		federated := systemutils.ConvertInterfaceValueToString(federatedIdentifiers[attr])
+		if value := ctx.RuntimeData[attr]; value != "" && value != federated {
 			return false
 		}
-		if value, ok := ctx.UserInputs[key]; ok && value != "" && value != federatedValue {
+		if value, _ := earlier.Claim(attr); value != "" && value != federated {
 			return false
 		}
-		if value := existingIdentifiers[key]; value != nil &&
-			systemutils.ConvertInterfaceValueToString(value) != "" &&
-			systemutils.ConvertInterfaceValueToString(value) != federatedValue {
+		if value := ctx.UserInputs[attr]; value != "" && value != federated {
+			return false
+		}
+		if value := systemutils.ConvertInterfaceValueToString(existingIdentifiers[attr]); value != "" &&
+			value != federated {
 			return false
 		}
 	}
 
 	return true
+}
+
+// consumeFederatedCallbackInputs removes the code and state from UserInputs and returns the state.
+func consumeFederatedCallbackInputs(ctx *providers.NodeContext) string {
+	returnedState := ctx.UserInputs[userInputState]
+	delete(ctx.UserInputs, userInputCode)
+	delete(ctx.UserInputs, userInputState)
+	return returnedState
+}
+
+// federatedIdentityFrom returns nil when no federated connection set an external identity.
+func federatedIdentityFrom(ctx *providers.NodeContext) *core.ExternalIdentity {
+	extIdentity := core.GetExternalIdentity(ctx.RuntimeData)
+	if extIdentity == nil || extIdentity.IdpID == "" || extIdentity.Sub == "" {
+		return nil
+	}
+	return extIdentity
+}
+
+// decodeRolePermissions reads the JSON-encoded permission set of a role permission change.
+func decodeRolePermissions(encoded string) ([]role.ResourcePermissions, error) {
+	permissions := []role.ResourcePermissions{}
+	if err := json.Unmarshal([]byte(encoded), &permissions); err != nil {
+		return nil, fmt.Errorf("failed to decode role permissions: %w", err)
+	}
+	if permissions == nil {
+		permissions = []role.ResourcePermissions{}
+	}
+	return permissions, nil
+}
+
+// optionalID returns nil for an absent identifier, the form the resource service reads as unscoped.
+func optionalID(id string) *string {
+	if id == "" {
+		return nil
+	}
+	return &id
+}
+
+// refusalResponse fails execResp with the service's refusal, or with fallback when the refusal carries
+// no code. A server error is returned as an error prefixed with failure instead of being shown as a refusal.
+func refusalResponse(execResp *providers.ExecutorResponse, svcErr *tidcommon.ServiceError,
+	fallback tidcommon.ServiceError, failure string) (*providers.ExecutorResponse, error) {
+	if svcErr.Type == tidcommon.ServerErrorType {
+		return nil, fmt.Errorf("%s: %s", failure, svcErr.Error.DefaultValue)
+	}
+	refusal := *svcErr
+	if refusal.Code == "" {
+		refusal = fallback
+	}
+	execResp.Status = providers.ExecFailure
+	execResp.Error = &refusal
+	return execResp, nil
 }

@@ -6,6 +6,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sort"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/authn/assert"
 	authncm "github.com/thunder-id/thunderid/internal/authn/common"
 	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/entitytype"
 	"github.com/thunder-id/thunderid/internal/flow/common"
 	"github.com/thunder-id/thunderid/internal/flow/core"
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
@@ -41,6 +43,7 @@ type authAssertExecutor struct {
 	entityProvider      entityprovider.EntityProviderInterface
 	attributeCacheSvc   attributecache.AttributeCacheServiceInterface
 	roleService         role.RoleServiceInterface
+	entityTypeService   entitytype.EntityTypeServiceInterface
 	logger              *log.Logger
 }
 
@@ -56,6 +59,7 @@ func newAuthAssertExecutor(
 	entityProvider entityprovider.EntityProviderInterface,
 	attributeCacheSvc attributecache.AttributeCacheServiceInterface,
 	roleService role.RoleServiceInterface,
+	entityTypeService entitytype.EntityTypeServiceInterface,
 ) *authAssertExecutor {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, authAssertLoggerComponentName),
 		log.String(log.LoggerKeyExecutorName, ExecutorNameAuthAssert))
@@ -76,6 +80,7 @@ func newAuthAssertExecutor(
 		entityProvider:      entityProvider,
 		attributeCacheSvc:   attributeCacheSvc,
 		roleService:         roleService,
+		entityTypeService:   entityTypeService,
 		logger:              logger,
 	}
 }
@@ -102,6 +107,10 @@ func (a *authAssertExecutor) Execute(ctx *providers.NodeContext) (*providers.Exe
 		}
 
 		token, err := a.generateAuthAssertion(ctx, execResp, logger)
+		// A client failure is recorded on the response; a returned error is a server fault.
+		if execResp.Status == providers.ExecFailure {
+			return execResp, nil
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -337,7 +346,10 @@ func (a *authAssertExecutor) generateAuthAssertion(
 		if svcErr.Type == tidcommon.ServerErrorType {
 			return "", errors.New("something went wrong while fetching entity references")
 		}
-		return "", errors.New("failed to fetch entity references: " + svcErr.ErrorDescription.DefaultValue)
+		// A client error here means the identity names no local user.
+		execResp.Status = providers.ExecFailure
+		execResp.Error = errForEntityCategory(ErrFailedToIdentifyEntity, categoryUnscoped)
+		return "", nil
 	}
 
 	// Ensure the configured subject attribute for this user type is fetched
@@ -353,7 +365,9 @@ func (a *authAssertExecutor) generateAuthAssertion(
 		if svcErr.Type == tidcommon.ServerErrorType {
 			return "", errors.New("something went wrong while fetching user attributes")
 		}
-		return "", errors.New("failed to fetch user attributes: " + svcErr.ErrorDescription.DefaultValue)
+		execResp.Status = providers.ExecFailure
+		execResp.Error = &ErrAttributeRetrievalFailed
+		return "", nil
 	}
 
 	fetchedAttributes := make(map[string]interface{})
@@ -371,7 +385,7 @@ func (a *authAssertExecutor) generateAuthAssertion(
 	addSubjectIdentityClaims(jwtClaims, entityRef.EntityID, entityRef.EntityCategory)
 
 	resolvedAttributes, attrErr := a.resolveUserAttributes(ctx, requiredAttributes, fetchedAttributes,
-		entityRef.EntityID, entityRef.EntityType, entityRef.OUID)
+		entityRef.EntityID, entityRef.EntityCategory, entityRef.EntityType, entityRef.OUID)
 	if attrErr != nil {
 		return "", attrErr
 	}
@@ -514,7 +528,7 @@ func (a *authAssertExecutor) resolveUserAttributes(
 	ctx *providers.NodeContext,
 	requestedAttributes []string,
 	fetchedAttributes map[string]interface{},
-	userID, userType, ouID string,
+	userID, entityCategory, userType, ouID string,
 ) (map[string]interface{}, error) {
 	// An opaque JWT/JWE from the authn provider is passed through as-is, bypassing the
 	// requested-attributes allow-list: it isn't an individual claim to filter, it's the whole payload.
@@ -530,11 +544,14 @@ func (a *authAssertExecutor) resolveUserAttributes(
 
 	standardClaims := oauth2const.GetStandardClaims()
 
+	extIdentity := core.GetExternalIdentity(ctx.RuntimeData)
 	for _, attr := range requestedAttributes {
 		// Skip attributes that are handled separately
 		if attr == oauth2const.UserAttributeGroups ||
 			attr == oauth2const.UserAttributeRoles ||
 			attr == oauth2const.ClaimUserType ||
+			attr == oauth2const.ClaimUserTypeHandle ||
+			attr == oauth2const.ClaimUserTypeName ||
 			attr == oauth2const.ClaimOUID ||
 			attr == oauth2const.ClaimOUName ||
 			attr == oauth2const.ClaimOUHandle {
@@ -551,7 +568,6 @@ func (a *authAssertExecutor) resolveUserAttributes(
 			attributes[attr] = val
 			continue
 		}
-
 		// Check for the attribute in attributes fetched from user/authentication provider
 		if fetchedAttributes != nil {
 			if val, ok := fetchedAttributes[attr]; ok {
@@ -559,10 +575,17 @@ func (a *authAssertExecutor) resolveUserAttributes(
 				continue
 			}
 		}
+		// External claims are only a fallback and must never take priority over runtime data or the
+		// stored profile, since a linked sign-in resolves to a local user whose profile it must not rewrite.
+		if val, exists := extIdentity.Claim(attr); exists && val != "" {
+			attributes[attr] = val
+			continue
+		}
 	}
 
 	// Append computed attributes (groups, roles, userType, OU details)
-	if err := a.appendComputedAttributes(ctx, requestedAttributes, attributes, userID, userType, ouID); err != nil {
+	if err := a.appendComputedAttributes(ctx, requestedAttributes, attributes,
+		userID, entityCategory, userType, ouID); err != nil {
 		return nil, err
 	}
 
@@ -574,7 +597,7 @@ func (a *authAssertExecutor) appendComputedAttributes(
 	ctx *providers.NodeContext,
 	requestedAttributes []string,
 	attributes map[string]interface{},
-	userID, userType, ouID string,
+	userID, entityCategory, userType, ouID string,
 ) error {
 	groupsRequested := slices.Contains(requestedAttributes, oauth2const.UserAttributeGroups)
 	rolesRequested := slices.Contains(requestedAttributes, oauth2const.UserAttributeRoles)
@@ -597,9 +620,10 @@ func (a *authAssertExecutor) appendComputedAttributes(
 		}
 	}
 
-	// Add user type to the claims
-	if slices.Contains(requestedAttributes, oauth2const.ClaimUserType) && userType != "" {
-		attributes[oauth2const.ClaimUserType] = userType
+	// Add user type claims (userType, userTypeHandle, userTypeName)
+	if err := a.appendUserTypeDetailsToClaims(ctx.Context, entityCategory, userType,
+		attributes, requestedAttributes); err != nil {
+		return err
 	}
 
 	// Add OU details to the claims
@@ -616,18 +640,69 @@ func (a *authAssertExecutor) appendComputedAttributes(
 	return nil
 }
 
+// appendUserTypeDetailsToClaims appends user-type claims (userType, userTypeHandle, userTypeName)
+// to the JWT claims. userType carries the display name to preserve pre-handle behavior, while
+// userTypeHandle and userTypeName expose the new fields explicitly.
+func (a *authAssertExecutor) appendUserTypeDetailsToClaims(ctx context.Context, entityCategory, handle string,
+	jwtClaims map[string]interface{}, userAttributes []string) error {
+	wantUserType := slices.Contains(userAttributes, oauth2const.ClaimUserType)
+	wantHandle := slices.Contains(userAttributes, oauth2const.ClaimUserTypeHandle)
+	wantName := slices.Contains(userAttributes, oauth2const.ClaimUserTypeName)
+	if !wantUserType && !wantHandle && !wantName {
+		return nil
+	}
+	if handle == "" {
+		return nil
+	}
+
+	displayName := handle
+	if (wantUserType || wantName) && a.entityTypeService != nil {
+		category, ok := typeCategoryFromEntityCategory(entityCategory)
+		if ok {
+			entityType, svcErr := a.entityTypeService.GetEntityTypeByHandle(ctx, category, handle)
+			if svcErr != nil {
+				return fmt.Errorf("failed to fetch entity type details for handle %s: code: %s, description: %s",
+					handle, svcErr.Code, svcErr.ErrorDescription.DefaultValue)
+			} else if entityType != nil && entityType.DisplayName != "" {
+				displayName = entityType.DisplayName
+			}
+		}
+	}
+
+	if wantUserType {
+		jwtClaims[oauth2const.ClaimUserType] = displayName
+	}
+	if wantHandle {
+		jwtClaims[oauth2const.ClaimUserTypeHandle] = handle
+	}
+	if wantName {
+		jwtClaims[oauth2const.ClaimUserTypeName] = displayName
+	}
+
+	return nil
+}
+
+// typeCategoryFromEntityCategory maps the entity-category string carried on an EntityReference
+// to the entitytype package's TypeCategory enum.
+func typeCategoryFromEntityCategory(entityCategory string) (entitytype.TypeCategory, bool) {
+	switch providers.EntityCategory(entityCategory) {
+	case providers.EntityCategoryUser:
+		return entitytype.TypeCategoryUser, true
+	case providers.EntityCategoryAgent:
+		return entitytype.TypeCategoryAgent, true
+	default:
+		return "", false
+	}
+}
+
 // appendOUDetailsToClaims appends organization unit details to the JWT claims.
 // Only adds attributes that are configured in userAttributes.
-func (a *authAssertExecutor) appendOUDetailsToClaims(
-	ctx context.Context, ouID string, jwtClaims map[string]interface{}, userAttributes []string) error {
-	logger := a.logger.With(log.String(ouIDKey, ouID))
-
+func (a *authAssertExecutor) appendOUDetailsToClaims(ctx context.Context, ouID string,
+	jwtClaims map[string]interface{}, userAttributes []string) error {
 	organizationUnit, svcErr := a.ouService.GetOrganizationUnit(ctx, ouID)
 	if svcErr != nil {
-		logger.Error(ctx, "Failed to fetch organization unit details",
-			log.String(ouIDKey, ouID), log.Any("error", svcErr))
-		return errors.New("something went wrong while fetching organization unit: " +
-			svcErr.ErrorDescription.DefaultValue)
+		return fmt.Errorf("failed to fetch organization unit details for ouId %s: code: %s, description: %s",
+			ouID, svcErr.Code, svcErr.ErrorDescription.DefaultValue)
 	}
 
 	// Only add ouId if configured

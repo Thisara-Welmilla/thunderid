@@ -1,4 +1,4 @@
-// Copyright 2025 The ThunderID Authors
+// Copyright 2025-2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
 import {ActionTypes} from '../models/actions';
@@ -75,6 +75,8 @@ class VisualFlowConstants {
     WidgetTypes.PasskeyAuthentication,
     WidgetTypes.Provisioning,
     WidgetTypes.Consent,
+    WidgetTypes.AccountLinkingVerification,
+    WidgetTypes.AccountLinkingVerificationWithSelection,
     WidgetTypes.MagicLink,
     WidgetTypes.SelfSignUpLink,
     WidgetTypes.SignInLink,
@@ -94,6 +96,8 @@ class VisualFlowConstants {
     ElementTypes.Image,
     ElementTypes.Captcha,
     ElementTypes.Custom,
+    ElementTypes.KeyValueList,
+    ElementTypes.CopyableText,
     // Input types are allowed for drop detection, but handled specially to show dialog
     ElementTypes.TextInput,
     ElementTypes.PasswordInput,

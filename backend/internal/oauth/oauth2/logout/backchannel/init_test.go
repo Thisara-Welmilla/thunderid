@@ -9,10 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/thunder-id/thunderid/internal/flow/session"
 	oauthconfig "github.com/thunder-id/thunderid/internal/oauth/config"
 	"github.com/thunder-id/thunderid/internal/system/config"
-	"github.com/thunder-id/thunderid/internal/system/eventlistener"
 	engineconfig "github.com/thunder-id/thunderid/pkg/thunderidengine/config"
 	"github.com/thunder-id/thunderid/tests/mocks/actorprovidermock"
 	"github.com/thunder-id/thunderid/tests/mocks/oauth/oauth2/tokenservicemock"
@@ -36,11 +34,11 @@ func (s *InitTestSuite) TearDownSuite() {
 	config.ResetServerRuntime()
 }
 
-// initialize calls Initialize with fresh mocks; none of them is called while wiring.
-func (s *InitTestSuite) initialize(hook session.TerminationHook, cfg oauthconfig.Config) (DispatcherInterface, error) {
+// initialize calls Initialize with fresh mocks; none of them is called while building.
+func (s *InitTestSuite) initialize(cfg oauthconfig.Config) DispatcherInterface {
 	return Initialize(tokenservicemock.NewTokenBuilderInterfaceMock(s.T()),
 		actorprovidermock.NewActorProviderMock(s.T()),
-		observabilityprovidermock.NewObservabilityProviderMock(s.T()), hook, cfg)
+		observabilityprovidermock.NewObservabilityProviderMock(s.T()), cfg)
 }
 
 func oauthConfig(enabled bool) oauthconfig.Config {
@@ -51,29 +49,13 @@ func oauthConfig(enabled bool) oauthconfig.Config {
 	return cfg
 }
 
-func (s *InitTestSuite) TestInitialize_RegistersDispatcherWhenEnabled() {
-	topic := eventlistener.NewTopic[session.TerminatedSession]("session.terminated")
+func (s *InitTestSuite) TestInitialize_ReturnsDispatcherWhenEnabled() {
+	d := s.initialize(oauthConfig(true))
 
-	d, err := s.initialize(topic.Hook(), oauthConfig(true))
-
-	s.Require().NoError(err)
 	s.Require().NotNil(d)
-	assert.True(s.T(), topic.HasListeners())
+	assert.IsType(s.T(), &dispatcher{}, d)
 }
 
 func (s *InitTestSuite) TestInitialize_ReturnsNilWhenDisabled() {
-	topic := eventlistener.NewTopic[session.TerminatedSession]("session.terminated")
-
-	d, err := s.initialize(topic.Hook(), oauthConfig(false))
-
-	s.Require().NoError(err)
-	assert.Nil(s.T(), d)
-	assert.False(s.T(), topic.HasListeners())
-}
-
-func (s *InitTestSuite) TestInitialize_ReturnsNilWithoutHook() {
-	d, err := s.initialize(nil, oauthConfig(true))
-
-	s.Require().NoError(err)
-	assert.Nil(s.T(), d)
+	assert.Nil(s.T(), s.initialize(oauthConfig(false)))
 }

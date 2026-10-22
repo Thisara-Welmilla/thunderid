@@ -45,7 +45,8 @@ func (s *SelfUserEndpointsSuite) SetupSuite() {
 	s.ouID = ouID
 
 	schema := testutils.UserType{
-		Name:                  s.userType,
+		Handle:                s.userType,
+		DisplayName:           "User Type",
 		OUID:                  ouID,
 		AllowSelfRegistration: true,
 		Schema: map[string]interface{}{
@@ -157,6 +158,24 @@ func (s *SelfUserEndpointsSuite) TestSelfUserUpdateProfile() {
 
 	s.email = newEmail
 	s.username = newUsername
+}
+
+func (s *SelfUserEndpointsSuite) TestSelfUserUpdateReportsTheDerivedStatus() {
+	resp, err := s.doUserRequest(http.MethodPut, "/users/me", map[string]interface{}{
+		"attributes": s.selfProfileAttributes(),
+		"status":     map[string]interface{}{"value": "SUSPENDED"},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	s.Require().Equal(http.StatusOK, resp.StatusCode, string(raw))
+
+	var updated struct {
+		Status json.RawMessage `json:"status"`
+	}
+	s.Require().NoError(json.Unmarshal(raw, &updated))
+	s.JSONEq(`{"value":"ACTIVE"}`, string(updated.Status), "the update must report the derived status")
 }
 
 func (s *SelfUserEndpointsSuite) TestSelfUserUpdateCredentials() {

@@ -5,6 +5,8 @@ package connection
 
 import (
 	"context"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -18,6 +20,7 @@ import (
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/outboundauth"
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 	"github.com/thunder-id/thunderid/tests/mocks/idp/idpmock"
@@ -101,6 +104,44 @@ func (s *DeclarativeResourceTestSuite) TestConnectionModelFromSenderDTOSMSGatewa
 	s.Require().NoError(err)
 	s.Equal(smsGatewayVendorName, model.Type)
 	s.Equal("https://sms.example.com/send", model.URL)
+}
+
+func (s *DeclarativeResourceTestSuite) TestConnectionModelFromSenderDTOLegacySMSGatewayHeaders() {
+	cases := []struct {
+		name   string
+		value  string
+		secret bool
+	}{
+		{"plain headers", "X-API-Key: legacy-secret, X-Tenant: tenant-1", false},
+		{"encrypted headers", "X-API-Key: legacy-secret, X-Tenant: tenant-1", true},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			dto := ncommon.NotificationSenderDTO{
+				ID: "sg-1", Name: "Legacy SMS", Type: ncommon.NotificationSenderTypeMessage,
+				Provider: ncommon.NotificationProviderTypeCustom,
+				Properties: []cmodels.Property{
+					mustProperty(s.T(), ncommon.CustomPropKeyURL, "https://sms.example.com/send", false),
+					mustProperty(s.T(), ncommon.CustomPropKeyHTTPHeaders, tc.value, tc.secret),
+				},
+			}
+
+			model, err := connectionModelFromSenderDTO(dto)
+			s.Require().NoError(err)
+			s.Require().NotNil(model.Authentication)
+			s.Equal(string(outboundauth.TypeNone), model.Authentication.Type)
+			s.Equal(tc.value, model.HTTPHeaders)
+			s.Empty(s.exporter.GetResourceRulesForResource(&model).SecretVariables)
+
+			_, imported, err := connectionModelToDTO(model)
+			s.Require().NoError(err)
+			s.Require().NotNil(imported)
+			roundTripped, err := connectionModelFromSenderDTO(*imported)
+			s.Require().NoError(err)
+			s.Equal(model.Authentication, roundTripped.Authentication)
+			s.Equal(model.HTTPHeaders, roundTripped.HTTPHeaders)
+		})
+	}
 }
 
 func (s *DeclarativeResourceTestSuite) TestConnectionModelToDTORoundTripsEachVendor() {
@@ -200,6 +241,10 @@ type: authzen-pdp
 name: Production PDP
 endpoint: http://localhost:3592/access/v1/evaluation
 batchEndpoint: http://localhost:3592/access/v1/evaluations
+authentication:
+  type: api_key
+  properties:
+    X-API-Key: secret
 subjectAttributeMappings:
   - subjectCategory: user
     entityType: TravelCustomer
@@ -213,14 +258,32 @@ subjectAttributeMappings:
 	pdp, ok := dto.(*authzenpdp.AuthZENPDPConnection)
 	s.Require().True(ok)
 	s.Equal("pdp-1", pdp.ID)
-	s.Equal("authzen-pdp", connectionModelFromAuthZENPDP(*pdp).Type)
 	s.Equal("http://localhost:3592/access/v1/evaluation", pdp.Endpoint)
 	s.Equal("http://localhost:3592/access/v1/evaluations", pdp.BatchEndpoint)
-	exported := connectionModelFromAuthZENPDP(*pdp)
+	exported, err := connectionModelFromAuthZENPDP(*pdp)
+	s.Require().NoError(err)
+	s.Equal("authzen-pdp", exported.Type)
+	s.Require().NotNil(exported.Authentication)
+	s.Equal(string(outboundauth.TypeAPIKey), exported.Authentication.Type)
+	s.Equal(map[string]string{"X-Api-Key": "secret"}, exported.Authentication.Properties)
 	s.Equal("pdp-1", connectionResourceID(pdp))
 
-	roundTripped := connectionModelToAuthZENPDP(exported)
+	roundTripped, err := connectionModelToAuthZENPDP(exported)
+	s.Require().NoError(err)
 	s.Require().NotNil(roundTripped)
+	authenticationConfig, err := outboundauth.FromProperties(roundTripped.AuthenticationProperties)
+	s.Require().NoError(err)
+	s.Equal(map[string]string{"X-Api-Key": "secret"}, authenticationConfig.Properties)
+}
+
+func (s *DeclarativeResourceTestSuite) TestAuthZENPDPDeclarativeImportRejectsMaskedCredential() {
+	_, err := connectionModelToAuthZENPDP(connectionExportModel{
+		Type: authZENPDPVendorName,
+		Authentication: &outboundauth.Authentication{
+			Type: string(outboundauth.TypeBearer), Properties: map[string]string{"token": "******"},
+		},
+	})
+	s.Error(err)
 }
 
 func (s *DeclarativeResourceTestSuite) TestParseConnectionFromNodeIDPVendor() {
@@ -337,6 +400,37 @@ func (s *DeclarativeResourceTestSuite) TestValidateConnectionDTOWrapper() {
 	s.NoError(validateConnectionDTOWrapper("not-a-dto", nil))
 }
 
+// An email sender takes the API's validation path on load, so a provider that cannot deliver
+// fails here rather than on every send.
+func (s *DeclarativeResourceTestSuite) TestValidateConnectionDTOWrapperValidatesEmailSender() {
+	parse := func(doc string) *ncommon.NotificationSenderDTO {
+		dto, err := parseToConnectionDTOWrapper([]byte(doc))
+		s.Require().NoError(err)
+		sender, ok := dto.(*ncommon.NotificationSenderDTO)
+		s.Require().True(ok)
+		return sender
+	}
+
+	valid := "id: sm-1\ntype: email-smtp\nname: SMTP\nhost: smtp.example.com\nport: 587\n" +
+		"fromAddress: noreply@example.com\n"
+	s.NoError(validateConnectionDTOWrapper(parse(valid), nil))
+
+	cases := map[string]string{
+		"missing port": "id: sm-1\ntype: email-smtp\nname: SMTP\nhost: smtp.example.com\n" +
+			"fromAddress: noreply@example.com\n",
+		"invalid from address": "id: sm-1\ntype: email-smtp\nname: SMTP\nhost: smtp.example.com\nport: 587\n" +
+			"fromAddress: not-an-address\n",
+		"credentials without tls": "id: sm-1\ntype: email-smtp\nname: SMTP\nhost: smtp.example.com\nport: 587\n" +
+			"fromAddress: noreply@example.com\ntls: none\nauthentication:\n  type: basic\n" +
+			"  properties:\n    username: mailer\n    password: s3cret\n",
+	}
+	for name, doc := range cases {
+		err := validateConnectionDTOWrapper(parse(doc), nil)
+		s.Require().Error(err, name)
+		s.Contains(err.Error(), `connection resource "sm-1" is invalid`, name)
+	}
+}
+
 func (s *DeclarativeResourceTestSuite) TestGetResourceRulesReturnsEmptyDefault() {
 	rules := s.exporter.GetResourceRules()
 	s.Require().NotNil(rules)
@@ -379,7 +473,17 @@ func (s *DeclarativeResourceTestSuite) TestGetResourceRulesForResourceSecretSele
 		{connectionExportModel{Type: "twilio"}, []string{"AuthToken"}},
 		{connectionExportModel{Type: "vonage"}, []string{"APISecret"}},
 		{connectionExportModel{Type: "authzen-pdp"}, nil},
+		{connectionExportModel{Type: "authzen-pdp", Authentication: &outboundauth.Authentication{
+			Type: string(outboundauth.TypeBearer), Properties: map[string]string{"token": "secret"},
+		}}, []string{"Authentication.Properties.token"}},
+		{connectionExportModel{Type: "authzen-pdp", Authentication: &outboundauth.Authentication{
+			Type: string(outboundauth.TypeAPIKey), Properties: map[string]string{"X-API-Key": "secret"},
+		}}, []string{"Authentication.Properties.X-API-Key"}},
 		{connectionExportModel{Type: smsGatewayVendorName}, nil},
+		{connectionExportModel{Type: smsGatewayVendorName,
+			Authentication: &outboundauth.Authentication{
+				Type: string(outboundauth.TypeAPIKey), Properties: map[string]string{"X-API-Key": "secret"},
+			}}, []string{"Authentication.Properties.X-API-Key"}},
 	}
 	for _, tc := range cases {
 		rules := s.exporter.GetResourceRulesForResource(&tc.model)
@@ -582,4 +686,181 @@ func (s *DeclarativeResourceTestSuite) TestConnectionDeclarativeStoreSkipsIDPWhe
 	got, err := store.senderStore.Get("sender-1")
 	s.Require().NoError(err)
 	s.Equal(senderDTO, got)
+}
+
+func (s *DeclarativeResourceTestSuite) TestConnectionModelFromSenderDTOSMTP() {
+	dto := ncommon.NotificationSenderDTO{
+		ID: "sm-1", Name: "Corp SMTP", Type: ncommon.NotificationSenderTypeEmail,
+		Provider: ncommon.NotificationProviderTypeSMTP,
+		Properties: []cmodels.Property{
+			mustProperty(s.T(), ncommon.SMTPPropKeyHost, "smtp.example.com", false),
+			mustProperty(s.T(), ncommon.SMTPPropKeyPort, "587", false),
+			mustProperty(s.T(), "authentication_type", string(outboundauth.TypeBasic), false),
+			mustProperty(s.T(), "authentication_username", "mailer", false),
+			mustProperty(s.T(), "authentication_password", "s3cret", true),
+			mustProperty(s.T(), ncommon.SMTPPropKeyFromAddress, "noreply@example.com", false),
+			mustProperty(s.T(), ncommon.SMTPPropKeyFromName, "Acme Support", false),
+			mustProperty(s.T(), ncommon.SMTPPropKeyTLS, string(ncommon.TLSModeSTARTTLS), false),
+		},
+	}
+
+	model, err := connectionModelFromSenderDTO(dto)
+	s.Require().NoError(err)
+	s.Equal(emailSMTPVendorName, model.Type)
+	s.Equal("smtp.example.com", model.Host)
+	s.Equal(587, model.Port)
+	s.Equal("noreply@example.com", model.FromAddress)
+	s.Equal("Acme Support", model.FromName)
+	s.Equal(string(ncommon.TLSModeSTARTTLS), model.TLS)
+
+	s.Require().NotNil(model.Authentication)
+	s.Equal(string(outboundauth.TypeBasic), model.Authentication.Type)
+	s.Equal("mailer", model.Authentication.Properties[outboundauth.FieldBasicUsername])
+	// The export parameterizer needs the real value to externalize it to the .env file.
+	s.Equal("s3cret", model.Authentication.Properties[outboundauth.FieldBasicPassword])
+}
+
+func (s *DeclarativeResourceTestSuite) TestConnectionModelToDTORoundTripsSMTP() {
+	model := connectionExportModel{
+		ID: "sm-1", Type: emailSMTPVendorName, Name: "Corp SMTP", Host: "smtp.example.com", Port: 587,
+		FromAddress: "noreply@example.com", FromName: "Acme Support", TLS: string(ncommon.TLSModeSTARTTLS),
+		Authentication: &outboundauth.Authentication{
+			Type: string(outboundauth.TypeBasic),
+			Properties: map[string]string{
+				outboundauth.FieldBasicUsername: "mailer",
+				outboundauth.FieldBasicPassword: "s3cret",
+			},
+		},
+	}
+
+	idpDTO, senderDTO, err := connectionModelToDTO(model)
+	s.Require().NoError(err)
+	s.Nil(idpDTO)
+	s.Require().NotNil(senderDTO)
+	s.Equal("sm-1", senderDTO.ID)
+	s.Equal(ncommon.NotificationSenderTypeEmail, senderDTO.Type)
+	s.Equal(ncommon.NotificationProviderTypeSMTP, senderDTO.Provider)
+
+	roundTripped, err := connectionModelFromSenderDTO(*senderDTO)
+	s.Require().NoError(err)
+	s.Equal(model.Host, roundTripped.Host)
+	s.Equal(model.Port, roundTripped.Port)
+	s.Equal(model.FromAddress, roundTripped.FromAddress)
+	s.Equal(model.FromName, roundTripped.FromName)
+	s.Equal(model.TLS, roundTripped.TLS)
+	s.Require().NotNil(roundTripped.Authentication)
+	s.Equal(model.Authentication.Type, roundTripped.Authentication.Type)
+	s.Equal(model.Authentication.Properties, roundTripped.Authentication.Properties)
+}
+
+func (s *DeclarativeResourceTestSuite) TestParseConnectionFromNodeSMTPVendor() {
+	doc := `
+id: prod-smtp
+type: email-smtp
+name: Prod SMTP
+host: smtp.example.com
+port: 587
+fromAddress: noreply@example.com
+tls: starttls
+authentication:
+  type: basic
+  properties:
+    username: mailer
+    password: s3cret
+`
+	var node yaml.Node
+	s.Require().NoError(yaml.Unmarshal([]byte(doc), &node))
+	idpDTO, senderDTO, err := ParseConnectionFromNode(node.Content[0])
+	s.Require().NoError(err)
+	s.Nil(idpDTO)
+	s.Require().NotNil(senderDTO)
+	s.Equal("prod-smtp", senderDTO.ID)
+	s.Equal(ncommon.NotificationSenderTypeEmail, senderDTO.Type)
+	s.Equal(ncommon.NotificationProviderTypeSMTP, senderDTO.Provider)
+}
+
+// A credential field of the configured authentication method is the secret an exported
+// connection must externalize, so it never lands in the rendered YAML. The path is derived from
+// the registered method, which is what keeps a new method from needing a change here.
+func (s *DeclarativeResourceTestSuite) TestGetResourceRulesExternalizesAuthenticationSecrets() {
+	exporter := newConnectionExporter(s.mockIDP, s.mockNotif, nil)
+
+	basicAuth := func(properties map[string]string) *outboundauth.Authentication {
+		return &outboundauth.Authentication{
+			Type: string(outboundauth.TypeBasic), Properties: properties,
+		}
+	}
+
+	rules := exporter.GetResourceRulesForResource(&connectionExportModel{
+		Type: emailSMTPVendorName,
+		Authentication: basicAuth(map[string]string{
+			outboundauth.FieldBasicUsername: "mailer",
+			outboundauth.FieldBasicPassword: "s3cret",
+		}),
+	})
+	// Only the credential field is externalized, as a secret; the username stays in the document.
+	s.Equal([]string{"Authentication.Properties.password"}, rules.SecretVariables)
+	s.Empty(rules.Variables)
+
+	// Nothing to externalize when the method carries no credential value.
+	rules = exporter.GetResourceRulesForResource(&connectionExportModel{
+		Type:           emailSMTPVendorName,
+		Authentication: basicAuth(map[string]string{outboundauth.FieldBasicUsername: "mailer"}),
+	})
+	s.Empty(rules.SecretVariables)
+
+	// Nor when the connection authenticates with nothing at all.
+	rules = exporter.GetResourceRulesForResource(&connectionExportModel{Type: emailSMTPVendorName})
+	s.Empty(rules.SecretVariables)
+}
+
+// yamlPathOf names the YAML field a struct path of connectionExportModel reaches: each struct
+// segment by its yaml tag, and the segments under a map by their key.
+func yamlPathOf(structPath string) string {
+	parts := strings.Split(structPath, ".")
+	current := reflect.TypeOf(connectionExportModel{})
+	named := make([]string, 0, len(parts))
+	for i, part := range parts {
+		if current.Kind() == reflect.Pointer {
+			current = current.Elem()
+		}
+		if current.Kind() == reflect.Map {
+			named = append(named, parts[i:]...)
+			break
+		}
+		field, ok := current.FieldByName(part)
+		if !ok {
+			named = append(named, part)
+			continue
+		}
+		named = append(named, strings.Split(field.Tag.Get("yaml"), ",")[0])
+		current = field.Type
+	}
+	return strings.Join(named, ".")
+}
+
+// Every secret a connection of any vendor exports a reference for is one of the fields the exporter
+// says may hold a secret, so an import can put each one back where it came from and nowhere else.
+func (s *DeclarativeResourceTestSuite) TestSecretFieldsCoverEveryVendorsSecrets() {
+	exporter := newConnectionExporter(s.mockIDP, s.mockNotif, nil)
+	fields := exporter.SecretFields()
+	s.Contains(fields, "authentication.properties."+outboundauth.FieldBasicPassword)
+
+	for _, model := range []*connectionExportModel{
+		{Type: "google", ClientSecret: "s"},
+		{Type: "twilio", AuthToken: "t"},
+		{Type: "vonage", APISecret: "a"},
+		{Type: emailSMTPVendorName, Authentication: &outboundauth.Authentication{
+			Type: string(outboundauth.TypeBasic),
+			Properties: map[string]string{
+				outboundauth.FieldBasicUsername: "mailer", outboundauth.FieldBasicPassword: "p",
+			},
+		}},
+	} {
+		rules := exporter.GetResourceRulesForResource(model)
+		s.Require().NotEmpty(rules.SecretVariables, model.Type)
+		for _, path := range rules.SecretVariables {
+			s.Contains(fields, yamlPathOf(path), model.Type)
+		}
+	}
 }
