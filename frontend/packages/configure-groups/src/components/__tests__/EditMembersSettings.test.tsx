@@ -86,14 +86,14 @@ describe('EditMembersSettings', () => {
   it('should render Add Member button in header action', () => {
     renderWithProviders(<EditMembersSettings group={mockGroup} />);
 
-    expect(screen.getByText('Add Member')).toBeInTheDocument();
+    expect(screen.getByText('Add member')).toBeInTheDocument();
   });
 
   it('should open add member dialog when button clicked', async () => {
     const user = userEvent.setup();
     renderWithProviders(<EditMembersSettings group={mockGroup} />);
 
-    await user.click(screen.getByText('Add Member'));
+    await user.click(screen.getByText('Add member'));
 
     await waitFor(() => {
       expect(screen.getByTestId('add-member-dialog')).toBeInTheDocument();
@@ -104,7 +104,7 @@ describe('EditMembersSettings', () => {
     const user = userEvent.setup();
     renderWithProviders(<EditMembersSettings group={mockGroup} />);
 
-    await user.click(screen.getByText('Add Member'));
+    await user.click(screen.getByText('Add member'));
 
     await waitFor(() => {
       expect(screen.getByTestId('add-member-dialog')).toBeInTheDocument();
@@ -122,7 +122,7 @@ describe('EditMembersSettings', () => {
     const user = userEvent.setup();
     renderWithProviders(<EditMembersSettings group={mockGroup} />);
 
-    await user.click(screen.getByText('Add Member'));
+    await user.click(screen.getByText('Add member'));
     await waitFor(() => {
       expect(screen.getByTestId('add-member-dialog')).toBeInTheDocument();
     });
@@ -142,7 +142,7 @@ describe('EditMembersSettings', () => {
     const user = userEvent.setup();
     renderWithProviders(<EditMembersSettings group={mockGroup} />);
 
-    await user.click(screen.getByText('Add Member'));
+    await user.click(screen.getByText('Add member'));
     await waitFor(() => {
       expect(screen.getByTestId('add-member-dialog')).toBeInTheDocument();
     });
@@ -162,7 +162,7 @@ describe('EditMembersSettings', () => {
     const user = userEvent.setup();
     renderWithProviders(<EditMembersSettings group={mockGroup} />);
 
-    await user.click(screen.getByText('Add Member'));
+    await user.click(screen.getByText('Add member'));
     await waitFor(() => {
       expect(screen.getByTestId('add-member-dialog')).toBeInTheDocument();
     });
@@ -184,7 +184,7 @@ describe('EditMembersSettings', () => {
     const user = userEvent.setup();
     renderWithProviders(<EditMembersSettings group={mockGroup} />);
 
-    await user.click(screen.getByText('Add Member'));
+    await user.click(screen.getByText('Add member'));
     await waitFor(() => {
       expect(screen.getByTestId('add-member-dialog')).toBeInTheDocument();
     });
@@ -245,7 +245,7 @@ describe('EditMembersSettings', () => {
     const user = userEvent.setup();
     renderWithProviders(<EditMembersSettings group={mockGroup} />);
 
-    await user.click(screen.getByText('Add Member'));
+    await user.click(screen.getByText('Add member'));
     await waitFor(() => {
       expect(screen.getByTestId('add-member-dialog')).toBeInTheDocument();
     });

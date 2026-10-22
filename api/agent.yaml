@@ -804,7 +804,7 @@ paths:
                           profile: ["name", "family_name", "given_name"]
       responses:
         "200":
-          description: Agent updated
+          description: Agent updated, with its `status`
           content:
             application/json:
               schema:
@@ -1888,6 +1888,8 @@ components:
             Indicates whether the agent is immutable. When `true`, update and delete
             operations are rejected. Set by the system for declaratively provisioned agents.
           example: false
+        status:
+          $ref: '#/components/schemas/AgentAccessStatus'
 
     AgentListResponse:
       type: object
@@ -2128,6 +2130,10 @@ components:
             name: "Calendar Agent"
             llmModel: "claude-3-5-sonnet"
             environment: "production"
+        status:
+          allOf:
+            - $ref: '#/components/schemas/AgentAccessStatus'
+          description: The agent's status after the update. Present on update responses only.
         authFlowId:
           type: string
           example: "edc013d0-e893-4dc0-990c-3e1d203e005b"
@@ -2252,6 +2258,8 @@ components:
           items:
             $ref: '#/components/schemas/InboundAuthConfig'
           description: OAuth config without secrets.
+        status:
+          $ref: '#/components/schemas/AgentAccessStatus'
 
     AgentGroup:
       type: object
@@ -2958,6 +2966,79 @@ components:
         defaultValue:
           type: string
           description: Default message in English (fallback).
+
+    AgentAccessStatus:
+      type: object
+      readOnly: true
+      description: |
+        The agent's effective access status and the reason for it. Computed when the agent is
+        read or updated, and never accepted on a write.
+      properties:
+        value:
+          type: string
+          readOnly: true
+          enum: [ACTIVE, LOCKED, SUSPENDED]
+          description: |
+            `ACTIVE`, `LOCKED` or `SUSPENDED`. When the agent is both suspended and locked,
+            `SUSPENDED` is reported.
+
+            `SUSPENDED` is an administrative hold. `LOCKED` is an automatic hold after repeated
+            failed authentication attempts with the `credential` or `otp` authentication method,
+            reported under the `accountAccess` policy in force. Automatic locking is enabled for
+            agents by default. The agent's OAuth client secret is never locked. A lock does not expire
+            when its duration is `0` or it forms at `maxConsecutiveFailures`; other locks expire
+            on their own.
+          example: "ACTIVE"
+        details:
+          type: object
+          readOnly: true
+          description: Why the status applies. Absent for `ACTIVE`.
+          properties:
+            reason:
+              type: string
+              readOnly: true
+              enum: [FAILED_ATTEMPTS, ADMINISTRATIVE_SUSPENSION]
+              description: |
+                What caused the status. `FAILED_ATTEMPTS` is an automatic lock after repeated failed
+                authentication attempts. `ADMINISTRATIVE_SUSPENSION` is a suspension placed by an
+                operator. One reason covers every entry in `lockedMethods`.
+              example: "FAILED_ATTEMPTS"
+            since:
+              type: string
+              format: date-time
+              readOnly: true
+              description: When the operator placed the hold. Absent for an automatic lock.
+            operatorNote:
+              type: string
+              readOnly: true
+              description: The note the operator entered when placing the hold. Absent when none was entered.
+              example: "Credential exposure reported by the security team"
+            lockedMethods:
+              type: array
+              readOnly: true
+              description: |
+                The automatic locks currently in force, in a stable order. Absent unless the status
+                is `LOCKED`.
+
+                With `lockGranularity` set to `authentication_method`, each method locks separately,
+                so several entries can be present, each with its own expiry. An account-wide lock is
+                reported as a single entry with the method `entity`.
+              items:
+                type: object
+                properties:
+                  method:
+                    type: string
+                    readOnly: true
+                    description: |
+                      The locked authentication method, such as `credential`, or `entity` when every
+                      method is locked.
+                    example: "credential"
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    readOnly: true
+                    description: When the lock expires. **Absent when it does not expire.**
+                    example: "2026-09-08T10:15:00Z"
 
     Link:
       type: object

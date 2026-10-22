@@ -132,7 +132,7 @@ export default function OperationModesSection({
 
   return (
     <SettingsCard
-      title={t('agents:edit.advanced.oauthAccess.title', 'OAuth 2 Configuration')}
+      title={t('agents:edit.advanced.oauthAccess.title', 'OAuth 2 configuration')}
       description={t(
         'agents:edit.advanced.oauthAccess.description',
         'The grants and redirect URIs this agent is authorized to use.',
@@ -143,7 +143,7 @@ export default function OperationModesSection({
         <Box>
           <FormControl fullWidth size="small">
             <FormLabel htmlFor="agent-grant-types">
-              {t('agents:edit.advanced.oauthAccess.grantTypes.label', 'Grant Types')}
+              {t('agents:edit.advanced.oauthAccess.grantTypes.label', 'Grant types')}
             </FormLabel>
             <Typography variant="caption" color="text.secondary" sx={{display: 'block', mb: 1}}>
               {t(
@@ -197,7 +197,7 @@ export default function OperationModesSection({
 
         <FormControl fullWidth size="small">
           <FormLabel htmlFor="agent_token_endpoint_auth_method">
-            {t('agents:edit.credentials.tokenEndpointAuthMethod.title', 'Client Authentication Method')}
+            {t('agents:edit.credentials.tokenEndpointAuthMethod.title', 'Client authentication method')}
           </FormLabel>
           <Select
             id="agent_token_endpoint_auth_method"
@@ -270,13 +270,13 @@ export default function OperationModesSection({
                 disabled={!isEditable || flags.isParDisabledByGrants}
                 onChange={(e) => onOAuth2ConfigChange?.({requirePushedAuthorizationRequests: e.target.checked})}
                 inputProps={{
-                  'aria-label': t('agents:edit.advanced.security.par.label', 'Require Pushed Authorization Requests'),
+                  'aria-label': t('agents:edit.advanced.security.par.label', 'Require pushed authorization requests'),
                 }}
               />
             }
             label={
               <Typography variant="subtitle2">
-                {t('agents:edit.advanced.security.par.label', 'Require Pushed Authorization Requests')}
+                {t('agents:edit.advanced.security.par.label', 'Require pushed authorization requests')}
               </Typography>
             }
           />
@@ -284,7 +284,7 @@ export default function OperationModesSection({
             {flags.isParDisabledByGrants ? (
               <Trans
                 i18nKey="agents:edit.advanced.security.par.notApplicable"
-                defaults="Pushed Authorization Requests only apply to the <code>authorization_code</code> grant. Turn that on to enable this setting."
+                defaults="Pushed authorization requests only apply to the <code>authorization_code</code> grant. Turn that on to enable this setting."
                 components={codeComponents}
               />
             ) : (

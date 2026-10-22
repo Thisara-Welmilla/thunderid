@@ -5,6 +5,14 @@ package notificationtemplate
 
 import "github.com/thunder-id/thunderid/internal/system/utils"
 
+// reservedTemplate is a template a built-in endpoint renders directly, outside any flow.
+type reservedTemplate struct {
+	channel     ChannelType
+	handle      string
+	consumerID  string // id recorded on the dependency
+	displayName string // name shown in the summary
+}
+
 // TemplateContent is the language-neutral content of a template, one common shape for every channel.
 // Subject and body are template strings that may embed zero or more placeholders resolved at render
 // time: {{t(key)}} (localized text), {{ctx(var)}} (flow-context values), and {{design(token)}} (design
@@ -80,7 +88,7 @@ type RenderInput struct {
 	// Data holds the runtime values substituted into {{ctx(<key>)}} placeholders.
 	Data map[string]string
 	// ThemeID is the theme whose color scheme resolves {{design(<token>)}} placeholders (email body
-	// only). Empty means no theme is available, so a template that embeds a design token fails closed.
+	// only). Empty means no theme is available, so any design token is stripped to empty (not failed).
 	ThemeID string
 }
 

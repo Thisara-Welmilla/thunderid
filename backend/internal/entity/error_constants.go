@@ -32,6 +32,9 @@ var (
 	// ErrBadAttributesInRequest is returned when the attributes in the request are invalid.
 	ErrBadAttributesInRequest = errors.New("failed to marshal attributes")
 
+	// errInvalidAuthenticationMethod is returned when a lock write names a method outside the registry.
+	errInvalidAuthenticationMethod = errors.New("invalid authentication method")
+
 	// errResultLimitExceededInCompositeMode is returned when the result limit is exceeded in composite mode.
 	errResultLimitExceededInCompositeMode = errors.New("result limit exceeded in composite mode")
 )

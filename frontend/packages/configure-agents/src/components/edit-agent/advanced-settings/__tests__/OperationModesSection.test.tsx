@@ -45,7 +45,7 @@ describe('OperationModesSection', () => {
   it('renders the card title and description', () => {
     render(<OperationModesSection oauth2Config={autonomousOnlyConfig} />);
 
-    expect(screen.getByText('OAuth 2 Configuration')).toBeInTheDocument();
+    expect(screen.getByText('OAuth 2 configuration')).toBeInTheDocument();
   });
 
   it('shows an info note explaining the Delegated-mode dependency, before the grant types selector', () => {
@@ -65,7 +65,7 @@ describe('OperationModesSection', () => {
 
       const listbox = await screen.findByRole('listbox');
       expect(within(listbox).getByText('client_credentials')).toBeInTheDocument();
-      expect(within(listbox).getByText('Token Exchange')).toBeInTheDocument();
+      expect(within(listbox).getByText('Token exchange')).toBeInTheDocument();
       expect(within(listbox).getByText('authorization_code')).toBeInTheDocument();
       expect(within(listbox).getByText('CIBA (Client-Initiated Backchannel Authentication)')).toBeInTheDocument();
       expect(within(listbox).getByText('refresh_token')).toBeInTheDocument();
@@ -108,7 +108,7 @@ describe('OperationModesSection', () => {
 
       await user.click(document.getElementById('agent-grant-types')!);
       const listbox = await screen.findByRole('listbox');
-      await user.click(within(listbox).getByText('Token Exchange'));
+      await user.click(within(listbox).getByText('Token exchange'));
 
       expect(onOAuth2ConfigChange).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -151,7 +151,7 @@ describe('OperationModesSection', () => {
     });
   });
 
-  describe('Back-Channel Logout URI', () => {
+  describe('Back-channel logout URI', () => {
     it('shows the registered URI once a user-facing grant is selected', () => {
       render(
         <OperationModesSection
@@ -160,14 +160,14 @@ describe('OperationModesSection', () => {
         />,
       );
 
-      expect(screen.getByText('Back-Channel Logout URI')).toBeInTheDocument();
+      expect(screen.getByText('Back-channel logout URI')).toBeInTheDocument();
       expect(screen.getByDisplayValue('https://agent.example.com/bcl')).toBeInTheDocument();
     });
 
     it('is hidden in Autonomous-only mode, where the agent never joins a session', () => {
       render(<OperationModesSection oauth2Config={autonomousOnlyConfig} onOAuth2ConfigChange={vi.fn()} />);
 
-      expect(screen.queryByText('Back-Channel Logout URI')).not.toBeInTheDocument();
+      expect(screen.queryByText('Back-channel logout URI')).not.toBeInTheDocument();
     });
 
     it('commits backchannelLogoutUri on blur', async () => {
@@ -221,7 +221,7 @@ describe('OperationModesSection', () => {
     });
   });
 
-  describe('Client Authentication Method', () => {
+  describe('Client authentication method', () => {
     it('shows the placeholder when no method is set', () => {
       render(<OperationModesSection oauth2Config={autonomousOnlyConfig} />);
 
@@ -296,17 +296,17 @@ describe('OperationModesSection', () => {
     });
   });
 
-  describe('Require Pushed Authorization Requests', () => {
+  describe('Require pushed authorization requests', () => {
     it('reflects the configured value', () => {
       render(<OperationModesSection oauth2Config={{...delegatedConfig, requirePushedAuthorizationRequests: true}} />);
 
-      expect(screen.getByLabelText('Require Pushed Authorization Requests')).toBeChecked();
+      expect(screen.getByLabelText('Require pushed authorization requests')).toBeChecked();
     });
 
     it('treats an unset value as unchecked', () => {
       render(<OperationModesSection oauth2Config={delegatedConfig} />);
 
-      expect(screen.getByLabelText('Require Pushed Authorization Requests')).not.toBeChecked();
+      expect(screen.getByLabelText('Require pushed authorization requests')).not.toBeChecked();
     });
 
     it('calls onOAuth2ConfigChange when toggled', async () => {
@@ -314,7 +314,7 @@ describe('OperationModesSection', () => {
       const onOAuth2ConfigChange = vi.fn();
       render(<OperationModesSection oauth2Config={delegatedConfig} onOAuth2ConfigChange={onOAuth2ConfigChange} />);
 
-      await user.click(screen.getByLabelText('Require Pushed Authorization Requests'));
+      await user.click(screen.getByLabelText('Require pushed authorization requests'));
 
       expect(onOAuth2ConfigChange).toHaveBeenCalledWith({requirePushedAuthorizationRequests: true});
     });
@@ -327,7 +327,7 @@ describe('OperationModesSection', () => {
         />,
       );
 
-      const parSwitch = screen.getByLabelText('Require Pushed Authorization Requests');
+      const parSwitch = screen.getByLabelText('Require pushed authorization requests');
       expect(parSwitch).toBeDisabled();
       expect(parSwitch).not.toBeChecked();
     });

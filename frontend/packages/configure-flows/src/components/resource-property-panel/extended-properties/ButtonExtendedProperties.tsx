@@ -126,16 +126,16 @@ function ButtonExtendedProperties({resource, onChange}: ButtonExtendedProperties
           size="small"
         >
           <MenuItem value={ACTION_OPTIONS.Submit}>
-            {t('flows:core.buttonExtendedProperties.action.submit', 'Submit Form')}
+            {t('flows:core.buttonExtendedProperties.action.submit', 'Submit form')}
           </MenuItem>
           <MenuItem value={ACTION_OPTIONS.Trigger}>
-            {t('flows:core.buttonExtendedProperties.action.trigger', 'Trigger Action')}
+            {t('flows:core.buttonExtendedProperties.action.trigger', 'Trigger action')}
           </MenuItem>
           <MenuItem value={ACTION_OPTIONS.Confirm}>
-            {t('flows:core.buttonExtendedProperties.action.confirm', 'Confirm Action')}
+            {t('flows:core.buttonExtendedProperties.action.confirm', 'Confirm action')}
           </MenuItem>
           <MenuItem value={ACTION_OPTIONS.Reject}>
-            {t('flows:core.buttonExtendedProperties.action.reject', 'Reject Action')}
+            {t('flows:core.buttonExtendedProperties.action.reject', 'Reject action')}
           </MenuItem>
         </Select>
         <FormHelperText>

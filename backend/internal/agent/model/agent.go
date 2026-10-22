@@ -71,6 +71,8 @@ type AgentCompleteResponse struct {
 	LogoURL     string          `json:"logoUrl,omitempty"`
 	Owner       string          `json:"owner,omitempty"`
 	Attributes  json.RawMessage `json:"attributes,omitempty"`
+	// Status is the effective access status and what produced it, set on update responses.
+	Status *providers.AccessStatusReport `json:"status,omitempty"`
 
 	inboundmodel.InboundAuthProfileReq
 	InboundAuthConfig []providers.InboundAuthConfigWithSecret `json:"inboundAuthConfig,omitempty"`
@@ -91,6 +93,9 @@ type AgentGetResponse struct {
 	// directly YAML-marshaled, so AttributesYAML carries the decoded map for export.
 	Attributes     json.RawMessage        `json:"attributes,omitempty" yaml:"-"`
 	AttributesYAML map[string]interface{} `json:"-"                    yaml:"attributes,omitempty"`
+	// Status is the effective access status and what produced it, derived at read time: SUSPENDED
+	// beats LOCKED beats ACTIVE. Read-only, and excluded from the YAML export as runtime state.
+	Status *providers.AccessStatusReport `json:"status,omitempty" yaml:"-"`
 
 	inboundmodel.InboundAuthProfileReq `yaml:",inline"`
 	InboundAuthConfig                  []providers.InboundAuthConfigWithSecret `json:"inboundAuthConfig,omitempty" yaml:"inboundAuthConfig,omitempty"`
@@ -109,6 +114,8 @@ type BasicAgentResponse struct {
 	Owner       string          `json:"owner,omitempty"`
 	Attributes  json.RawMessage `json:"attributes,omitempty"`
 	IsReadOnly  bool            `json:"isReadOnly"`
+	// Status is the effective access status and what produced it, derived at read time.
+	Status *providers.AccessStatusReport `json:"status,omitempty"`
 }
 
 // AgentListResponse is the paginated list response.

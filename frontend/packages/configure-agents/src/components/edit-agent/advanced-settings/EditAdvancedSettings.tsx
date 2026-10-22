@@ -62,7 +62,7 @@ export default function EditAdvancedSettings({
 
   return (
     <Stack spacing={3}>
-      <SettingsCard title={t('agents:edit.advanced.mode.title', 'Operating Mode')}>
+      <SettingsCard title={t('agents:edit.advanced.mode.title', 'Operating mode')}>
         <Box>
           <FormControlLabel
             control={
@@ -82,11 +82,11 @@ export default function EditAdvancedSettings({
             {isUnlocked
               ? t(
                   'agents:edit.advanced.mode.onBehalfOfUser.description',
-                  'This agent acts on behalf of a signed-in user, using Authorization Code with PKCE.',
+                  'This agent acts on behalf of a signed-in user, using authorization code with PKCE.',
                 )
               : t(
                   'agents:edit.advanced.mode.onOwnBehalf.description',
-                  'This agent authenticates with its own credentials without user interaction, using Client Credentials.',
+                  'This agent authenticates with its own credentials without user interaction, using client credentials.',
                 )}
           </Typography>
         </Box>

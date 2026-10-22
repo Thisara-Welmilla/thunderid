@@ -1,7 +1,13 @@
 // Copyright 2026 The ThunderID Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import {PageLoadingAnimation, QueryErrorNotice, ResourceAvatar, UnsavedChangesBar} from '@thunderid/components';
+import {
+  DocumentTitle,
+  PageLoadingAnimation,
+  QueryErrorNotice,
+  ResourceAvatar,
+  UnsavedChangesBar,
+} from '@thunderid/components';
 import {useGetAgentType, useGetAgentTypes} from '@thunderid/configure-agent-types';
 import {
   getBackchannelLogoutUriServerError,
@@ -165,13 +171,21 @@ export default function AgentEditPage(): JSX.Element {
     [editedAgent, agent],
   );
 
+  const resourceTypeTitle = t('agents:listing.title', 'Agents');
+
   if (isLoading || isSchemaResolving) {
-    return <PageLoadingAnimation />;
+    return (
+      <>
+        <DocumentTitle title={resourceTypeTitle} />
+        <PageLoadingAnimation />
+      </>
+    );
   }
 
   if (error) {
     return (
       <PageContent>
+        <DocumentTitle title={resourceTypeTitle} />
         <QueryErrorNotice
           error={error}
           t={tForErrors}
@@ -191,6 +205,7 @@ export default function AgentEditPage(): JSX.Element {
   if (!agent) {
     return (
       <PageContent>
+        <DocumentTitle title={resourceTypeTitle} />
         <Alert severity="warning" sx={{mb: 2}}>
           {t('agents:edit.page.notFound', 'Agent not found')}
         </Alert>
@@ -395,6 +410,7 @@ export default function AgentEditPage(): JSX.Element {
 
   return (
     <PageContent>
+      <DocumentTitle title={agent.display ?? agent.id} />
       {agent.isReadOnly && (
         <Alert severity="info" sx={{mb: 2}}>
           {t('common:messages.readOnlyResource', 'This resource is read-only and cannot be modified.')}
@@ -411,7 +427,7 @@ export default function AgentEditPage(): JSX.Element {
             editable={isLogoEditable}
             value={editedAgent.logoUrl ?? agent.logoUrl}
             fallback={AgentConstants.DEFAULT_AVATAR}
-            editAriaLabel={t('agents:edit.page.logoUpdate.label', 'Update Logo')}
+            editAriaLabel={t('agents:edit.page.logoUpdate.label', 'Update logo')}
             onSelect={
               isLogoEditable
                 ? (newLogoUrl: string) => {

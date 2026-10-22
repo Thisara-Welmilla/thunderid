@@ -340,6 +340,88 @@ func (s *CompositeStoreTestSuite) TestGetEntityListByOUIDs_Error() {
 	s.Error(err)
 }
 
+func (s *CompositeStoreTestSuite) TestGetEntityListBySystemAttributes_MergesStores() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	e1 := compEntity("e1", "ou1")
+	e2 := compEntity("e2", "ou1")
+	s.dbStore.On("GetEntityListCountBySystemAttributes", mock.Anything, "agent", sysQuery).Return(1, nil)
+	s.fileStore.On("GetEntityListCountBySystemAttributes", mock.Anything, "agent", sysQuery).Return(1, nil)
+	s.dbStore.On("GetEntityListBySystemAttributes", mock.Anything, "agent", sysQuery, 1, 0).
+		Return([]providers.Entity{e1}, nil)
+	s.fileStore.On("GetEntityListBySystemAttributes", mock.Anything, "agent", sysQuery, 1, 0).
+		Return([]providers.Entity{e2}, nil)
+
+	count, err := s.store.GetEntityListCountBySystemAttributes(s.ctx, "agent", sysQuery)
+	s.NoError(err)
+	s.Equal(2, count)
+
+	list, err := s.store.GetEntityListBySystemAttributes(s.ctx, "agent", sysQuery, 10, 0)
+	s.NoError(err)
+	s.Len(list, 2)
+}
+
+func (s *CompositeStoreTestSuite) TestGetEntityListBySystemAttributes_LimitExceeded() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	limit := serverconst.MaxCompositeStoreRecords + 1
+	s.dbStore.On("GetEntityListCountBySystemAttributes", mock.Anything, "agent", sysQuery).Return(limit, nil)
+	s.fileStore.On("GetEntityListCountBySystemAttributes", mock.Anything, "agent", sysQuery).Return(0, nil)
+
+	_, err := s.store.GetEntityListBySystemAttributes(s.ctx, "agent", sysQuery, limit, 0)
+	s.ErrorIs(err, errResultLimitExceededInCompositeMode)
+}
+
+func (s *CompositeStoreTestSuite) TestGetEntityListBySystemAttributes_Error() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	s.dbStore.On("GetEntityListCountBySystemAttributes", mock.Anything, "agent", sysQuery).Return(0, s.testErr)
+	_, err := s.store.GetEntityListBySystemAttributes(s.ctx, "agent", sysQuery, 10, 0)
+	s.Error(err)
+}
+
+func (s *CompositeStoreTestSuite) TestGetEntityListBySystemAttributesAndOUIDs_MergesStores() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	ouIDs := []string{"ou1"}
+	e1 := compEntity("e1", "ou1")
+	e2 := compEntity("e2", "ou1")
+	s.dbStore.On("GetEntityListCountBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs).
+		Return(1, nil)
+	s.fileStore.On("GetEntityListCountBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs).
+		Return(1, nil)
+	s.dbStore.On("GetEntityListBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs, 1, 0).
+		Return([]providers.Entity{e1}, nil)
+	s.fileStore.On("GetEntityListBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs, 1, 0).
+		Return([]providers.Entity{e2}, nil)
+
+	count, err := s.store.GetEntityListCountBySystemAttributesAndOUIDs(s.ctx, "agent", sysQuery, ouIDs)
+	s.NoError(err)
+	s.Equal(2, count)
+
+	list, err := s.store.GetEntityListBySystemAttributesAndOUIDs(s.ctx, "agent", sysQuery, ouIDs, 10, 0)
+	s.NoError(err)
+	s.Len(list, 2)
+}
+
+func (s *CompositeStoreTestSuite) TestGetEntityListBySystemAttributesAndOUIDs_LimitExceeded() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	ouIDs := []string{"ou1"}
+	limit := serverconst.MaxCompositeStoreRecords + 1
+	s.dbStore.On("GetEntityListCountBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs).
+		Return(limit, nil)
+	s.fileStore.On("GetEntityListCountBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs).
+		Return(0, nil)
+
+	_, err := s.store.GetEntityListBySystemAttributesAndOUIDs(s.ctx, "agent", sysQuery, ouIDs, limit, 0)
+	s.ErrorIs(err, errResultLimitExceededInCompositeMode)
+}
+
+func (s *CompositeStoreTestSuite) TestGetEntityListBySystemAttributesAndOUIDs_Error() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	ouIDs := []string{"ou1"}
+	s.dbStore.On("GetEntityListCountBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs).
+		Return(0, s.testErr)
+	_, err := s.store.GetEntityListBySystemAttributesAndOUIDs(s.ctx, "agent", sysQuery, ouIDs, 10, 0)
+	s.Error(err)
+}
+
 func (s *CompositeStoreTestSuite) TestValidateEntityIDs_AllValid() {
 	e1 := compEntity("v1", "ou1")
 	s.dbStore.On("GetEntity", mock.Anything, "v1").Return(e1, nil)

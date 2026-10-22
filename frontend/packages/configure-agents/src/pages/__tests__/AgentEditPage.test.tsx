@@ -434,7 +434,7 @@ describe('AgentEditPage', () => {
     it('offers the logo picker for a writable agent', () => {
       renderWithLogo();
 
-      expect(screen.getByRole('button', {name: 'Update Logo'})).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Update logo'})).toBeInTheDocument();
     });
 
     it('does not offer the logo picker for a read-only agent', () => {
@@ -448,7 +448,7 @@ describe('AgentEditPage', () => {
 
       render(<AgentEditPage />);
 
-      expect(screen.queryByRole('button', {name: 'Update Logo'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Update logo'})).not.toBeInTheDocument();
       // ResourceAvatar opens its picker from the avatar itself whenever onSelect is set, so the
       // callback has to be withheld rather than just hiding the pencil.
       expect(screen.queryByRole('button', {name: 'Pick logo B'})).not.toBeInTheDocument();
@@ -1105,7 +1105,7 @@ describe('AgentEditPage', () => {
     });
   });
 
-  describe('Client Secret Popup (just created)', () => {
+  describe('Client secret Popup (just created)', () => {
     afterEach(() => {
       mockUseLocation.mockReturnValue({state: null});
     });

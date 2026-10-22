@@ -308,6 +308,15 @@ packages:
       pkgname: idpmock
       filename: "{{.InterfaceName}}_mock.go"
 
+  github.com/thunder-id/thunderid/internal/connection/httpconnection:
+    interfaces:
+      HTTPConnectionServiceInterface:
+        config:
+          dir: tests/mocks/connection/httpconnectionmock
+          structname: '{{.InterfaceName}}Mock'
+          pkgname: httpconnectionmock
+          filename: "{{.InterfaceName}}_mock.go"
+
   github.com/thunder-id/thunderid/internal/notification:
     config:
       all: true
@@ -569,6 +578,15 @@ packages:
       structname: '{{.InterfaceName}}Mock'
       pkgname: entityprovidermock
       filename: "{{.InterfaceName}}_mock.go"
+
+  github.com/thunder-id/thunderid/internal/identitygovernance:
+    interfaces:
+      IdentityGovernanceServiceInterface:
+        config:
+          dir: tests/mocks/identitygovernancemock
+          structname: '{{.InterfaceName}}Mock'
+          pkgname: identitygovernancemock
+          filename: "{{.InterfaceName}}_mock.go"
 
   github.com/thunder-id/thunderid/pkg/thunderidengine/providers:
     interfaces:

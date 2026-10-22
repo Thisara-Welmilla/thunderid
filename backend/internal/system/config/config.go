@@ -338,6 +338,16 @@ type GatewayConfig struct {
 	// MaxVersions bounds how many captured configuration versions a deployment keeps. Capturing one
 	// beyond it removes the oldest, except a version some gateway holds or could be reverted to.
 	MaxVersions *int `yaml:"max_versions" json:"max_versions"`
+	// AllowPrivateAddresses lets a gateway be registered at, and reached on, a loopback, link-local
+	// or private address. Off, which is the default, a base URL naming one is refused at registration
+	// and a hostname that resolves to one is refused when the gateway is called, so an administrator
+	// cannot point this plane's calls, which carry the gateway's key, at something inside its own
+	// network. Turn it on for a local or single-host setup whose gateways sit on such addresses.
+	AllowPrivateAddresses bool `yaml:"allow_private_addresses" json:"allow_private_addresses"`
+	// RemovalConfirmationThreshold is how many resources an apply may remove from a gateway before it
+	// has to be confirmed; an apply that would remove more is refused unless the request confirms it.
+	// A pointer so that an explicit zero, which turns the check off, is told from an omitted field.
+	RemovalConfirmationThreshold *int `yaml:"removal_confirmation_threshold" json:"removal_confirmation_threshold"`
 	// Store defines the storage mode for gateways.
 	// Valid values: "mutable", "declarative", "composite" (hybrid mode)
 	// If not specified, falls back to global DeclarativeResources.Enabled setting:
@@ -351,6 +361,12 @@ type GatewayConfig struct {
 // deployment administers none.
 func (c GatewayConfig) MaxGatewayCount() int {
 	return derefInt(c.MaxGateways, 0)
+}
+
+// RemovalConfirmationLimit reports how many resources an apply may remove without being confirmed,
+// zero for no check. Unset, it is five (an explicit default lives in default.json).
+func (c GatewayConfig) RemovalConfirmationLimit() int {
+	return derefInt(c.RemovalConfirmationThreshold, 5)
 }
 
 // MaxVersionCount reports how many captured configuration versions a deployment keeps. It is never
@@ -744,11 +760,60 @@ type Config struct {
 	Notification         NotificationConfig                `yaml:"notification"          json:"notification"`
 	AttributeCache       engineconfig.AttributeCacheConfig `yaml:"attribute_cache" json:"attribute_cache"`
 	ResourceSharing      ResourceSharingConfig             `yaml:"resource_sharing"      json:"resource_sharing"`
+	AccountAccess        AccountAccessConfig               `yaml:"account_access"        json:"account_access"`
 }
 
 // ResourceSharingConfig configures how resources may be shared across organization units.
 type ResourceSharingConfig struct {
 	AllowChildOUCrossTreeSharing bool `yaml:"allow_child_ou_cross_tree_sharing" json:"allow_child_ou_cross_tree_sharing"` //nolint:lll
+}
+
+// AccountAccessConfig holds the default automatic-lockout policy, keyed by entity category. It is the
+// base of the accountAccess server-config section. An absent category block means disabled.
+type AccountAccessConfig struct {
+	User  CategoryAccessConfig `yaml:"user"  json:"user"`
+	Agent CategoryAccessConfig `yaml:"agent" json:"agent"`
+}
+
+// CategoryAccessConfig is the lockout policy for one entity category.
+type CategoryAccessConfig struct {
+	// LockGranularity is "authentication_method" (the default) or "entity".
+	LockGranularity string `yaml:"lock_granularity" json:"lock_granularity"`
+	// RecordLastLogin turns on the lastLoginAt write when access is granted. Unset resolves to false.
+	RecordLastLogin *bool `yaml:"record_last_login" json:"record_last_login"`
+	// LastLoginResolutionSeconds skips the write when the stored value is newer than this. 0 writes
+	// every time; unset is an hour.
+	LastLoginResolutionSeconds *int `yaml:"last_login_resolution_seconds" json:"last_login_resolution_seconds"`
+	// Default is the policy for every authentication method in this category.
+	Default LockPolicyConfig `yaml:"default" json:"default"`
+	// Notifications configures the notices sent to the account holder.
+	Notifications AccessNotificationsConfig `yaml:"notifications" json:"notifications"`
+}
+
+// AccessNotificationsConfig is the notices one category sends, keyed by event.
+type AccessNotificationsConfig struct {
+	OnLock LockNotificationConfig `yaml:"on_lock" json:"on_lock"`
+}
+
+// LockNotificationConfig is what is sent when an automatic lock forms, keyed by channel.
+type LockNotificationConfig struct {
+	Email LockEmailConfig `yaml:"email" json:"email"`
+}
+
+// LockEmailConfig holds the lock email settings.
+type LockEmailConfig struct {
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+}
+
+// LockPolicyConfig is a category's lockout policy, applied to every authentication method. Fields
+// are pointers or slices so unset is distinguishable from zero.
+type LockPolicyConfig struct {
+	Enabled                *bool `yaml:"enabled" json:"enabled"`
+	Threshold              *int  `yaml:"threshold" json:"threshold"`
+	FailureWindowSeconds   *int  `yaml:"failure_window_seconds" json:"failure_window_seconds"`
+	LockDurationsSeconds   []int `yaml:"lock_durations_seconds" json:"lock_durations_seconds"`
+	LockDecaySeconds       *int  `yaml:"lock_decay_seconds" json:"lock_decay_seconds"`
+	MaxConsecutiveFailures *int  `yaml:"max_consecutive_failures" json:"max_consecutive_failures"`
 }
 
 // LoadConfig loads the configurations from the specified YAML file and applies defaults.

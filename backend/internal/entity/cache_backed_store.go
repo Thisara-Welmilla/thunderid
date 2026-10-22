@@ -215,6 +215,27 @@ func (s *cacheBackedEntityStore) GetEntityListByOUIDs(ctx context.Context,
 	return s.store.GetEntityListByOUIDs(ctx, category, ouIDs, limit, offset, filters)
 }
 
+func (s *cacheBackedEntityStore) GetEntityListCountBySystemAttributes(ctx context.Context,
+	category string, sysQuery SystemAttributeQuery) (int, error) {
+	return s.store.GetEntityListCountBySystemAttributes(ctx, category, sysQuery)
+}
+
+func (s *cacheBackedEntityStore) GetEntityListBySystemAttributes(ctx context.Context,
+	category string, sysQuery SystemAttributeQuery, limit, offset int) ([]providers.Entity, error) {
+	return s.store.GetEntityListBySystemAttributes(ctx, category, sysQuery, limit, offset)
+}
+
+func (s *cacheBackedEntityStore) GetEntityListCountBySystemAttributesAndOUIDs(ctx context.Context,
+	category string, sysQuery SystemAttributeQuery, ouIDs []string) (int, error) {
+	return s.store.GetEntityListCountBySystemAttributesAndOUIDs(ctx, category, sysQuery, ouIDs)
+}
+
+func (s *cacheBackedEntityStore) GetEntityListBySystemAttributesAndOUIDs(ctx context.Context,
+	category string, sysQuery SystemAttributeQuery, ouIDs []string, limit, offset int) (
+	[]providers.Entity, error) {
+	return s.store.GetEntityListBySystemAttributesAndOUIDs(ctx, category, sysQuery, ouIDs, limit, offset)
+}
+
 func (s *cacheBackedEntityStore) ValidateEntityIDs(ctx context.Context,
 	entityIDs []string) ([]string, error) {
 	return s.store.ValidateEntityIDs(ctx, entityIDs)

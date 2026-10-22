@@ -701,3 +701,35 @@ func (s *CacheBackedEntityStoreTestSuite) TestLockEntity_BypassesCache() {
 	s.Same(&stale, s.entityByIDData[testEntityID])
 	s.mockStore.AssertExpectations(s.T())
 }
+
+func (s *CacheBackedEntityStoreTestSuite) TestGetEntityListBySystemAttributes_PassThrough() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	s.mockStore.On("GetEntityListCountBySystemAttributes", mock.Anything, "agent", sysQuery).Return(2, nil)
+	s.mockStore.On("GetEntityListBySystemAttributes", mock.Anything, "agent", sysQuery, 10, 0).
+		Return([]providers.Entity{{ID: "e1"}}, nil)
+
+	count, err := s.cachedStore.GetEntityListCountBySystemAttributes(context.Background(), "agent", sysQuery)
+	s.NoError(err)
+	s.Equal(2, count)
+	list, err := s.cachedStore.GetEntityListBySystemAttributes(context.Background(), "agent", sysQuery, 10, 0)
+	s.NoError(err)
+	s.Len(list, 1)
+}
+
+func (s *CacheBackedEntityStoreTestSuite) TestGetEntityListBySystemAttributesAndOUIDs_PassThrough() {
+	sysQuery := SystemAttributeQuery{SystemAttributes: map[string]interface{}{"owner": "u1"}}
+	ouIDs := []string{"ou1"}
+	s.mockStore.On("GetEntityListCountBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs).
+		Return(2, nil)
+	s.mockStore.On("GetEntityListBySystemAttributesAndOUIDs", mock.Anything, "agent", sysQuery, ouIDs, 10, 0).
+		Return([]providers.Entity{{ID: "e1"}}, nil)
+
+	count, err := s.cachedStore.GetEntityListCountBySystemAttributesAndOUIDs(
+		context.Background(), "agent", sysQuery, ouIDs)
+	s.NoError(err)
+	s.Equal(2, count)
+	list, err := s.cachedStore.GetEntityListBySystemAttributesAndOUIDs(
+		context.Background(), "agent", sysQuery, ouIDs, 10, 0)
+	s.NoError(err)
+	s.Len(list, 1)
+}

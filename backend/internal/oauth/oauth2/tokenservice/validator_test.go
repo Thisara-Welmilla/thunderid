@@ -3306,7 +3306,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_Success() {
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3329,7 +3329,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_SingleResourceC
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3347,7 +3347,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_MultipleResourc
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3363,7 +3363,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_NoResourceClaim
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3373,7 +3373,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_NoResourceClaim
 func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_WrongTyp() {
 	assertion := suite.createAssertion(jwt.TokenTypeJWT, suite.idjagClaims())
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3386,7 +3386,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_UntrustedIssuer
 	suite.mockIDPService.On("GetIdentityProvidersByProperty", context.Background(),
 		idp.PropIssuer, testExternalIssuer).Return([]providers.IDPDTO{}, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3407,7 +3407,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_IDJagNotEnabled
 	suite.mockIDPService.On("GetIdentityProvidersByProperty", context.Background(),
 		idp.PropIssuer, testExternalIssuer).Return(idpDTOs, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3430,7 +3430,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_InvalidSignatur
 			},
 		})
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3452,7 +3452,7 @@ func (suite *IDJAGValidatorTestSuite) assertRejectsSignedAssertion(
 		idp.PropIssuer, testExternalIssuer).Return(buildIDJAGIDPDTOs(), nil)
 	suite.mockJWTService.On("VerifyJWTSignatureWithJWKS", mock.Anything, assertion, testExternalJWKS).Return(nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3500,6 +3500,15 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_AudMismatch() {
 	suite.assertRejectsSignedAssertion(claims, "assertion audience does not match server issuer")
 }
 
+func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_ClientIDMismatch() {
+	claims := suite.idjagClaims()
+	claims["client_id"] = "a-different-client"
+	suite.assertRejectsSignedAssertion(claims, "does not match the authenticated client")
+	// A presenter that is not the bound client must not consume the assertion's jti.
+	suite.mockJTIStore.AssertNotCalled(suite.T(), "RecordJTI",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
 func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_MissingClientIDClaim() {
 	claims := suite.idjagClaims()
 	delete(claims, "client_id")
@@ -3526,7 +3535,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_SingleElementAu
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(true, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
@@ -3545,7 +3554,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_ReplayedJTI() {
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(false, nil)
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)
@@ -3562,7 +3571,7 @@ func (suite *IDJAGValidatorTestSuite) TestValidateIDJAGAssertion_JTIStoreError()
 	suite.mockJTIStore.On("RecordJTI", mock.Anything, idjagJTINamespace, testIDJAGAssertionJTI,
 		mock.AnythingOfType("time.Time")).Return(false, fmt.Errorf("store unavailable"))
 
-	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion)
+	result, err := suite.validator.ValidateIDJAGAssertion(context.Background(), assertion, testClientID)
 
 	assert.Error(suite.T(), err)
 	assert.Nil(suite.T(), result)

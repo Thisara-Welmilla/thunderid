@@ -243,6 +243,12 @@ func (e *userExporter) ViewResource(_ context.Context, document *yaml.Node) (int
 	})
 }
 
+// SecretFields names where an exported user holds its credentials: every key of the credentials
+// map, since which credentials a user has is its type's to say.
+func (e *userExporter) SecretFields() []string {
+	return []string{"credentials.*"}
+}
+
 // GetResourceRules returns the parameterization rules for users.
 func (e *userExporter) GetResourceRules() *declarativeresource.ResourceRules {
 	return &declarativeresource.ResourceRules{
@@ -319,7 +325,7 @@ func makeUserValidator() func(e *providers.Entity, svc entity.EntityServiceInter
 		}
 
 		// Check for duplicates in the store (covers both DB and already-loaded file resources)
-		_, err := svc.GetEntity(context.Background(), e.ID)
+		_, err := svc.GetEntityProfile(context.Background(), e.ID)
 		if err == nil {
 			return fmt.Errorf("duplicate user ID '%s': user already exists", e.ID)
 		}

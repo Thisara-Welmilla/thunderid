@@ -55,6 +55,18 @@ func (s *importService) resolveImportOUHandle(
 	return ouID, nil
 }
 
+// documentState returns a document's top-level state and whether it has a non-empty one.
+func documentState(doc parsedDocument) (string, bool) {
+	for i := 0; i+1 < len(doc.Node.Content); i += 2 {
+		if doc.Node.Content[i].Value != "state" {
+			continue
+		}
+		value := doc.Node.Content[i+1]
+		return value.Value, value.Value != "" || len(value.Content) > 0
+	}
+	return "", false
+}
+
 type roleDeclarativeYAML struct {
 	ID          string                     `yaml:"id"`
 	Name        string                     `yaml:"name"`

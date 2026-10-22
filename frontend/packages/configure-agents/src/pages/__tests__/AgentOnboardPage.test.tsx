@@ -120,7 +120,7 @@ vi.mock('react-i18next', () => ({
         'agents:onboarding.errors.notConfigured.title': 'Onboarding flow not configured',
         'agents:onboarding.errors.unavailable.description': 'The agent onboarding flow could not be loaded.',
         'agents:onboarding.errors.unavailable.title': 'Onboarding unavailable',
-        'agents:onboarding.addAnother': 'Add Another Agent',
+        'agents:onboarding.addAnother': 'Add another agent',
         'agents:onboarding.selectPlaceholder': 'Select an option',
       };
       const translated = translations[key];
@@ -379,7 +379,7 @@ describe('AgentOnboardPage', () => {
 
     // OU_SELECT is the same contract: the picker sources its own tree, so the page only wires it up.
     it('should render the organization unit picker', async () => {
-      givenStep([{id: 'ou_selection_input', label: 'Organization Unit', ref: 'ouId', type: 'OU_SELECT'}]);
+      givenStep([{id: 'ou_selection_input', label: 'Organization unit', ref: 'ouId', type: 'OU_SELECT'}]);
 
       render(<AgentOnboardPage />);
 
@@ -387,7 +387,7 @@ describe('AgentOnboardPage', () => {
     });
 
     it('should root the organization unit picker where the flow says and record the chosen unit', async () => {
-      givenStep([{id: 'ou_selection_input', label: 'Organization Unit', ref: 'ouId', type: 'OU_SELECT'}], {
+      givenStep([{id: 'ou_selection_input', label: 'Organization unit', ref: 'ouId', type: 'OU_SELECT'}], {
         rootOuId: 'ou-root-1',
       });
 
@@ -470,7 +470,7 @@ describe('AgentOnboardPage', () => {
       // The header carries its own Close, so the step has to be on screen before asserting.
       await screen.findByText('agent-client-id');
 
-      expect(screen.getByRole('button', {name: 'Add Another Agent'})).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Add another agent'})).toBeInTheDocument();
       expect(screen.getAllByRole('button', {name: 'Close'}).length).toBeGreaterThan(1);
     });
 
@@ -496,7 +496,7 @@ describe('AgentOnboardPage', () => {
       render(<AgentOnboardPage />);
 
       await screen.findByText('agent-client-id');
-      await userEvent.click(screen.getByRole('button', {name: 'Add Another Agent'}));
+      await userEvent.click(screen.getByRole('button', {name: 'Add another agent'}));
 
       expect(h.resetFlow).toHaveBeenCalled();
       expect(h.navigate).not.toHaveBeenCalled();
@@ -519,7 +519,7 @@ describe('AgentOnboardPage', () => {
       render(<AgentOnboardPage />);
 
       await screen.findByLabelText(/Agent name/);
-      expect(screen.queryByRole('button', {name: 'Add Another Agent'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Add another agent'})).not.toBeInTheDocument();
     });
   });
 
@@ -622,7 +622,7 @@ describe('AgentOnboardPage breadcrumbs', () => {
   it('should show only the page itself before any step is seen', async () => {
     render(<AgentOnboardPage />);
 
-    await waitFor(() => expect(screen.getByText('Add Agent')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Add agent')).toBeInTheDocument());
     expect(screen.queryByText('Name Your Agent')).not.toBeInTheDocument();
   });
 
@@ -632,7 +632,7 @@ describe('AgentOnboardPage breadcrumbs', () => {
     render(<AgentOnboardPage />);
 
     await waitFor(() => expect(screen.getAllByText('Name Your Agent').length).toBeGreaterThan(0));
-    expect(screen.getByText('Add Agent')).toBeInTheDocument();
+    expect(screen.getByText('Add agent')).toBeInTheDocument();
   });
 
   it('should ignore a step that carries no heading', async () => {
@@ -643,7 +643,7 @@ describe('AgentOnboardPage breadcrumbs', () => {
     // Waiting on the subtitle, not the crumb: the layout renders before the flow resolves.
     await waitFor(() => expect(screen.getByText('Just a subtitle')).toBeInTheDocument());
 
-    expect(screen.getByText('Add Agent')).toBeInTheDocument();
+    expect(screen.getByText('Add agent')).toBeInTheDocument();
     // It renders in the body, but it must not become a crumb.
     expect(screen.getAllByText('Just a subtitle')).toHaveLength(1);
   });

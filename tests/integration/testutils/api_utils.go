@@ -1837,29 +1837,39 @@ func GetWritableServerConfig(section string) (json.RawMessage, error) {
 
 // PutWritableServerConfig replaces the writable layer of the named server-config section.
 func PutWritableServerConfig(section string, body []byte) error {
+	status, respBody, err := PutWritableServerConfigWithStatus(section, body)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("expected status 200 updating %s server config with %s, got %d. Response: %s",
+			section, string(body), status, string(respBody))
+	}
+	return nil
+}
+
+// PutWritableServerConfigWithStatus is PutWritableServerConfig for a write the server may refuse: it
+// returns the status and body whatever they are, and an error only when no answer came back.
+func PutWritableServerConfigWithStatus(section string, body []byte) (int, []byte, error) {
 	url := fmt.Sprintf("%s/server-config/%s", TestServerURL, section)
 
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("failed to create %s server config request: %w", section, err)
+		return 0, nil, fmt.Errorf("failed to create %s server config request: %w", section, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := GetHTTPClient().Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to update %s server config: %w", section, err)
+		return 0, nil, fmt.Errorf("failed to update %s server config: %w", section, err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read %s server config response: %w", section, err)
+		return 0, nil, fmt.Errorf("failed to read %s server config response: %w", section, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("expected status 200 updating %s server config with %s, got %d. Response: %s",
-			section, string(body), resp.StatusCode, string(respBody))
-	}
-	return nil
+	return resp.StatusCode, respBody, nil
 }
 
 // MergeWritableServerConfig applies the given top-level keys over the current writable layer of the

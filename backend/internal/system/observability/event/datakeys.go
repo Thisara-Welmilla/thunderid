@@ -49,6 +49,17 @@ var DataKey = struct {
 	RevocationReason string
 	AccessingOUID    string
 
+	// Administration Keys. Records whether an operator note was given, never the note itself.
+	OperatorNoteRecorded string
+	// ConfigName is the server-config section a change targets.
+	ConfigName string
+
+	// Account Lock Keys. UnlockAt is set only for a lock that expires.
+	LockMethod    string
+	LockCount     string
+	LockPermanent string
+	UnlockAt      string
+
 	// Session & Delivery Keys
 	SessionID  string
 	HTTPStatus string
@@ -97,6 +108,16 @@ var DataKey = struct {
 	JTI:              "jti",
 	RevocationReason: "revocation_reason",
 	AccessingOUID:    "accessing_ou_id",
+
+	// Administration Keys
+	OperatorNoteRecorded: "operator_note_recorded",
+	ConfigName:           "config_name",
+
+	// Account Lock Keys
+	LockMethod:    "lock_method",
+	LockCount:     "lock_count",
+	LockPermanent: "lock_permanent",
+	UnlockAt:      "unlock_at",
 
 	// Session & Delivery Keys
 	SessionID:  "session_id",

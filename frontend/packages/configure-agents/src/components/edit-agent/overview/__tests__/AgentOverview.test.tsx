@@ -128,7 +128,7 @@ describe('AgentOverview', () => {
     const onGoToAdvanced = vi.fn();
     render(<AgentOverview agent={baseAgent} onGoToAdvanced={onGoToAdvanced} />);
 
-    await user.click(screen.getByRole('button', {name: 'Edit in Advanced'}));
+    await user.click(screen.getByRole('button', {name: 'Edit in advanced'}));
 
     expect(onGoToAdvanced).toHaveBeenCalledTimes(1);
   });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {useQuery} from '@tanstack/react-query';
-import {FullScreenCreationWizardLayout} from '@thunderid/components';
+import {DocumentTitle, FullScreenCreationWizardLayout} from '@thunderid/components';
 import {OrganizationUnitTreePicker} from '@thunderid/configure-organization-units';
 import {useFlowTextResolver, useGetUsers} from '@thunderid/configure-users';
 import {useConfig} from '@thunderid/contexts';
@@ -464,7 +464,7 @@ function AgentOnboardStep({
             {t('common:actions.close', 'Close')}
           </Button>
           <Button variant="contained" onClick={() => resetFlow()}>
-            {t('agents:onboarding.addAnother', 'Add Another Agent')}
+            {t('agents:onboarding.addAnother', 'Add another agent')}
           </Button>
         </Stack>
       )}
@@ -495,7 +495,7 @@ export default function AgentOnboardPage(): JSX.Element {
   // completion.
   const [stepsSeen, setStepsSeen] = useState(0);
   // The trail of step headings visited so far, seeded with the page itself.
-  const [breadcrumbs, setBreadcrumbs] = useState<string[]>([t('agents:addAgent', 'Add Agent')]);
+  const [breadcrumbs, setBreadcrumbs] = useState<string[]>([t('agents:addAgent', 'Add agent')]);
   const prevStepLabelRef = useRef<string>('');
   const resetFlowRef = useRef<(() => void) | null>(null);
   const [isFlowComplete, setIsFlowComplete] = useState(false);
@@ -535,7 +535,7 @@ export default function AgentOnboardPage(): JSX.Element {
     prevStepLabelRef.current = '';
     setStepsSeen(0);
     setIsFlowComplete(false);
-    setBreadcrumbs([t('agents:addAgent', 'Add Agent')]);
+    setBreadcrumbs([t('agents:addAgent', 'Add agent')]);
   }, [t]);
 
   const executeFlow = useCallback(
@@ -658,6 +658,7 @@ export default function AgentOnboardPage(): JSX.Element {
       }))}
       footer={null}
     >
+      <DocumentTitle title={t('agents:addAgent', 'Add agent')} />
       {renderBody()}
     </FullScreenCreationWizardLayout>
   );

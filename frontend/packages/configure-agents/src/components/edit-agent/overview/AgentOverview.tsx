@@ -198,12 +198,12 @@ export default function AgentOverview({
         )}
         {ownerLabel && <CopyableField label={t('agents:edit.general.labels.ownerId', 'Owner ID')} value={ownerLabel} />}
         <CopyableField
-          label={t('agents:edit.overview.agentDetails.organizationUnitId', 'Organization Unit ID')}
+          label={t('agents:edit.overview.agentDetails.organizationUnitId', 'Organization unit ID')}
           value={agent.ouId}
         />
         {agent.ouHandle && (
           <CopyableField
-            label={t('agents:edit.overview.agentDetails.organizationUnitHandle', 'Organization Unit Handle')}
+            label={t('agents:edit.overview.agentDetails.organizationUnitHandle', 'Organization unit handle')}
             value={agent.ouHandle}
           />
         )}
@@ -213,7 +213,7 @@ export default function AgentOverview({
 
   const endpointsCard = (
     <OverviewCard
-      title={t('agents:edit.overview.endpoints.title', 'Useful Endpoints')}
+      title={t('agents:edit.overview.endpoints.title', 'Useful endpoints')}
       description={t(
         'agents:edit.overview.endpoints.description',
         'For authenticating this agent, on its own or on behalf of a user.',
@@ -246,7 +246,7 @@ export default function AgentOverview({
       headerAction={
         onGoToAdvanced && (
           <Button size="small" endIcon={<ArrowRight size={11} />} onClick={onGoToAdvanced}>
-            {t('agents:edit.overview.accessMode.editAdvanced', 'Edit in Advanced')}
+            {t('agents:edit.overview.accessMode.editAdvanced', 'Edit in advanced')}
           </Button>
         )
       }

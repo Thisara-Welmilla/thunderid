@@ -82,3 +82,14 @@ export const CONTEXT_TOKEN_KEYS: ReadonlySet<string> = new Set(
     (key): key is string => key !== undefined,
   ),
 );
+
+/**
+ * The design token keys {@link DESIGN_TOKENS} offers, derived from their `insert` strings. The preview
+ * validates {{design(key)}} against this catalog (not the selected theme), so a key outside the list is
+ * flagged while a recognized key is accepted regardless of which theme is previewed.
+ */
+export const DESIGN_TOKEN_KEYS: ReadonlySet<string> = new Set(
+  DESIGN_TOKENS.map((token) => /^\{\{design\(([A-Za-z0-9_.-]+)\)\}\}$/.exec(token.insert)?.[1]).filter(
+    (key): key is string => key !== undefined,
+  ),
+);

@@ -349,6 +349,39 @@ func (ts *AgentAPITestSuite) TestAgentUpdate() {
 	resp2.Body.Close()
 }
 
+func (ts *AgentAPITestSuite) TestAgentUpdateReportsTheDerivedStatus() {
+	ts.Require().NotEmpty(createdAgentID)
+	encoded, err := json.Marshal(Agent{
+		OUID:        testOUID,
+		Type:        "default",
+		Attributes:  agentAttrs(createdAgentName, nil),
+		Description: "Agent with entity row only",
+	})
+	ts.Require().NoError(err)
+	var body map[string]interface{}
+	ts.Require().NoError(json.Unmarshal(encoded, &body))
+	body["status"] = map[string]interface{}{"value": "SUSPENDED"}
+	payload, err := json.Marshal(body)
+	ts.Require().NoError(err)
+
+	req, err := http.NewRequest(http.MethodPut, testServerURL+agentBasePath+"/"+createdAgentID,
+		bytes.NewReader(payload))
+	ts.Require().NoError(err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := testutils.GetHTTPClient().Do(req)
+	ts.Require().NoError(err)
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	ts.Require().NoError(err)
+	ts.Require().Equal(http.StatusOK, resp.StatusCode, string(raw))
+
+	var updated struct {
+		Status json.RawMessage `json:"status"`
+	}
+	ts.Require().NoError(json.Unmarshal(raw, &updated))
+	ts.JSONEq(`{"value":"ACTIVE"}`, string(updated.Status), "the update must report the derived status")
+}
+
 func (ts *AgentAPITestSuite) TestAgentUpdate_NameConflict() {
 	// Create a second agent, then try to rename it to the primary agent's name.
 	other := Agent{OUID: testOUID, Type: "default", Attributes: agentAttrs("agent-conflict-temp", nil)}
@@ -484,6 +517,130 @@ func (ts *AgentAPITestSuite) TestCreateAgent_MissingName() {
 	defer resp.Body.Close()
 	ts.Assert().Equal(http.StatusBadRequest, resp.StatusCode)
 	ts.Assert().Equal("AGT-1015", errorCode(resp))
+}
+
+// TestCreateAgent_NoneAuthWithIDJAGRejected verifies that a public client using the 'none' auth method
+// is rejected with 400 when it uses the jwt-bearer grant or enables ID-JAG, both of which require a
+// confidential client.
+func (ts *AgentAPITestSuite) TestCreateAgent_NoneAuthWithIDJAGRejected() {
+	cases := []struct {
+		name   string
+		config map[string]interface{}
+	}{
+		{
+			name: "jwt-bearer grant",
+			config: map[string]interface{}{
+				"clientId":                "agent_none_jwt_bearer_client",
+				"grantTypes":              []string{"urn:ietf:params:oauth:grant-type:jwt-bearer"},
+				"tokenEndpointAuthMethod": "none",
+				"publicClient":            true,
+			},
+		},
+		{
+			name: "ID-JAG enabled",
+			config: map[string]interface{}{
+				"clientId":                "agent_none_idjag_client",
+				"grantTypes":              []string{"urn:ietf:params:oauth:grant-type:token-exchange"},
+				"tokenEndpointAuthMethod": "none",
+				"publicClient":            true,
+				"token": map[string]interface{}{
+					"idJag": map[string]interface{}{
+						"enabled":          true,
+						"allowedAudiences": []string{"https://target-rs.example.com"},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		ts.Run(tc.name, func() {
+			resp, err := doPost(testServerURL+agentBasePath, map[string]interface{}{
+				"ouId":              testOUID,
+				"type":              "default",
+				"attributes":        map[string]interface{}{"name": "none-auth-" + tc.config["clientId"].(string)},
+				"inboundAuthConfig": []map[string]interface{}{{"type": "oauth2", "config": tc.config}},
+			})
+			ts.Require().NoError(err)
+			defer resp.Body.Close()
+			ts.Require().Equal(http.StatusBadRequest, resp.StatusCode, readBody(resp))
+			ts.Assert().Equal("AGT-1021", errorCode(resp))
+		})
+	}
+}
+
+// TestCreateAgent_InvalidIDJAGConfigRejected verifies that a confidential agent client enabling ID-JAG
+// is rejected with 400 when it lacks the token-exchange grant, through which ID-JAGs are issued, or a
+// non-blank allowed audience.
+func (ts *AgentAPITestSuite) TestCreateAgent_InvalidIDJAGConfigRejected() {
+	tokenExchange := "urn:ietf:params:oauth:grant-type:token-exchange"
+	cases := []struct {
+		name       string
+		clientID   string
+		grantTypes []string
+		audiences  []string
+		wantKey    string
+	}{
+		{
+			name:       "without token exchange",
+			clientID:   "agent_idjag_no_exchange_client",
+			grantTypes: []string{"client_credentials"},
+			audiences:  []string{"https://target-rs.example.com"},
+			wantKey:    "error.agentservice.idjag_requires_token_exchange_description",
+		},
+		{
+			name:       "without allowed audience",
+			clientID:   "agent_idjag_no_audience_client",
+			grantTypes: []string{"client_credentials", tokenExchange},
+			audiences:  []string{},
+			wantKey:    "error.agentservice.idjag_requires_allowed_audience_description",
+		},
+		{
+			name:       "with blank allowed audience",
+			clientID:   "agent_idjag_blank_audience_client",
+			grantTypes: []string{"client_credentials", tokenExchange},
+			audiences:  []string{"  "},
+			wantKey:    "error.agentservice.idjag_requires_allowed_audience_description",
+		},
+	}
+
+	for _, tc := range cases {
+		ts.Run(tc.name, func() {
+			resp, err := doPost(testServerURL+agentBasePath, map[string]interface{}{
+				"ouId":       testOUID,
+				"type":       "default",
+				"attributes": map[string]interface{}{"name": "invalid-idjag-" + tc.clientID},
+				"inboundAuthConfig": []map[string]interface{}{{
+					"type": "oauth2",
+					"config": map[string]interface{}{
+						"clientId":                tc.clientID,
+						"grantTypes":              tc.grantTypes,
+						"tokenEndpointAuthMethod": "client_secret_basic",
+						"token": map[string]interface{}{
+							"idJag": map[string]interface{}{
+								"enabled":          true,
+								"allowedAudiences": tc.audiences,
+							},
+						},
+					},
+				}},
+			})
+			ts.Require().NoError(err)
+			defer resp.Body.Close()
+			body := readBody(resp)
+			ts.Require().Equal(http.StatusBadRequest, resp.StatusCode, body)
+
+			var errResp struct {
+				Code        string `json:"code"`
+				Description struct {
+					Key string `json:"key"`
+				} `json:"description"`
+			}
+			ts.Require().NoError(json.Unmarshal([]byte(body), &errResp))
+			ts.Assert().Equal("AGT-1021", errResp.Code)
+			ts.Assert().Equal(tc.wantKey, errResp.Description.Key)
+		})
+	}
 }
 
 func (ts *AgentAPITestSuite) TestCreateAgent_MissingType() {

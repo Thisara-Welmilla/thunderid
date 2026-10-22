@@ -154,7 +154,7 @@ var (
 		},
 	}
 
-	// ErrorTemplateInUse is returned when a template cannot be deleted because a flow references it.
+	// ErrorTemplateInUse is returned when a template cannot be deleted because it is in use.
 	ErrorTemplateInUse = tidcommon.ServiceError{
 		Type: tidcommon.ClientErrorType,
 		Code: "NTM-1010",
@@ -164,7 +164,7 @@ var (
 		},
 		ErrorDescription: tidcommon.I18nMessage{
 			Key:          "error.notificationtemplateservice.template_in_use_description",
-			DefaultValue: "The template is referenced by a flow and cannot be deleted",
+			DefaultValue: "The template is in use and cannot be deleted",
 		},
 	}
 

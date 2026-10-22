@@ -10,16 +10,15 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"reflect"
 	"sort"
 	"strings"
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 
-	authnprovidercm "github.com/thunder-id/thunderid/internal/authnprovider/common"
 	"github.com/thunder-id/thunderid/internal/entity"
 	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/identitygovernance"
 	oupkg "github.com/thunder-id/thunderid/internal/ou"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
@@ -62,6 +61,7 @@ type UserServiceInterface interface {
 type userService struct {
 	authzService       sysauthz.SystemAuthorizationServiceInterface
 	entityService      entity.EntityServiceInterface
+	governance         identitygovernance.IdentityGovernanceServiceInterface
 	ouService          oupkg.OrganizationUnitServiceInterface
 	entityTypeService  entitytype.EntityTypeServiceInterface
 	uuidGenerator      func() (string, error)
@@ -75,11 +75,13 @@ func newUserService(
 	entityService entity.EntityServiceInterface,
 	ouService oupkg.OrganizationUnitServiceInterface,
 	entityTypeService entitytype.EntityTypeServiceInterface,
+	governance identitygovernance.IdentityGovernanceServiceInterface,
 	valueCapturer declarativeresource.ValueCapturer,
 ) UserServiceInterface {
 	return &userService{
 		authzService:      authzService,
 		entityService:     entityService,
+		governance:        governance,
 		ouService:         ouService,
 		entityTypeService: entityTypeService,
 		uuidGenerator:     utils.GenerateUUIDv7,
@@ -129,7 +131,7 @@ func (us *userService) listAllUsers(
 		return nil, logErrorAndReturnServerError(ctx, logger, "Failed to get user list", err)
 	}
 
-	users := entitiesToUsers(entities)
+	users := us.usersWithAccess(ctx, entities)
 	if includeDisplay {
 		us.populateUserDisplayNames(ctx, users, logger)
 		us.populateOUHandles(ctx, users, logger)
@@ -160,7 +162,7 @@ func (us *userService) listUsersByOUIDs(
 		return nil, logErrorAndReturnServerError(ctx, logger, "Failed to get user list", err)
 	}
 
-	users := entitiesToUsers(entities)
+	users := us.usersWithAccess(ctx, entities)
 	if includeDisplay {
 		us.populateUserDisplayNames(ctx, users, logger)
 		us.populateOUHandles(ctx, users, logger)
@@ -419,6 +421,8 @@ func (us *userService) GetUser(
 	if svcErr := us.checkUserAccess(ctx, security.ActionReadUser, user.OUID, userID); svcErr != nil {
 		return nil, svcErr
 	}
+	access := us.governance.ReadEntityAccess(ctx, *e)
+	user.Status = &access.Status
 
 	if includeDisplay {
 		displayAttrPaths := entitytype.ResolveDisplayAttributePaths(
@@ -470,7 +474,7 @@ func (as *userService) GetUserGroups(ctx context.Context, userID string, limit, 
 	}
 
 	// Fetch user to resolve the OU ID for the authorization check.
-	userEntity, err := as.entityService.GetEntity(ctx, userID)
+	userEntity, err := as.entityService.GetEntityProfile(ctx, userID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			logger.Debug(ctx, "User not found", log.MaskedString(log.LoggerKeyUserID, userID))
@@ -531,7 +535,7 @@ func (us *userService) UpdateUser(
 	}
 
 	// Fetch the existing user to obtain its OU ID for the authorization check.
-	existingEntity, err := us.entityService.GetEntity(ctx, userID)
+	existingEntity, err := us.entityService.GetEntityProfile(ctx, userID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			logger.Debug(ctx, "User not found", log.MaskedString(log.LoggerKeyUserID, userID))
@@ -612,6 +616,9 @@ func (us *userService) UpdateUser(
 
 	// Sync cleaned attributes back — entity service removed credential fields from Attributes.
 	user.Attributes = updated.Attributes
+	// The status is derived from the updated entity, never taken from the request.
+	access := us.governance.ReadEntityAccess(ctx, *updated)
+	user.Status = &access.Status
 	logger.Debug(ctx, "Successfully updated user", log.MaskedString(log.LoggerKeyUserID, userID))
 	return user, nil
 }
@@ -685,11 +692,6 @@ func (us *userService) UpdateUserAttributes(
 		return nil, svcErr
 	}
 
-	attributes, svcErr = keepLegacySubject(existingUser.Attributes, attributes)
-	if svcErr != nil {
-		return nil, svcErr
-	}
-
 	existingUser.Attributes = attributes
 
 	if err := us.entityService.UpdateAttributes(ctx, userID, attributes); err != nil {
@@ -699,6 +701,9 @@ func (us *userService) UpdateUserAttributes(
 		return nil, logErrorAndReturnServerError(ctx, logger, "Failed to update user attributes", err,
 			log.MaskedString(log.LoggerKeyUserID, userID))
 	}
+
+	access := us.governance.ReadEntityAccess(ctx, *existingEntity)
+	existingUser.Status = &access.Status
 
 	logger.Debug(ctx, "Successfully updated user attributes", log.MaskedString(log.LoggerKeyUserID, userID))
 	return &existingUser, nil
@@ -741,7 +746,7 @@ func (us *userService) UpdateUserCredentials(
 	}
 
 	// Fetch user outside the transaction to resolve the OU ID for the authorization check.
-	existingEntity, err := us.entityService.GetEntity(ctx, userID)
+	existingEntity, err := us.entityService.GetEntityProfile(ctx, userID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			logger.Debug(ctx, "User not found", log.MaskedString(log.LoggerKeyUserID, userID))
@@ -806,7 +811,7 @@ func (us *userService) ValidateDeleteUser(ctx context.Context, userID string) *t
 	if userID == "" {
 		return &ErrorMissingUserID
 	}
-	existingEntity, err := us.entityService.GetEntity(ctx, userID)
+	existingEntity, err := us.entityService.GetEntityProfile(ctx, userID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			return &ErrorUserNotFound
@@ -837,7 +842,7 @@ func (us *userService) DeleteUser(ctx context.Context, userID string) *tidcommon
 	}
 
 	// Fetch the user to resolve the OU ID for the authorization check.
-	existingEntity, err := us.entityService.GetEntity(ctx, userID)
+	existingEntity, err := us.entityService.GetEntityProfile(ctx, userID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			logger.Debug(ctx, "User not found", log.MaskedString(log.LoggerKeyUserID, userID))
@@ -966,7 +971,7 @@ func (us *userService) GetUserUsages(
 		return nil, &ErrorMissingUserID
 	}
 
-	existingEntity, err := us.entityService.GetEntity(ctx, userID)
+	existingEntity, err := us.entityService.GetEntityProfile(ctx, userID)
 	if err != nil {
 		if errors.Is(err, entity.ErrEntityNotFound) {
 			return nil, &ErrorUserNotFound
@@ -1126,6 +1131,16 @@ func (us *userService) validateOrganizationUnitForUserType(
 	}
 
 	return nil
+}
+
+// usersWithAccess converts entities to users with the status governance derived for each, in one read.
+func (us *userService) usersWithAccess(ctx context.Context, entities []providers.Entity) []providers.User {
+	reads := us.governance.ReadAccess(ctx, entities)
+	users := entitiesToUsers(entities)
+	for i := range users {
+		users[i].Status = &reads[i].Status
+	}
+	return users
 }
 
 // validateAndProcessHandlePath validates and processes the handle path.
@@ -1290,45 +1305,4 @@ func (us *userService) ResolveUserOUHandle(
 		user.OUID = ou.ID
 	}
 	return nil
-}
-
-// keepLegacySubject carries the stored sub over unchanged and rejects a request that changes it.
-// A federated sign-in migrates the user holding a matching sub to a recorded link, so a user who
-// sets their own sub could capture someone else's first sign-in, and the full replace this update
-// performs would otherwise drop the value a legacy user needs to be migrated.
-func keepLegacySubject(stored, requested json.RawMessage) (json.RawMessage, *tidcommon.ServiceError) {
-	var requestedAttrs map[string]json.RawMessage
-	if err := json.Unmarshal(requested, &requestedAttrs); err != nil {
-		return nil, &ErrorInvalidRequestFormat
-	}
-	storedAttrs := map[string]json.RawMessage{}
-	if len(stored) > 0 {
-		if err := json.Unmarshal(stored, &storedAttrs); err != nil {
-			return nil, &tidcommon.InternalServerError
-		}
-	}
-
-	storedSub, hasStored := storedAttrs[authnprovidercm.UserAttributeSub]
-	requestedSub, hasRequested := requestedAttrs[authnprovidercm.UserAttributeSub]
-	switch {
-	case hasRequested && (!hasStored || !sameJSONValue(storedSub, requestedSub)):
-		return nil, &ErrorInvalidRequestFormat
-	case !hasRequested && hasStored:
-		requestedAttrs[authnprovidercm.UserAttributeSub] = storedSub
-		merged, err := json.Marshal(requestedAttrs)
-		if err != nil {
-			return nil, &tidcommon.InternalServerError
-		}
-		return merged, nil
-	}
-	return requested, nil
-}
-
-// sameJSONValue reports whether two JSON documents hold the same value, ignoring formatting.
-func sameJSONValue(a, b json.RawMessage) bool {
-	var av, bv interface{}
-	if json.Unmarshal(a, &av) != nil || json.Unmarshal(b, &bv) != nil {
-		return false
-	}
-	return reflect.DeepEqual(av, bv)
 }

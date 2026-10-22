@@ -6568,6 +6568,50 @@ translations:
     forms.confirm.description: You are about to sign out of your account. Do you want to continue?
     forms.confirm.actions.submit.label: Sign out
     errors.failed.description: Something went wrong. Please try again.
+  notification:
+    userInvite.email.subject: "You're Invited to Register"
+    userInvite.email.heading: "You've Been Invited!"
+    userInvite.email.intro: "You have been invited to create your account. Click the link below to complete your registration:"
+    userInvite.email.cta: "Complete Registration"
+    userInvite.email.linkFallback: "If the button above doesn't work, copy and paste the following link into your browser:"
+    userInvite.email.ignore: "If you did not expect this invitation, you can safely ignore this email."
+    userInvite.sms.body: "You've been invited to register. Complete your account setup here: {{ctx(inviteLink)}}"
+    selfRegistration.email.subject: "Complete Your Registration for {{ctx(appName)}}"
+    selfRegistration.email.heading: "Complete Your Registration for {{ctx(appName)}}"
+    selfRegistration.email.intro: "You recently started the registration process for <strong>{{ctx(appName)}}</strong>. Click the link below to complete your account setup:"
+    selfRegistration.email.cta: "Complete Registration"
+    selfRegistration.email.linkFallback: "If the button above doesn't work, copy and paste the following link into your browser:"
+    selfRegistration.email.ignore: "If you did not initiate this request, you can safely ignore this email."
+    selfRegistration.sms.body: "{{ctx(appName)}}: Finish your registration by clicking here: {{ctx(inviteLink)}}"
+    magicLink.email.subject: "Sign in to your account"
+    magicLink.email.heading: "Sign in to your account"
+    magicLink.email.intro: "Use the secure link below to sign in:"
+    magicLink.email.cta: "Sign in"
+    magicLink.email.expiry: "This link expires in {{ctx(expiryTime)}}."
+    magicLink.email.linkFallback: "If the button above doesn't work, copy and paste the following link into your browser:"
+    magicLink.email.ignore: "If you did not request this, you can safely ignore this email."
+    passwordRecovery.email.subject: "Reset Your Password"
+    passwordRecovery.email.heading: "Reset Your Password"
+    passwordRecovery.email.greeting: "Hello,"
+    passwordRecovery.email.intro: "A request was made to reset your account password for {{ctx(appName)}}. Please use the button below to set a new password:"
+    passwordRecovery.email.cta: "Reset Password"
+    passwordRecovery.email.linkFallback: "If the button doesn't work, copy and paste this link into your browser:"
+    passwordRecovery.email.expiry: "This link will expire in <strong>30 minutes</strong> for your security."
+    passwordRecovery.email.ignore: "If you did not request a password reset, you can safely ignore this email, your account will remain unchanged."
+    cibaNotification.email.subject: "Authentication Request from {{ctx(appName)}}"
+    cibaNotification.email.heading: "Authentication Request"
+    cibaNotification.email.intro: "<strong>{{ctx(appName)}}</strong> is requesting to authenticate you."
+    cibaNotification.email.prompt: "If you recognize this request, click the link below to approve:"
+    cibaNotification.email.cta: "Approve Authentication"
+    cibaNotification.email.linkFallback: "If the button above doesn't work, copy and paste the following link into your browser:"
+    cibaNotification.email.ignore: "If you did not initiate this request, you can safely ignore this email."
+    cibaNotification.sms.body: "{{ctx(appName)}}: {{ctx(bindingMessage)}} Tap to approve: {{ctx(inviteLink)}}"
+    otp.email.subject: "Your verification code"
+    otp.email.heading: "Your verification code"
+    otp.email.intro: "Use the following code to complete your verification:"
+    otp.email.expiry: "This code will expire in {{ctx(expiryTime)}}."
+    otp.email.ignore: "If you did not request this, you can safely ignore this email."
+    otp.sms.body: "Your verification code is: {{ctx(otpCode)}}. It expires in {{ctx(expiryTime)}}."
 ---
 resource_type: notification_template
 channel: email
@@ -6576,19 +6620,19 @@ ouHandle: default
 displayName: User Invitation Email
 description: Sent to invite a new user to complete their registration.
 content:
-  subject: "You're Invited to Register"
+  subject: "{{t(userInvite.email.subject)}}"
   body: |
     <!DOCTYPE html>
     <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
-      <h2>You've Been Invited!</h2>
-      <p>You have been invited to create your account. Click the link below to complete your registration:</p>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: {{design(palette.text.primary)}}; background-color: {{design(palette.background.default)}};">
+      <h2>{{t(userInvite.email.heading)}}</h2>
+      <p>{{t(userInvite.email.intro)}}</p>
       <p><a href="{{ctx(inviteLink)}}" style="display: inline-block; padding: 10px 20px;
-        background-color: #3a87ed; color: #fff; text-decoration: none;
-        border-radius: 4px;">Complete Registration</a></p>
-      <p>If the button above doesn't work, copy and paste the following link into your browser:</p>
+        background-color: {{design(palette.primary.main)}}; color: {{design(palette.primary.contrastText)}}; text-decoration: none;
+        border-radius: 4px;">{{t(userInvite.email.cta)}}</a></p>
+      <p>{{t(userInvite.email.linkFallback)}}</p>
       <p><a href="{{ctx(inviteLink)}}">{{ctx(inviteLink)}}</a></p>
-      <p>If you did not expect this invitation, you can safely ignore this email.</p>
+      <p>{{t(userInvite.email.ignore)}}</p>
     </body>
     </html>
 ---
@@ -6599,7 +6643,7 @@ ouHandle: default
 displayName: User Invitation SMS
 description: Sent to invite a new user to complete their registration.
 content:
-  body: "You've been invited to register. Complete your account setup here: {{ctx(inviteLink)}}"
+  body: "{{t(userInvite.sms.body)}}"
 ---
 resource_type: notification_template
 channel: email
@@ -6608,19 +6652,19 @@ ouHandle: default
 displayName: Self Registration Invite Email
 description: Sent to complete a self-service registration.
 content:
-  subject: "Complete Your Registration for {{ctx(appName)}}"
+  subject: "{{t(selfRegistration.email.subject)}}"
   body: |
     <!DOCTYPE html>
     <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
-      <h2>Complete Your Registration for {{ctx(appName)}}</h2>
-      <p>You recently started the registration process for <strong>{{ctx(appName)}}</strong>. Click the link below to complete your account setup:</p>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: {{design(palette.text.primary)}}; background-color: {{design(palette.background.default)}};">
+      <h2>{{t(selfRegistration.email.heading)}}</h2>
+      <p>{{t(selfRegistration.email.intro)}}</p>
       <p><a href="{{ctx(inviteLink)}}" style="display: inline-block; padding: 10px 20px;
-        background-color: #3a87ed; color: #fff; text-decoration: none;
-        border-radius: 4px;">Complete Registration</a></p>
-      <p>If the button above doesn't work, copy and paste the following link into your browser:</p>
+        background-color: {{design(palette.primary.main)}}; color: {{design(palette.primary.contrastText)}}; text-decoration: none;
+        border-radius: 4px;">{{t(selfRegistration.email.cta)}}</a></p>
+      <p>{{t(selfRegistration.email.linkFallback)}}</p>
       <p><a href="{{ctx(inviteLink)}}">{{ctx(inviteLink)}}</a></p>
-      <p>If you did not initiate this request, you can safely ignore this email.</p>
+      <p>{{t(selfRegistration.email.ignore)}}</p>
     </body>
     </html>
 ---
@@ -6631,7 +6675,7 @@ ouHandle: default
 displayName: Self Registration Invite SMS
 description: Sent to complete a self-service registration.
 content:
-  body: "{{ctx(appName)}}: Finish your registration by clicking here: {{ctx(inviteLink)}}"
+  body: "{{t(selfRegistration.sms.body)}}"
 ---
 resource_type: notification_template
 channel: email
@@ -6640,20 +6684,20 @@ ouHandle: default
 displayName: Magic Link Sign-In Email
 description: Sent to let a user sign in through a secure link.
 content:
-  subject: "Sign in to your account"
+  subject: "{{t(magicLink.email.subject)}}"
   body: |
     <!DOCTYPE html>
     <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
-      <h2>Sign in to your account</h2>
-      <p>Use the secure link below to sign in:</p>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: {{design(palette.text.primary)}}; background-color: {{design(palette.background.default)}};">
+      <h2>{{t(magicLink.email.heading)}}</h2>
+      <p>{{t(magicLink.email.intro)}}</p>
       <p><a href="{{ctx(magicLink)}}" style="display: inline-block; padding: 10px 20px;
-        background-color: #3a87ed; color: #fff; text-decoration: none;
-        border-radius: 4px;">Sign in</a></p>
-      <p>This link expires in {{ctx(expiryTime)}}.</p>
-      <p>If the button above doesn't work, copy and paste the following link into your browser:</p>
+        background-color: {{design(palette.primary.main)}}; color: {{design(palette.primary.contrastText)}}; text-decoration: none;
+        border-radius: 4px;">{{t(magicLink.email.cta)}}</a></p>
+      <p>{{t(magicLink.email.expiry)}}</p>
+      <p>{{t(magicLink.email.linkFallback)}}</p>
       <p style="word-break: break-all;"><a href="{{ctx(magicLink)}}">{{ctx(magicLink)}}</a></p>
-      <p>If you did not request this, you can safely ignore this email.</p>
+      <p>{{t(magicLink.email.ignore)}}</p>
     </body>
     </html>
 ---
@@ -6664,27 +6708,27 @@ ouHandle: default
 displayName: Password Recovery Email
 description: Sent to let a user reset their account password.
 content:
-  subject: "Reset Your Password"
+  subject: "{{t(passwordRecovery.email.subject)}}"
   body: |
     <!DOCTYPE html>
     <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
-      <h2>Reset Your Password</h2>
-      <p>Hello,</p>
-      <p>A request was made to reset your account password for {{ctx(appName)}}. Please use the button below to set a new password:</p>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: {{design(palette.text.primary)}}; background-color: {{design(palette.background.default)}};">
+      <h2>{{t(passwordRecovery.email.heading)}}</h2>
+      <p>{{t(passwordRecovery.email.greeting)}}</p>
+      <p>{{t(passwordRecovery.email.intro)}}</p>
       <p>
         <a href="{{ctx(inviteLink)}}" style="display: inline-block; padding: 12px 24px;
-        background-color: #3a87ed; color: #ffffff; text-decoration: none;
+        background-color: {{design(palette.primary.main)}}; color: {{design(palette.primary.contrastText)}}; text-decoration: none;
         border-radius: 4px; font-weight: bold;">
-          Reset Password
+          {{t(passwordRecovery.email.cta)}}
         </a>
       </p>
-      <p>If the button doesn't work, copy and paste this link into your browser:</p>
+      <p>{{t(passwordRecovery.email.linkFallback)}}</p>
       <p style="word-break: break-all;">
         <a href="{{ctx(inviteLink)}}">{{ctx(inviteLink)}}</a>
       </p>
-      <p>This link will expire in <strong>30 minutes</strong> for your security.</p>
-      <p>If you did not request a password reset, you can safely ignore this email, your account will remain unchanged.</p>
+      <p>{{t(passwordRecovery.email.expiry)}}</p>
+      <p>{{t(passwordRecovery.email.ignore)}}</p>
     </body>
     </html>
 ---
@@ -6695,22 +6739,22 @@ ouHandle: default
 displayName: CIBA Authentication Notification Email
 description: Sent to approve a backchannel authentication request.
 content:
-  subject: "Authentication Request from {{ctx(appName)}}"
+  subject: "{{t(cibaNotification.email.subject)}}"
   body: |
     <!DOCTYPE html>
     <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
-      <h2>Authentication Request</h2>
-      <p><strong>{{ctx(appName)}}</strong> is requesting to authenticate you.</p>
-      <p style="padding: 12px; background-color: #f5f5f5; border-left: 4px solid #3a87ed;
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: {{design(palette.text.primary)}}; background-color: {{design(palette.background.default)}};">
+      <h2>{{t(cibaNotification.email.heading)}}</h2>
+      <p>{{t(cibaNotification.email.intro)}}</p>
+      <p style="padding: 12px; background-color: {{design(palette.background.paper)}}; border-left: 4px solid {{design(palette.primary.main)}};
         border-radius: 4px; margin: 16px 0;">{{ctx(bindingMessage)}}</p>
-      <p>If you recognize this request, click the link below to approve:</p>
+      <p>{{t(cibaNotification.email.prompt)}}</p>
       <p><a href="{{ctx(inviteLink)}}" style="display: inline-block; padding: 10px 20px;
-        background-color: #3a87ed; color: #fff; text-decoration: none;
-        border-radius: 4px;">Approve Authentication</a></p>
-      <p>If the button above doesn't work, copy and paste the following link into your browser:</p>
+        background-color: {{design(palette.primary.main)}}; color: {{design(palette.primary.contrastText)}}; text-decoration: none;
+        border-radius: 4px;">{{t(cibaNotification.email.cta)}}</a></p>
+      <p>{{t(cibaNotification.email.linkFallback)}}</p>
       <p><a href="{{ctx(inviteLink)}}">{{ctx(inviteLink)}}</a></p>
-      <p>If you did not initiate this request, you can safely ignore this email.</p>
+      <p>{{t(cibaNotification.email.ignore)}}</p>
     </body>
     </html>
 ---
@@ -6721,7 +6765,7 @@ ouHandle: default
 displayName: CIBA Authentication Notification SMS
 description: Sent to approve a backchannel authentication request.
 content:
-  body: "{{ctx(appName)}}: {{ctx(bindingMessage)}} Tap to approve: {{ctx(inviteLink)}}"
+  body: "{{t(cibaNotification.sms.body)}}"
 ---
 resource_type: notification_template
 channel: email
@@ -6730,20 +6774,20 @@ ouHandle: default
 displayName: Email OTP Verification
 description: Sent to verify a user's email address with a one-time passcode.
 content:
-  subject: "Your verification code"
+  subject: "{{t(otp.email.subject)}}"
   body: |
     <!DOCTYPE html>
     <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
-      <h2>Your verification code</h2>
-      <p>Use the following code to complete your verification:</p>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: {{design(palette.text.primary)}}; background-color: {{design(palette.background.default)}};">
+      <h2>{{t(otp.email.heading)}}</h2>
+      <p>{{t(otp.email.intro)}}</p>
       <table cellpadding="0" cellspacing="0" border="0">
         <tr>
-          <td style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #3a87ed; background: #f0f4ff; border: 1px solid #c0d0f0; border-radius: 6px; padding: 12px 24px;">{{ctx(otpCode)}}</td>
+          <td style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: {{design(palette.primary.main)}}; background: {{design(palette.background.paper)}}; border: 1px solid {{design(palette.primary.main)}}; border-radius: 6px; padding: 12px 24px;">{{ctx(otpCode)}}</td>
         </tr>
       </table>
-      <p>This code will expire in {{ctx(expiryTime)}}.</p>
-      <p>If you did not request this, you can safely ignore this email.</p>
+      <p>{{t(otp.email.expiry)}}</p>
+      <p>{{t(otp.email.ignore)}}</p>
     </body>
     </html>
 ---
@@ -6754,4 +6798,84 @@ ouHandle: default
 displayName: SMS OTP Verification
 description: Sent to verify a user's phone number with a one-time passcode.
 content:
-  body: "Your verification code is: {{ctx(otpCode)}}. It expires in {{ctx(expiryTime)}}."
+  body: "{{t(otp.sms.body)}}"
+---
+resource_type: notification_template
+channel: email
+handle: authentication-method-locked
+ouHandle: default
+displayName: Account Temporarily Locked Email
+description: Sent when repeated failed sign-ins lock one sign-in method for a limited time.
+content:
+  subject: "Sign-in was temporarily locked on your account"
+  body: |
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
+      <h2>Sign-in temporarily locked</h2>
+      <p>The {{ctx(authenticationMethod)}} sign-in method on your account has been temporarily locked due to multiple failed attempts.</p>
+      <p><strong>It will be available again in {{ctx(lockDuration)}}, on {{ctx(unlockTime)}} UTC.</strong></p>
+      <p>To regain access sooner, complete account recovery or contact your administrator.</p>
+      <p><strong>Didn't try to sign in?</strong> Someone else may be trying to get into your account. Report this to your administrator. Once you regain access, change your credentials and check that your email address and phone number are still yours.</p>
+    </body>
+    </html>
+---
+resource_type: notification_template
+channel: email
+handle: authentication-method-locked-permanent
+ouHandle: default
+displayName: Account Locked Email
+description: Sent when repeated failed sign-ins lock one sign-in method until it is released.
+content:
+  subject: "Sign-in was locked on your account"
+  body: |
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
+      <h2>Sign-in locked</h2>
+      <p>The {{ctx(authenticationMethod)}} sign-in method on your account has been locked due to multiple failed attempts.</p>
+      <p><strong>This lock does not expire automatically.</strong></p>
+      <p>To regain access, complete account recovery or contact your administrator.</p>
+      <p><strong>Didn't try to sign in?</strong> Someone else may be trying to get into your account. Report this to your administrator. Once you regain access, change your credentials and check that your email address and phone number are still yours.</p>
+    </body>
+    </html>
+---
+resource_type: notification_template
+channel: email
+handle: account-locked
+ouHandle: default
+displayName: Account Sign-in Temporarily Locked Email
+description: Sent when repeated failed sign-ins lock every sign-in method on the account for a limited time.
+content:
+  subject: "Sign-in was temporarily locked on your account"
+  body: |
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
+      <h2>Sign-in temporarily locked</h2>
+      <p>Sign-in to your account has been temporarily locked due to multiple failed attempts.</p>
+      <p><strong>It will be available again in {{ctx(lockDuration)}}, on {{ctx(unlockTime)}} UTC.</strong></p>
+      <p>To regain access sooner, complete account recovery or contact your administrator.</p>
+      <p><strong>Didn't try to sign in?</strong> Someone else may be trying to get into your account. Report this to your administrator. Once you regain access, change your credentials and check that your email address and phone number are still yours.</p>
+    </body>
+    </html>
+---
+resource_type: notification_template
+channel: email
+handle: account-locked-permanent
+ouHandle: default
+displayName: Account Sign-in Locked Email
+description: Sent when repeated failed sign-ins lock every sign-in method on the account until it is released.
+content:
+  subject: "Sign-in was locked on your account"
+  body: |
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #181818;">
+      <h2>Sign-in locked</h2>
+      <p>Sign-in to your account has been locked due to multiple failed attempts.</p>
+      <p><strong>This lock does not expire automatically.</strong></p>
+      <p>To regain access, complete account recovery or contact your administrator.</p>
+      <p><strong>Didn't try to sign in?</strong> Someone else may be trying to get into your account. Report this to your administrator. Once you regain access, change your credentials and check that your email address and phone number are still yours.</p>
+    </body>
+    </html>

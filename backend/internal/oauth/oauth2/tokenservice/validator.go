@@ -53,8 +53,9 @@ type TokenValidatorInterface interface {
 	// refresh token into an ID-JAG.
 	ValidateIDJAGSubjectToken(ctx context.Context, token string, oauthApp *providers.OAuthClient) (
 		*SubjectTokenClaims, error)
-	// ValidateIDJAGAssertion validates an ID-JAG assertion presented on the jwt-bearer grant.
-	ValidateIDJAGAssertion(ctx context.Context, assertion string) (*IDJAGAssertionClaims, error)
+	// ValidateIDJAGAssertion validates an ID-JAG assertion presented on the jwt-bearer grant,
+	// binding it to the authenticated client via its client_id claim.
+	ValidateIDJAGAssertion(ctx context.Context, assertion, clientID string) (*IDJAGAssertionClaims, error)
 }
 
 // TokenValidator implements TokenValidatorInterface.
@@ -413,11 +414,12 @@ func (tv *tokenValidator) ValidateIDJAGSubjectToken(
 // ValidateIDJAGAssertion validates an ID-JAG assertion presented on the jwt-bearer grant
 // (draft-ietf-oauth-identity-assertion-authz-grant). It requires the oauth-id-jag+jwt typ header,
 // resolves the assertion's issuer to a trusted external IdP with ID-JAG enabled, verifies the
-// signature against that IdP's JWKS, validates the time claims, and requires the audience to equal
-// this server's issuer.
+// signature against that IdP's JWKS, validates the time claims, requires the audience to equal this
+// server's issuer, and binds the assertion to the authenticated client via the client_id claim.
 func (tv *tokenValidator) ValidateIDJAGAssertion(
 	ctx context.Context,
 	assertion string,
+	clientID string,
 ) (*IDJAGAssertionClaims, error) {
 	header, err := jwt.DecodeJWTHeader(assertion)
 	if err != nil {
@@ -480,8 +482,12 @@ func (tv *tokenValidator) ValidateIDJAGAssertion(
 			ErrAudienceNotAccepted, serverIssuer)
 	}
 
-	if _, err := extractStringClaim(claims, "client_id"); err != nil {
+	assertionClientID, err := extractStringClaim(claims, "client_id")
+	if err != nil {
 		return nil, fmt.Errorf("assertion is missing 'client_id' claim: %w", err)
+	}
+	if assertionClientID != clientID {
+		return nil, fmt.Errorf("assertion 'client_id' does not match the authenticated client")
 	}
 
 	sub, err := extractStringClaim(claims, "sub")
