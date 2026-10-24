@@ -60,6 +60,7 @@ var catalog = map[string]providers.ExecutorMeta{
 		SupportedProperties: []providers.ExecutorSupportedProperties{
 			{Property: "emailTemplate", IsRequired: true},
 			{Property: "senderId"},
+			{Property: "bestEffort"},
 		},
 	},
 	ExecutorNameGitHubAuth: {
@@ -93,6 +94,10 @@ var catalog = map[string]providers.ExecutorMeta{
 		SupportedProperties: []providers.ExecutorSupportedProperties{
 			{Property: "loginHintAttribute"},
 		},
+	},
+	ExecutorNameIdentityGovernance: {
+		SupportedModes:     []string{ExecutorModeUnlock, ExecutorModeSuspend, ExecutorModeUnsuspend},
+		SupportedFlowTypes: []providers.FlowType{"ADMINISTRATION", "RECOVERY"},
 	},
 	ExecutorNameInviteExecutor: {
 		SupportedModes: []string{"generate", "verify"},
@@ -165,12 +170,16 @@ var catalog = map[string]providers.ExecutorMeta{
 		SupportedModes:     []string{"revoke_all"},
 		SupportedFlowTypes: []providers.FlowType{"ADMINISTRATION"},
 	},
+	ExecutorNamePreSuspend: {
+		SupportedFlowTypes: []providers.FlowType{"ADMINISTRATION"},
+	},
 	ExecutorNameProvisioning: {
 		SupportedFlowTypes: []providers.FlowType{
 			"AUTHENTICATION", "REGISTRATION", "USER_ONBOARDING", "ADMINISTRATION",
 		},
 		SupportedProperties: []providers.ExecutorSupportedProperties{
 			{Property: "mode"},
+			{Property: "delegated"},
 			{Property: "includeOptional"},
 			{Property: "includeOptionalCredentials"},
 			{Property: "maxPerPrompt"},

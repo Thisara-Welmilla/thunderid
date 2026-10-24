@@ -41,6 +41,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/cimd"
 	"github.com/thunder-id/thunderid/internal/connection"
 	"github.com/thunder-id/thunderid/internal/connection/authzenpdp"
+	"github.com/thunder-id/thunderid/internal/connection/httpconnection"
 	"github.com/thunder-id/thunderid/internal/consent"
 	layoutmgt "github.com/thunder-id/thunderid/internal/design/layout/mgt"
 	"github.com/thunder-id/thunderid/internal/design/resolve"
@@ -59,9 +60,12 @@ import (
 	flowsession "github.com/thunder-id/thunderid/internal/flow/session"
 	"github.com/thunder-id/thunderid/internal/gateway"
 	"github.com/thunder-id/thunderid/internal/group"
+	"github.com/thunder-id/thunderid/internal/identitygovernance"
+	"github.com/thunder-id/thunderid/internal/identitygovernanceprovider"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	"github.com/thunder-id/thunderid/internal/notification"
+	notificationconfig "github.com/thunder-id/thunderid/internal/notification/config"
 	"github.com/thunder-id/thunderid/internal/notificationtemplate"
 	"github.com/thunder-id/thunderid/internal/oauth"
 	oauthconfig "github.com/thunder-id/thunderid/internal/oauth/config"
@@ -185,6 +189,11 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	// would arise if sysauthz were to directly import the ou package.
 	ouAuthzService.SetOUHierarchyResolver(ouHierarchyResolver)
 
+	// Initialized ahead of the resource types it shares, because each registers itself on startup.
+	sharingService, err := sharing.Initialize(cacheManager, ouHierarchyResolver, ouEnumerator,
+		runtime.Config.ResourceSharing.AllowChildOUCrossTreeSharing)
+	fatalOnError(ctx, logger, err, "Failed to initialize SharingService")
+
 	hashCfg, err := buildHashConfig()
 	fatalOnError(ctx, logger, err, "Failed to build HashService config")
 	hashService, err := cryptolib.Initialize(hashCfg)
@@ -204,8 +213,65 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	// Initialize entity provider
 	entityProvider := entityprovider.InitializeEntityProvider(entityService)
 
+	// The accountAccess handler is built over the deployment policy, which must be valid on its own.
+	governanceCfg := identitygovernance.FromServerRuntime()
+	err = governanceCfg.Validate()
+	fatalOnError(ctx, logger, err, "Invalid account_access configuration")
+
+	authZENPDPService, err := authzenpdp.Initialize(runtime.Config.AuthZENPDP, entityTypeService)
+	fatalOnError(ctx, logger, err, "Failed to initialize AuthZENPDPService")
+
+	resourceService, resourceExporter, err := resource.Initialize(mux, ouService, authZENPDPService, nil)
+	fatalOnError(ctx, logger, err, "Failed to initialize Resource Service")
+	exporters = append(exporters, resourceExporter)
+
+	notifSenderMgtSvc, notifOTPService, notifSenderSvc, notificationConfigHandler, err :=
+		notification.Initialize(jwtService, notificationconfig.FromServerRuntime())
+	fatalOnError(ctx, logger, err, "Failed to initialize NotificationService")
+
+	// Create the flow server-config handler early so it can be registered before serverconfig is
+	// initialized. The handle-existence validator is injected in a second phase after flowMgtService
+	// is available.
+	flowConfigHandler := flowmgt.NewFlowConfigHandler()
+
+	// Initialize server-wide configuration after its handler dependencies and before the services that
+	// read it.
+	serverConfigHandlers := map[serverconfig.ConfigName]serverconfig.ServerConfigHandlerInterface{
+		serverconfig.ConfigNameCORS:                  cors.OriginHandler{},
+		serverconfig.ConfigNameDefaultResourceServer: resource.NewDefaultResourceServerConfigHandler(resourceService),
+		serverconfig.ConfigNameSession:               flowsession.ConfigHandler{},
+		serverconfig.ConfigNameFlow:                  flowConfigHandler,
+		serverconfig.ConfigNameCSP:                   csp.PolicyHandler{},
+		serverconfig.ConfigNameAccountAccess:         identitygovernance.NewAccountAccessHandler(governanceCfg),
+		serverconfig.ConfigNameNotification:          notificationConfigHandler,
+	}
+	serverConfigService, serverConfigExporter, err := serverconfig.Initialize(mux, cacheManager, serverConfigHandlers,
+		observabilitySvc)
+	fatalOnError(ctx, logger, err, "Failed to initialize server config service")
+	exporters = append(exporters, serverConfigExporter)
+
+	// CORS origins come from the server-config cors section.
+	cors.InitializeDynamicMatcher(serverConfigService)
+
+	// Decorate the resource provider so an empty identifier resolves the configured default resource
+	// server. Keeps the default-resource-server policy server-side: OAuth, CIBA, PAR, grant handlers,
+	// and the flow executor depend only on providers.ResourceServerProvider, not on serverConfigService.
+	// The base resourceService is still used for resource-management APIs and server-config validation.
+	resourceServerProvider := resource.NewDefaultAwareResourceServerProvider(resourceService, serverConfigService)
+
+	// The security-headers middleware reads the deny-first CSP policy from the server-config csp section.
+	csp.InitializeConfigReader(serverConfigService)
+
+	// Identity governance reads the accountAccess section through the server-config service. The OU
+	// boundary on lifecycle writes is wired here only, as the embeddable engine has no authz service.
+	governanceService, _, err := identitygovernance.Initialize(
+		entityService, serverConfigService, governanceCfg, nil, ouAuthzService, observabilitySvc)
+	fatalOnError(ctx, logger, err, "Failed to initialize IdentityGovernanceService")
+	governanceProvider := identitygovernanceprovider.Initialize(governanceService,
+		runtime.Config.IdentityGovernanceProvider)
+
 	userService, ouUserResolver, userExporter, err := user.Initialize(
-		mux, entityService, ouService, entityTypeService, ouAuthzService, nil,
+		mux, entityService, ouService, entityTypeService, ouAuthzService, governanceService, sharingService, nil,
 	)
 	fatalOnError(ctx, logger, err, "Failed to initialize UserService")
 	exporters = append(exporters, userExporter)
@@ -219,12 +285,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	fatalOnError(ctx, logger, err, "Failed to initialize GroupService")
 	exporters = append(exporters, groupExporter)
 
-	authZENPDPService, err := authzenpdp.Initialize(runtime.Config.AuthZENPDP, entityTypeService)
-	fatalOnError(ctx, logger, err, "Failed to initialize AuthZENPDPService")
-
-	resourceService, resourceExporter, err := resource.Initialize(mux, ouService, authZENPDPService, nil)
-	fatalOnError(ctx, logger, err, "Failed to initialize Resource Service")
-	exporters = append(exporters, resourceExporter)
+	httpConnectionService := httpconnection.Initialize()
 
 	// Initialize SCIM service.
 	scim.Initialize(
@@ -262,9 +323,6 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	idpService, err := idp.Initialize(cacheManager, entityTypeService, roleService, groupService, resourceService)
 	fatalOnError(ctx, logger, err, "Failed to initialize IDPService")
 
-	notifSenderMgtSvc, notifOTPService, notifSenderSvc, err := notification.Initialize(jwtService)
-	fatalOnError(ctx, logger, err, "Failed to initialize NotificationService")
-
 	notifTemplateSvc, notifTemplateRenderer, notifTemplateExporter, err :=
 		notificationtemplate.Initialize(mux, cacheManager, ouService, i18nService)
 	fatalOnError(ctx, logger, err, "Failed to initialize NotificationTemplateService")
@@ -273,7 +331,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	// Register the /connections API as a thin layer over the identity-provider and
 	// notification-sender services.
 	connectionExporter, err := connection.Initialize(
-		mux, idpService, notifSenderMgtSvc, resourceService, authZENPDPService, nil)
+		mux, mcpServer, idpService, notifSenderMgtSvc, resourceService, authZENPDPService, httpConnectionService, nil)
 	fatalOnError(ctx, logger, err, "Failed to initialize connection declarative resources")
 	exporters = append(exporters, connectionExporter)
 
@@ -301,19 +359,22 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	fatalOnError(ctx, logger, err, "Failed to initialize runtime store")
 
 	// Initialize passkey service
-	passkeyService := passkey.Initialize(entityService, runtimeStoreProvider)
+	passkeyService := passkey.Initialize(entityService, runtimeStoreProvider, governanceService)
 
 	// Shared DPoP verifier (and its JTI replay cache) so OAuth and OpenID4VCI
 	// share JTI replay protection.
 	oauthCfg := oauthconfig.FromServerRuntime()
 	dpopVerifier := dpop.Initialize(oauthCfg, jti.Initialize(runtimeStoreProvider), runtimeCryptoSvc)
+	artifactLifetime := func(client *providers.OAuthClient) time.Duration {
+		return tokenservice.ArtifactLifetime(oauthCfg, client)
+	}
 
 	openid4vpSvc, openid4vpDefSvc, openid4vciCredSvc, exporters :=
 		initializeVCServices(ctx, logger, mux, runtimeCryptoSvc, configCryptoSvc, jwtService,
 			ouService, runtimeStoreProvider, exporters)
 
 	defaultProvider := defaultprovider.Initialize(entityService, passkeyService,
-		otpCoreService, magicLinkService, openid4vpSvc, federatedAuths)
+		otpCoreService, magicLinkService, openid4vpSvc, federatedAuths, governanceService)
 
 	customProviders := map[string]providers.CustomAuthnProvider{}
 	restCfg := runtime.Config.AuthnProvider.Rest
@@ -337,7 +398,8 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	_, directAuthGuard := authn.Initialize(mux, mcpServer, idpService, jwtService, authnProvider, authAssertGen,
 		otpCoreService, notifSenderSvc, notifTemplateRenderer, magicLinkService, oauthAuthnService,
-		oidcAuthnService, googleAuthnService, githubAuthnService, entityTypeService, authnconfig.FromServerRuntime())
+		oidcAuthnService, googleAuthnService, githubAuthnService, entityTypeService, governanceService,
+		authnconfig.FromServerRuntime())
 
 	// AuthZEN access-evaluation endpoints are Direct API endpoints, so they reuse the Direct Auth
 	// guard created by the authn service.
@@ -345,35 +407,6 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	attributeCacheService := attributecache.Initialize(runtimeStoreProvider, runtimeCryptoSvc,
 		runtime.Config.AttributeCache.Encryption.Enabled)
-
-	// Create the flow server-config handler early so it can be registered before serverconfig is
-	// initialized. The handle-existence validator is injected in a second phase after flowMgtService
-	// is available.
-	flowConfigHandler := flowmgt.NewFlowConfigHandler()
-
-	// Initialize server-wide configuration after its handler dependencies.
-	serverConfigHandlers := map[serverconfig.ConfigName]serverconfig.ServerConfigHandlerInterface{
-		serverconfig.ConfigNameCORS:                  cors.OriginHandler{},
-		serverconfig.ConfigNameDefaultResourceServer: resource.NewDefaultResourceServerConfigHandler(resourceService),
-		serverconfig.ConfigNameSession:               flowsession.ConfigHandler{},
-		serverconfig.ConfigNameFlow:                  flowConfigHandler,
-		serverconfig.ConfigNameCSP:                   csp.PolicyHandler{},
-	}
-	serverConfigService, serverConfigExporter, err := serverconfig.Initialize(mux, cacheManager, serverConfigHandlers)
-	fatalOnError(ctx, logger, err, "Failed to initialize server config service")
-	exporters = append(exporters, serverConfigExporter)
-
-	// CORS origins come from the server-config cors section.
-	cors.InitializeDynamicMatcher(serverConfigService)
-
-	// Decorate the resource provider so an empty identifier resolves the configured default resource
-	// server. Keeps the default-resource-server policy server-side: OAuth, CIBA, PAR, grant handlers,
-	// and the flow executor depend only on providers.ResourceServerProvider, not on serverConfigService.
-	// The base resourceService is still used for resource-management APIs and server-config validation.
-	resourceServerProvider := resource.NewDefaultAwareResourceServerProvider(resourceService, serverConfigService)
-
-	// The security-headers middleware reads the deny-first CSP policy from the server-config csp section.
-	csp.InitializeConfigReader(serverConfigService)
 
 	flowConfig := flowconfig.FromServerRuntime()
 	revocationEnforcer, revocationSvc, err := revocation.Initialize(oauthCfg, jwtService, observabilitySvc)
@@ -415,6 +448,8 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 			UserService:           userService,
 			CriteriaRevoker:       revocationSvc,
 			ResourceMgtService:    resourceService,
+			IdentityGovernance:    governanceProvider,
+			ArtifactLifetime:      artifactLifetime,
 		},
 		interceptor.InterceptorDependencies{},
 		flowConfig,
@@ -422,7 +457,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	flowMgtService, flowMgtExporter, err := flowmgt.Initialize(
 		mux, mcpServer, cacheManager, flowFactory, execRegistry, interceptorRegistry, graphBuilder,
-		serverConfigService, ouService, flowConfigHandler)
+		serverConfigService, ouService, notifTemplateSvc, flowConfigHandler)
 	fatalOnError(ctx, logger, err, "Failed to initialize FlowMgtService")
 
 	// Two-phase initialization: inject the flow resolver into the OU service.
@@ -441,10 +476,6 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	fatalOnError(ctx, logger, err, "Failed to initialize LayoutMgtService")
 	exporters = append(exporters, layoutExporter)
 
-	sharingService, err := sharing.Initialize(cacheManager, ouHierarchyResolver, ouEnumerator,
-		runtime.Config.ResourceSharing.AllowChildOUCrossTreeSharing)
-	fatalOnError(ctx, logger, err, "Failed to initialize SharingService")
-
 	cimdService := cimd.Initialize(mux)
 	inboundClientService, err := inboundclient.Initialize(
 		cacheManager, certservice, entityProvider,
@@ -461,11 +492,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	applicationService, applicationExporter, err := application.Initialize(
 		mux, mcpServer, entityService, inboundClientService, ouService, i18nService,
-		runtimeCryptoSvc, serverConfigService,
-		func(client *providers.OAuthClient) time.Duration {
-			return tokenservice.ArtifactLifetime(oauthCfg, client)
-		},
-		sharingService, nil)
+		runtimeCryptoSvc, serverConfigService, artifactLifetime, sharingService, nil, governanceService)
 	fatalOnError(ctx, logger, err, "Failed to initialize ApplicationService")
 	// Two-phase initialization: inject the application service into the executors that act on it.
 	fatalOnError(ctx, logger, executor.SetApplicationProvider(execRegistry, applicationService),
@@ -473,7 +500,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	exporters = append(exporters, applicationExporter)
 
 	agentService, agentExporter, err := agent.Initialize(mux, entityService, inboundClientService, ouService,
-		roleService, ouAuthzService, nil, entityTypeService)
+		roleService, ouAuthzService, governanceService, nil, entityTypeService)
 	fatalOnError(ctx, logger, err, "Failed to initialize AgentService")
 	exporters = append(exporters, agentExporter)
 
@@ -499,7 +526,8 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 		resource:      resourceService,
 		notifTemplate: notifTemplateSvc,
 	}, applicationService, agentService, flowMgtService, roleAssignmentService, roleService,
-		groupService, ouService, ouUserResolver, ouGroupResolver, resourceService, sharingService)
+		groupService, ouService, ouUserResolver, ouGroupResolver, entityTypeService, resourceService,
+		sharingService, notifTemplateSvc)
 
 	// Initialize design resolve service for theme and layout resolution
 	designResolveService := resolve.Initialize(mux, themeMgtService, layoutMgtService, applicationService)
@@ -509,6 +537,10 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	actorProvider := actorprovider.Initialize(
 		inboundClientService, entityProvider, authnProvider, roleService, entityTypeService)
+	// Two-phase initialization: inject the actor provider into the executors that resolve an actor's
+	// OAuth client.
+	fatalOnError(ctx, logger, executor.SetActorProvider(execRegistry, actorProvider),
+		"Failed to inject the actor provider into the flow executors")
 
 	// Initialize flow metadata service
 	_ = flowmeta.Initialize(mux, actorProvider, ouProvider, designResolveService, i18nService)
@@ -518,7 +550,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 
 	// The gateways this control plane administers. Registration is bounded by server.max_gateways,
 	// which is one unless a deployment raises it.
-	gatewayService, err := gateway.Initialize(mux, exportService, nil, exporters)
+	gatewayService, err := gateway.Initialize(mux, exportService, nil, exporters, nil)
 	fatalOnError(ctx, logger, err, "Failed to initialize gateway service")
 
 	// Initialize import service
@@ -546,8 +578,10 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 		notifTemplateSvc,
 		authZENPDPService,
 		sharingService,
-		// References in imported configuration are replaced with what this deployment's store holds.
-		secretresolver.New(variablestore.Lookup(references)),
+		// References in imported configuration are replaced with what this deployment's store holds. A
+		// secret is put only where an export of the resource keeps one, which its exporter names.
+		secretresolver.New(variablestore.Lookup(references)).
+			WithSecretFields(declarativeresource.SecretFieldsOf(exporters)),
 	)
 
 	attestationProvider := initAttestationProvider(ctx, logger, runtimeCryptoSvc)
@@ -712,7 +746,7 @@ func initializeFlowCoreAndExecutor(
 	interceptorDeps.FlowFactory = flowFactory
 
 	// Initialize flow executor registry
-	execRegistry, err := executor.Initialize(execDeps, flowConfig.Flow)
+	execRegistry, err := executor.Initialize(execDeps, flowConfig)
 	fatalOnError(ctx, logger, err, "Failed to register flow executors")
 	interceptorRegistry, err := interceptor.Initialize(interceptorDeps, flowConfig.Flow)
 	fatalOnError(ctx, logger, err, "Failed to initialize Interceptor registry")

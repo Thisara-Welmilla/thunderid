@@ -790,7 +790,7 @@ func (s *ApplicationImportExportSuite) TestDeleteApplicationRemovesItsSharingPol
 		"clientSecret": "app-del-sharing-secret",
 		"redirectUris": []string{"https://app-del-sharing.example.com/callback"},
 	})
-	content := withoutTopLevelKey(exported.Resources, "sharingPolicies")
+	content := testutils.WithoutTopLevelKey(exported.Resources, "sharingPolicies")
 	s.Require().NotContains(content, "sharingPolicies", "the document brought back declares no policy")
 
 	s.Require().NoError(deleteApplication(createdID))
@@ -839,7 +839,7 @@ func (s *ApplicationImportExportSuite) TestImportOfACopiedDocumentGetsItsOwnShar
 	exported, err := s.exportApps(appExportRequest{Applications: []string{sourceID}})
 	s.Require().NoError(err)
 	// The copy is a new application: no id of its own yet, another name, another client.
-	content := withoutTopLevelKey(exported.Resources, "id")
+	content := testutils.WithoutTopLevelKey(exported.Resources, "id")
 	content = strings.Replace(content, "name: "+appName, "name: App Clone Copy "+s.handleSuffix, 1)
 	vars := s.extractTemplateVariables(content, map[string]interface{}{
 		"clientId":     "app-clone-copy-" + s.handleSuffix,
@@ -869,27 +869,6 @@ func (s *ApplicationImportExportSuite) TestImportOfACopiedDocumentGetsItsOwnShar
 	sourcePolicies, _ := source["policies"].([]interface{})
 	s.Require().Len(sourcePolicies, 1)
 	s.Equal(sourcePolicy["id"], sourcePolicies[0].(map[string]interface{})["id"], "the source keeps its policy")
-}
-
-// withoutTopLevelKey drops one top-level key and its block from a YAML document, leaving the rest
-// of the text as it was so the export's template placeholders survive.
-func withoutTopLevelKey(content, key string) string {
-	var out []string
-	skipping := false
-	for _, line := range strings.Split(content, "\n") {
-		if skipping {
-			if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "- ") || line == "-" {
-				continue
-			}
-			skipping = false
-		}
-		if strings.HasPrefix(line, key+":") {
-			skipping = true
-			continue
-		}
-		out = append(out, line)
-	}
-	return strings.Join(out, "\n")
 }
 
 // An application with no sharing policies exports a document that declares none, so nothing is

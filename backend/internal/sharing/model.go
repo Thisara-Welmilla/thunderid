@@ -594,6 +594,87 @@ const (
 // The types below are the wire shape a management API serves, shared by every resource type that
 // mounts sharing endpoints of its own.
 
+// PolicyCreateBody is a sharing policy as a management API creates one, which is narrower than what
+// the framework can hold. It carries no policy id and no terms: the id is the framework's to mint on
+// an interactive create, and no type that mounts these endpoints declares overlay fields yet.
+// Declaring either here would accept bodies the published schemas refuse.
+type PolicyCreateBody struct {
+	InitiatingOUID string `json:"initiatingOuId,omitempty"`
+	PolicyUpdateBody
+}
+
+// PolicyUpdateBody is an edit of a sharing policy: its sections and the version being edited. Whose
+// decision the policy is cannot change, since that would be another policy, so an edit does not
+// carry it.
+type PolicyUpdateBody struct {
+	AllUnits       *AllUnitsBody       `json:"allUnits,omitempty"`
+	ChildUnits     *ChildUnitsBody     `json:"childUnits,omitempty"`
+	OtherTreeRoots *OtherTreeRootsBody `json:"otherTreeRoots,omitempty"`
+	Version        int                 `json:"version,omitempty"`
+}
+
+// AllUnitsBody is the section reaching every organization unit. A create may not state it; an edit
+// restates it to rewrite the exclusions of a policy that already holds it.
+type AllUnitsBody struct {
+	ExcludedOUIDs []string `json:"excludedOuIds,omitempty"`
+}
+
+// ChildUnitsBody is the section about the organization units beneath the issuer.
+type ChildUnitsBody struct {
+	Mode          string          `json:"mode"`
+	ExcludedOUIDs []string        `json:"excludedOuIds,omitempty"`
+	Units         []ChildUnitBody `json:"units,omitempty"`
+}
+
+// ChildUnitBody names one direct child of the issuer and how far the resource carries from it.
+type ChildUnitBody struct {
+	OUID  string `json:"ouId"`
+	Reach string `json:"reach"`
+}
+
+// OtherTreeRootsBody is the section about the root organization units of other trees.
+type OtherTreeRootsBody struct {
+	Mode          string         `json:"mode"`
+	ExcludedOUIDs []string       `json:"excludedOuIds,omitempty"`
+	Units         []RootUnitBody `json:"units,omitempty"`
+}
+
+// RootUnitBody names the root organization unit of one other tree.
+type RootUnitBody struct {
+	OUID string `json:"ouId"`
+}
+
+// ToPolicyRequest turns the body into the request the framework takes, naming whose decision it is.
+func (b PolicyCreateBody) ToPolicyRequest() PolicyRequest {
+	req := b.PolicyUpdateBody.ToPolicyRequest()
+	req.InitiatingOUID = b.InitiatingOUID
+	return req
+}
+
+// ToPolicyRequest turns the body into the request the framework takes. The framework is what
+// validates it, so a mode or a reach the schema does not list is carried across as it was sent and
+// refused there.
+func (b PolicyUpdateBody) ToPolicyRequest() PolicyRequest {
+	req := PolicyRequest{Version: b.Version}
+	if b.AllUnits != nil {
+		req.AllUnits = &AllUnitsRequest{ExcludedOUIDs: b.AllUnits.ExcludedOUIDs}
+	}
+	if c := b.ChildUnits; c != nil {
+		req.ChildUnits = &ChildUnitsRequest{Mode: ChildUnitsMode(c.Mode), ExcludedOUIDs: c.ExcludedOUIDs}
+		for _, u := range c.Units {
+			req.ChildUnits.Units = append(req.ChildUnits.Units,
+				ChildUnitRequest{OUID: u.OUID, Reach: UnitReach(u.Reach)})
+		}
+	}
+	if t := b.OtherTreeRoots; t != nil {
+		req.OtherTreeRoots = &OtherTreeRootsRequest{Mode: OtherTreeRootsMode(t.Mode), ExcludedOUIDs: t.ExcludedOUIDs}
+		for _, u := range t.Units {
+			req.OtherTreeRoots.Units = append(req.OtherTreeRoots.Units, RootUnitRequest{OUID: u.OUID})
+		}
+	}
+	return req
+}
+
 // PolicyResponse is one recorded policy as an API returns it. Its sections come back in the shape
 // a request states them in, so an edit copies them, with the version, into its request.
 type PolicyResponse struct {

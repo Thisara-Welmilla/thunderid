@@ -785,6 +785,7 @@ func (n *promptNode) buildSyntheticComponentList(
 				if needsPassword {
 					cloned["type"] = providers.InputTypePassword
 				}
+
 				promotions[ref] = cloned
 			}
 			continue
@@ -800,13 +801,18 @@ func (n *promptNode) buildSyntheticComponentList(
 		if inputType == "" {
 			inputType = providers.InputTypeText
 		}
-		synthetic = append(synthetic, map[string]interface{}{
+		syntheticComp := map[string]interface{}{
 			"id":       input.Identifier,
 			"ref":      input.Identifier,
 			"type":     inputType,
 			"label":    label,
 			"required": input.Required,
-		})
+		}
+		// Include the input's permitted values on a synthetic SELECT component.
+		if inputType == providers.InputTypeSelect && len(input.Options) > 0 {
+			syntheticComp["options"] = input.Options
+		}
+		synthetic = append(synthetic, syntheticComp)
 	}
 	return synthetic, promotions
 }

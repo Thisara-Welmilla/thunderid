@@ -24,6 +24,7 @@ import (
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/user"
 	"github.com/thunder-id/thunderid/internal/vc/credential"
 	"github.com/thunder-id/thunderid/internal/vc/presentation"
 )
@@ -55,6 +56,18 @@ func (s *importService) resolveImportOUHandle(
 	return ouID, nil
 }
 
+// documentState returns a document's top-level state and whether it has a non-empty one.
+func documentState(doc parsedDocument) (string, bool) {
+	for i := 0; i+1 < len(doc.Node.Content); i += 2 {
+		if doc.Node.Content[i].Value != "state" {
+			continue
+		}
+		value := doc.Node.Content[i+1]
+		return value.Value, value.Value != "" || len(value.Content) > 0
+	}
+	return "", false
+}
+
 type roleDeclarativeYAML struct {
 	ID          string                     `yaml:"id"`
 	Name        string                     `yaml:"name"`
@@ -66,12 +79,13 @@ type roleDeclarativeYAML struct {
 }
 
 type userDeclarativeYAML struct {
-	ID          string                 `yaml:"id"`
-	Type        string                 `yaml:"type"`
-	OUID        string                 `yaml:"ouId,omitempty"`
-	OUHandle    string                 `yaml:"ouHandle,omitempty"`
-	Attributes  map[string]interface{} `yaml:"attributes"`
-	Credentials map[string]interface{} `yaml:"credentials,omitempty"`
+	ID              string                  `yaml:"id"`
+	Type            string                  `yaml:"type"`
+	OUID            string                  `yaml:"ouId,omitempty"`
+	OUHandle        string                  `yaml:"ouHandle,omitempty"`
+	Attributes      map[string]interface{}  `yaml:"attributes"`
+	Credentials     map[string]interface{}  `yaml:"credentials,omitempty"`
+	SharingPolicies []sharing.PolicyRequest `yaml:"sharingPolicies,omitempty"`
 }
 
 type entityTypeDeclarativeYAML struct {
@@ -764,6 +778,10 @@ func (s *importService) importUser(
 					}
 				}
 			}
+			if outcome := s.applySharingPolicies(ctx, user.UserSharingType, resourceTypeUser,
+				updated.ID, "", updated.OUID, req.SharingPolicies, operationUpdate); outcome != nil {
+				return *outcome
+			}
 			return successOutcome(resourceTypeUser, updated.ID, "", operationUpdate)
 		}
 
@@ -810,6 +828,17 @@ func (s *importService) importUser(
 
 			return serviceErrorOutcome(resourceTypeUser, created.ID, "", operationCreate, credErr)
 		}
+	}
+
+	// The policies come after the user exists, because a policy names the user it governs. A refusal
+	// therefore undoes the create, so a retry does not meet a half-imported user.
+	if outcome := s.applySharingPolicies(ctx, user.UserSharingType, resourceTypeUser,
+		created.ID, "", created.OUID, req.SharingPolicies, operationCreate); outcome != nil {
+		if delErr := s.userService.DeleteUser(ctx, created.ID); delErr != nil {
+			log.GetLogger().Error(ctx, "Failed to remove a user whose sharing policies were refused",
+				log.MaskedString(log.LoggerKeyUserID, created.ID), log.String("code", delErr.Code))
+		}
+		return *outcome
 	}
 
 	return successOutcome(resourceTypeUser, created.ID, "", operationCreate)

@@ -882,6 +882,82 @@ func (_c *SharingServiceInterfaceMock_ListPolicies_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// ListResourceSharedOUIDs provides a mock function for the type SharingServiceInterfaceMock
+func (_mock *SharingServiceInterfaceMock) ListResourceSharedOUIDs(ctx context.Context, rt sharing.ResourceType, resourceID string) ([]string, *common.ServiceError) {
+	ret := _mock.Called(ctx, rt, resourceID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListResourceSharedOUIDs")
+	}
+
+	var r0 []string
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, sharing.ResourceType, string) ([]string, *common.ServiceError)); ok {
+		return returnFunc(ctx, rt, resourceID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, sharing.ResourceType, string) []string); ok {
+		r0 = returnFunc(ctx, rt, resourceID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, sharing.ResourceType, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, rt, resourceID)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListResourceSharedOUIDs'
+type SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call struct {
+	*mock.Call
+}
+
+// ListResourceSharedOUIDs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - rt sharing.ResourceType
+//   - resourceID string
+func (_e *SharingServiceInterfaceMock_Expecter) ListResourceSharedOUIDs(ctx any, rt any, resourceID any) *SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call {
+	return &SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call{Call: _e.mock.On("ListResourceSharedOUIDs", ctx, rt, resourceID)}
+}
+
+func (_c *SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call) Run(run func(ctx context.Context, rt sharing.ResourceType, resourceID string)) *SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 sharing.ResourceType
+		if args[1] != nil {
+			arg1 = args[1].(sharing.ResourceType)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call) Return(strings []string, serviceError *common.ServiceError) *SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call {
+	_c.Call.Return(strings, serviceError)
+	return _c
+}
+
+func (_c *SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call) RunAndReturn(run func(ctx context.Context, rt sharing.ResourceType, resourceID string) ([]string, *common.ServiceError)) *SharingServiceInterfaceMock_ListResourceSharedOUIDs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListVisibleResourceIDs provides a mock function for the type SharingServiceInterfaceMock
 func (_mock *SharingServiceInterfaceMock) ListVisibleResourceIDs(ctx context.Context, rt sharing.ResourceType, ouID string) ([]string, *common.ServiceError) {
 	ret := _mock.Called(ctx, rt, ouID)

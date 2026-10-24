@@ -4,6 +4,7 @@
 package executor
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,6 +77,7 @@ func newProvisioningExecutor(
 			},
 			SupportedProperties: []providers.ExecutorSupportedProperties{
 				{Property: propertyKeyProvisioningMode},
+				{Property: propertyKeyDelegated},
 				{Property: propertyKeyDynamicInputsIncludeOptional},
 				{Property: propertyKeyDynamicInputsIncludeOptionalCredentials},
 				{Property: propertyKeyMaxDynamicInputsPerPrompt},
@@ -88,7 +90,7 @@ func newProvisioningExecutor(
 		})
 
 	identifyingExec := newIdentifyingExecutor(ExecutorNameProvisioning,
-		[]providers.Input{}, []providers.Input{}, flowFactory, entityProvider, nil)
+		[]providers.Input{}, []providers.Input{}, flowFactory, entityProvider, nil, nil)
 
 	return &provisioningExecutor{
 		Executor:                     base,
@@ -173,7 +175,10 @@ func (p *provisioningExecutor) Execute(ctx *providers.NodeContext) (*providers.E
 				return nil, err
 			}
 			if len(holderIDs) > 0 {
-				p.applyExistingLinkHolderRules(ctx, category, holderIDs, execResp, logger)
+				err = p.applyExistingLinkHolderRules(ctx, category, holderIDs, execResp, logger)
+				if err != nil {
+					return nil, err
+				}
 				return execResp, nil
 			}
 		}
@@ -250,25 +255,32 @@ func (p *provisioningExecutor) registrationLinkHolders(ctx *providers.NodeContex
 }
 
 // applyExistingLinkHolderRules completes registration as the one user holding the link when
-// registering an existing user is allowed, and fails it otherwise.
+// registering an existing user is allowed, and fails it otherwise. It returns an error only for a
+// server fault while binding the holder.
 func (p *provisioningExecutor) applyExistingLinkHolderRules(ctx *providers.NodeContext,
 	category entitytype.TypeCategory, holderIDs []string, execResp *providers.ExecutorResponse,
-	logger *log.Logger) {
+	logger *log.Logger) error {
 	logger.Debug(ctx.Context, "Federated identity is already linked to a user",
 		log.Int("holderCount", len(holderIDs)))
 	if len(holderIDs) > 1 || !isAllowRegistrationWithExistingUserRuntimeFlagSet(ctx) {
 		execResp.Status = providers.ExecFailure
 		execResp.Error = errForEntityCategory(ErrEntityAlreadyExists, category)
-		return
+		return nil
 	}
 	// Several users hold the link, so the AuthUser names none of them yet.
 	if ctx.RuntimeData[common.RuntimeKeyEntityState] == entityStateAmbiguous {
-		p.authenticateProvisionedEntity(ctx, category, holderIDs[0], execResp)
-		if execResp.Status == providers.ExecFailure {
-			return
+		if svcErr := authenticateEntityByID(ctx, p.authnProvider, holderIDs[0], execResp.AuthUser,
+			execResp); svcErr != nil {
+			if svcErr.Type == tidcommon.ServerErrorType {
+				return fmt.Errorf("failed to bind the existing link holder: %s", svcErr.Code)
+			}
+			execResp.Status = providers.ExecFailure
+			execResp.Error = cmp.Or(statedHold(svcErr), errForEntityCategory(ErrEntityAuthFailed, category))
+			return nil
 		}
 	}
 	execResp.Status = providers.ExecComplete
+	return nil
 }
 
 // categoryFromMode maps the node's mode property onto the entity category it works on. A mode is
@@ -538,7 +550,7 @@ func (p *provisioningExecutor) handleExistingEntity(ctx *providers.NodeContext,
 		return false, nil
 	}
 
-	existingEntity, getEntityErr := p.entityProvider.GetEntity(entityID)
+	existingEntity, getEntityErr := p.entityProvider.GetEntityProfile(entityID)
 	if getEntityErr != nil {
 		return false, errors.New("failed to retrieve the existing entity")
 	}
@@ -746,10 +758,16 @@ func (p *provisioningExecutor) buildMissingInputs(
 			}
 			// An attribute restricted to a fixed set is offered as a choice rather than as free
 			// text. A prompt node declaring the field itself is enriched with these options by
-			// identifier, so the permitted values need not be repeated in the flow.
+			// identifier, so the permitted values need not be repeated in the flow. A field the
+			// prompt does not declare is rendered from a generated component, and clients attach
+			// the options to a select by matching the input's ref to the component id, so the ref
+			// is set to the identifier.
 			if len(attr.Enum) > 0 {
 				input.Type = providers.InputTypeSelect
 				input.Options = attr.Enum
+				if input.Ref == "" {
+					input.Ref = attr.Attribute
+				}
 			}
 			input.Required = effectiveRequired
 			if effectiveRequired {
@@ -875,13 +893,6 @@ func (p *provisioningExecutor) getAttributesForProvisioning(
 			} else if runtimeValue, exists := ctx.RuntimeData[a.Attribute]; exists && runtimeValue != "" {
 				credentialAttrs[a.Attribute] = runtimeValue
 			}
-		} else if a.Attribute == userAttributeSub {
-			// sub is read only from a verified external identity. Federated sign-ins migrate a user
-			// holding a matching sub, so a client-supplied value would let an account capture
-			// someone else's first sign-in.
-			if claimValue, exists := extIdentity.Claim(a.Attribute); exists && claimValue != "" {
-				identifyingAttrs[a.Attribute] = convertToSchemaType(claimValue, a.Type)
-			}
 		} else {
 			// External claims are only a fallback and must never take priority over runtime data.
 			if value, exists := ctx.UserInputs[a.Attribute]; exists && value != "" {
@@ -969,32 +980,39 @@ func (p *provisioningExecutor) createAgentInStore(nodeCtx *providers.NodeContext
 		return nil, errForEntityCategory(ErrProvisioningFailed, entitytype.TypeCategoryAgent)
 	}
 
+	delegated, flagErr := agentDelegation(nodeCtx)
+	if flagErr != nil {
+		logger.Debug(nodeCtx.Context, "Delegation could not be read", log.String("key", delegatedKey))
+		return nil, flagErr
+	}
+
+	// The flow shows the agent's client credentials, so an OAuth client is always requested. The
+	// agent service fills in its grant types from Delegated.
+	oauthConfig := &providers.OAuthConfigWithSecret{}
 	agent := &providers.Agent{
 		OUID:        targetRef.ouID,
 		Type:        targetRef.entityType,
 		Description: collectedValue(nodeCtx, descriptionKey),
 		LogoURL:     collectedValue(nodeCtx, logoURLKey),
 		Owner:       nodeCtx.RuntimeData[ownerIDKey],
+		Delegated:   delegated,
 		Attributes:  attributesJSON,
+		InboundAuthConfig: []providers.InboundAuthConfigWithSecret{
+			{Type: providers.OAuthInboundAuthType, OAuthConfig: oauthConfig},
+		},
 	}
-	// Redirect URIs are the only OAuth value a caller may supply, and are attached only when
-	// collected so the provider applies its default otherwise.
-	if uris := splitTrimmed(collectedValue(nodeCtx, redirectURIsKey)); len(uris) > 0 {
-		agent.InboundAuthConfig = []providers.InboundAuthConfigWithSecret{
-			{
-				Type:        providers.OAuthInboundAuthType,
-				OAuthConfig: &providers.OAuthConfigWithSecret{RedirectURIs: uris},
-			},
+	// The callback URIs, login flow and user type belong to a delegated agent, and all three are
+	// required with delegation, so leftovers from an earlier choice are not applied to one that acts
+	// on its own behalf. The service validates all three.
+	if delegated {
+		oauthConfig.RedirectURIs = splitTrimmed(collectedValue(nodeCtx, redirectURIsKey))
+		agent.AuthFlowID = collectedValue(nodeCtx, authFlowIDKey)
+		if handle := collectedValue(nodeCtx, allowedUserTypesKey); handle != "" {
+			agent.AllowedUserTypes = []string{handle}
 		}
 	}
 
-	delegated, flagErr := collectedFlag(nodeCtx, delegatedKey)
-	if flagErr != nil {
-		logger.Debug(nodeCtx.Context, "Delegation flag could not be read", log.String("key", delegatedKey))
-		return nil, flagErr
-	}
-
-	createdAgent, svcErr := p.agentMgtProvider.CreateAgent(nodeCtx.Context, agent, delegated)
+	createdAgent, svcErr := p.agentMgtProvider.CreateAgent(nodeCtx.Context, agent)
 	if svcErr != nil {
 		return nil, svcErr
 	}
@@ -1006,22 +1024,32 @@ func (p *provisioningExecutor) createAgentInStore(nodeCtx *providers.NodeContext
 	return createdAgent, nil
 }
 
-// collectedFlag reads a boolean the flow collected. Values arrive as strings and are parsed the
-// way a boolean schema attribute is, accepting the casings and 1/0 forms a hand-authored flow may
-// carry. An absent value is false; one that cannot be read is an error rather than a silent false,
-// which would provision the entity in the shape the caller did not ask for.
-func collectedFlag(ctx *providers.NodeContext, key string) (bool, *tidcommon.ServiceError) {
-	raw := collectedValue(ctx, key)
-	if raw == "" {
-		return false, nil
+// agentDelegation resolves whether the agent acts on behalf of a signed-in user. The first value
+// that is not empty wins: what an executor resolved, what the caller submitted, the node's
+// delegated property, then false. Collected values arrive as strings and are parsed the way a
+// boolean schema attribute is, accepting the casings and 1/0 forms a hand-authored flow may carry.
+// A value that cannot be read is an error rather than a silent false, which would provision the
+// agent in the shape the caller did not ask for.
+func agentDelegation(ctx *providers.NodeContext) (bool, *tidcommon.ServiceError) {
+	if raw := collectedValue(ctx, delegatedKey); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			return false, errInvalidFlagValueFor(delegatedKey)
+		}
+
+		return parsed, nil
 	}
 
-	parsed, err := strconv.ParseBool(raw)
-	if err != nil {
-		return false, errInvalidFlagValueFor(key)
+	if property, ok := ctx.NodeProperties[propertyKeyDelegated]; ok && property != nil {
+		fallback, isBool := property.(bool)
+		if !isBool {
+			return false, errInvalidFlagValueFor(propertyKeyDelegated)
+		}
+
+		return fallback, nil
 	}
 
-	return parsed, nil
+	return false, nil
 }
 
 // collectedValue reads a value the flow collected for key, preferring what an executor resolved

@@ -160,6 +160,7 @@ const sidebars: SidebarsConfig = {
                 {type: 'doc', id: 'use-cases/b2c/build-users', label: 'Model Your Users'},
                 {type: 'doc', id: 'use-cases/b2c/build-access', label: 'Define Access'},
                 {type: 'doc', id: 'use-cases/b2c/build-flows', label: 'Build the Flows'},
+                {type: 'doc', id: 'use-cases/b2c/build-notifications', label: 'Customize Notifications'},
                 {type: 'doc', id: 'use-cases/b2c/build-application', label: 'Register the Application'},
                 {type: 'doc', id: 'use-cases/b2c/build-onboarding', label: 'Onboard Internal Staff'},
                 {type: 'doc', id: 'use-cases/b2c/build-sessions', label: 'Keep Them Signed In'},
@@ -632,6 +633,11 @@ const sidebars: SidebarsConfig = {
                 },
                 {
                   type: 'doc',
+                  id: 'guides/identity-providers/link-accounts',
+                  label: 'Link Accounts',
+                },
+                {
+                  type: 'doc',
                   id: 'guides/identity-providers/token-exchange-idp',
                   label: 'Token Exchange',
                   key: 'idp-token-exchange',
@@ -675,6 +681,11 @@ const sidebars: SidebarsConfig = {
                   type: 'doc',
                   id: 'guides/notifications/templates',
                   label: 'Notification Templates',
+                },
+                {
+                  type: 'doc',
+                  id: 'guides/notifications/template-tokens',
+                  label: 'Notification Template Tokens',
                 },
                 {
                   type: 'doc',
@@ -1141,11 +1152,6 @@ const sidebars: SidebarsConfig = {
               type: 'doc',
               id: 'guides/resource-export',
               label: 'Export Resources',
-            },
-            {
-              type: 'doc',
-              id: 'guides/declarative-configurations/templates',
-              label: 'Template Resources',
             },
             {
               type: 'doc',

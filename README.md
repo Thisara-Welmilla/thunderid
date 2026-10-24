@@ -85,6 +85,13 @@ Please refer to the [Contributing Guide](https://thunderid.dev/community/overvie
 For code contributions, refer to the [Contributing Code](https://thunderid.dev/community/contributing/contributing-code/prerequisites) section for details on the prerequisites and instructions for running ThunderID in development mode.
 
 
+## Governance
+
+ThunderID is a project of [LF Decentralized Trust](https://www.lfdecentralizedtrust.org/) and follows the [LF Decentralized Trust Code of Conduct](https://lf-decentralized-trust.github.io/governance/governing-documents/code-of-conduct/).
+
+The project's Technical Charter is in the [thunder-id/governance](https://github.com/thunder-id/governance) repository.
+
+
 ## License
 
 Licenses this source under the Apache License, Version 2.0 ([LICENSE](LICENSE)), You may not use this file except in compliance with the License.

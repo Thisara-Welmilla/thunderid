@@ -405,14 +405,14 @@ Executors do not collect inputs directly. All required inputs must already be av
 
 :::info Declaring inputs in the Flow Builder
 
-Use the **Add Input** option in the executor's properties to specify which inputs the executor expects. The execution validates that each declared input is available from a preceding View or executor output.
+Use the **Add input** option in the executor's properties to specify which inputs the executor expects. The execution validates that each declared input is available from a preceding View or executor output.
 :::
 
 ### Input Types
 
 Each executor input has a `type` field that tells the client how to render the field and what client-side validation to apply.
 
-When an executor forwards inputs dynamically to a PROMPT node via its `onIncomplete` edge, the default type is `TEXT_INPUT` for non-credential inputs and `PASSWORD_INPUT` for credential inputs. To apply stricter client-side validation for a specific attribute (for example, email format validation), declare the input explicitly in the executor's `inputs` array with the appropriate type. The executor preserves the configured `type` when forwarding the input to the prompt node.
+When an executor forwards inputs dynamically to a PROMPT node via its `onIncomplete` edge, the default type is `TEXT_INPUT` for non-credential inputs and `PASSWORD_INPUT` for credential inputs. The **Provisioning** executor forwards user attributes that define a fixed set of allowed values (`enum`) as `SELECT` inputs. To apply stricter client-side validation for a specific attribute (for example, email format validation), declare the input explicitly in the executor's `inputs` array with the appropriate type. The executor preserves the configured `type` when forwarding the input to the prompt node.
 
 | Type | Description |
 |---|---|
@@ -554,11 +554,24 @@ Sets credentials (e.g., password) for an existing user. Typically used in regist
 - User not found in the user store
 - Credential update failed
 
+**Account locks in recovery flows:** setting a credential does not release an account lock. In a recovery flow, place an `IdentityGovernanceExecutor` node in `unlock` mode right after this executor, as the default recovery flows do. Without it, a locked user who completes recovery stays locked. The node releases only the account whose credential this flow set. If identity governance is off or refuses the release, the step completes and the lock stays. If the release fails on a server error, the step fails and the user can run recovery again.
+
+```json
+{
+  "id": "release_account_locks",
+  "type": "TASK_EXECUTION",
+  "executor": { "name": "IdentityGovernanceExecutor", "mode": "unlock" },
+  "onSuccess": "recovery_complete"
+}
+```
+
 </details>
 
 #### Federated Authentication
 
 A federated executor signs in a local user only through a link already recorded for the connection. A matching attribute never signs a user in directly. Follow the federated node with an [Account Linking](#identity-and-user-resolution) node, which matches the connection's account-linking attributes against existing accounts and has the user verify one of the matched accounts before linking it.
+
+A declarative user is read-only, so <ProductName /> does not record a link for it. When the user verifies a declarative account, sign-in completes without storing the link, and later sign-ins through the same connection repeat the matching and verification.
 
 To sign in a first-time federated user who has no local account, enable `allowAuthenticationWithoutLocalUser` on the executor and place a [Provisioning](#user-provisioning-and-attributes) executor downstream. The application must allow exactly one user type with self-registration enabled.
 
@@ -1158,7 +1171,7 @@ Without `allowCrossOUProvisioning`, every linked user counts. With it, only link
 | `seedGroupsFromMapping` | Seed Groups From Authorization Mapping | No | `false` | Assign groups the connection's authorization mapping resolved for this subject |
 | `seedRolesFromMapping` | Seed Roles From Authorization Mapping | No | `false` | Assign roles the connection's authorization mapping resolved for this subject |
 
-**Input Configuration:** Required user attributes are dynamically determined from the user type schema, so no fixed input defaults are needed. However, you may optionally declare entries in the executor's `inputs` array to set a specific input type for an attribute (e.g., `EMAIL_INPUT` for an email field). Without an explicit override, non-credential inputs default to `TEXT_INPUT`. See [Input Types](#input-types) for valid types.
+**Input Configuration:** Required user attributes are dynamically determined from the user type schema, so no fixed input defaults are needed. However, you may optionally declare entries in the executor's `inputs` array to set a specific input type for an attribute (e.g., `EMAIL_INPUT` for an email field). Without an explicit override, non-credential inputs default to `TEXT_INPUT`. Attributes that define a fixed set of allowed values (`enum`) in the user type schema are always forwarded as `SELECT` inputs that list those values as options. A prompt node that declares the attribute as a `SELECT` input receives the same options, and a prompt node that declares it with another type keeps that type. In a prompt node that this executor doesn't forward inputs to, define the options in the flow definition. See [Input Types](#input-types) for valid types.
 
 **Example:**
 
@@ -1761,6 +1774,7 @@ Sends a transactional email using a configured template. Runs in the background:
 |---|---|---|---|---|
 | `senderId` | Not shown | Yes, at runtime | - | ID of the email provider the step sends through. The step fails without it. The executor schema marks it optional only because built-in flows include email steps before any provider exists. Set it through the Flow Management API or a declarative flow file. |
 | `emailTemplate` | Email Template | No | `user_invite` | The template scenario to use. If absent or empty, defaults to the user invite template. |
+| `bestEffort` | Not shown | No | `false` | When `true`, a send that fails completes the step instead of failing the flow, and the flow response carries `emailSent: false`. Server-side failures are logged. Set it through the Flow Management API or a declarative flow file. |
 
 **Input Configuration:** None. The email executor resolves the recipient and template data from runtime context; it has no configurable node input defaults.
 
@@ -1788,6 +1802,8 @@ Sends a transactional email using a configured template. Runs in the background:
 - Recipient email address not resolvable from context or user entity
 - Template rendering error
 - SMTP server unreachable or rejecting the message (server error)
+
+With `bestEffort` set to `true`, none of these fail the step.
 
 </details>
 

@@ -105,7 +105,7 @@ export default function ConfigureTemplateIdentity({
         <OrganizationUnitSummaryChip
           logoUrl={organizationUnitLogoUrl}
           icon={OrganizationUnitTreeConstants.DEFAULT_AVATAR}
-          label={t('create.organizationUnit.fieldLabel', 'Organization Unit')}
+          label={t('create.organizationUnit.fieldLabel', 'Organization unit')}
           value={isOrganizationUnitLoading ? t('common:status.loading', 'Loading...') : organizationUnitName}
           onChange={onChangeOu}
         />
@@ -118,7 +118,7 @@ export default function ConfigureTemplateIdentity({
           id="template-name-input"
           value={displayName}
           onChange={(e) => handleNameChange(e.target.value)}
-          placeholder={t('create.displayName.placeholder', 'e.g. OTP Verification')}
+          placeholder={t('create.displayName.placeholder', 'e.g. OTP verification')}
           inputProps={{maxLength: 255}}
         />
         <NameSuggestion onSelect={handleSuggestionSelect} />

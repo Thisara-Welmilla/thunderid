@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 
@@ -359,11 +358,13 @@ func (s *flowExecService) loadNewContext(ctx context.Context, flowID, appID, flo
 
 // checkDirectFlowInitiationAllowed governs which applications may initiate an authentication or
 // sign-out flow directly over HTTP, based on how the application is classified:
-//   - RedirectOnly — the application signs users in through a redirect-based protocol component
+//   - NotPermitted — the application signs users in through a redirect-based protocol component
 //     (currently OAuth 2.0 authorization_code apps) and must have its flows initiated by that
-//     component, not via a direct HTTP call.
-//   - FlowSecret — a backend / server-side application (including embedded apps with no protocol
-//     profile) that must authenticate at flow initiation by presenting its Flow Secret.
+//     component, or it has no use for a direct flow (browser and m2m apps, and OAuth clients without
+//     the token-exchange grant, which cannot redeem a flow assertion).
+//   - FlowSecret — a backend / server-side application with the token-exchange grant (including
+//     embedded apps with no protocol profile) that must authenticate at flow initiation by
+//     presenting its Flow Secret.
 //   - Attestation — a mobile application that authenticates at flow initiation by presenting a valid
 //     platform attestation (e.g. a Google Play Integrity token) proving its binary identity.
 //   - DevMode — a mobile application with attestation dev mode enabled, which may initiate a flow
@@ -492,18 +493,12 @@ func (s *flowExecService) resolveFlowInitiationModeFromProfile(
 		return flowInitiationFlowSecret, nil, nil
 	}
 
-	// Redirect (authorization_code) apps initiate through the OAuth component; M2M apps get tokens
-	// directly. Neither may initiate a flow directly.
-	if slices.Contains(profile.GrantTypes, string(providers.GrantTypeAuthorizationCode)) ||
-		isClientCredentialsOnly(profile.GrantTypes) {
+	// Redirect (authorization_code) apps initiate through the OAuth component, and apps without the
+	// token-exchange grant cannot redeem a flow assertion. Neither may initiate a flow directly.
+	if !appmodel.IsFlowNativeGrantSet(profile.GrantTypes) {
 		return flowInitiationNotPermitted, nil, nil
 	}
 	return flowInitiationFlowSecret, nil, nil
-}
-
-// isClientCredentialsOnly reports whether client_credentials is the only configured grant type.
-func isClientCredentialsOnly(grantTypes []string) bool {
-	return len(grantTypes) == 1 && grantTypes[0] == string(providers.GrantTypeClientCredentials)
 }
 
 // initContext initializes a new flow context with the given details.

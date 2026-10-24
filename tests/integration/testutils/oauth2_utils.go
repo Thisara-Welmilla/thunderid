@@ -22,6 +22,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"time"
@@ -163,11 +164,6 @@ func initiateAuthorizationFlow(clientID, redirectURI, responseType, scope, state
 // following redirects, so the caller can assert on the redirect the server produced. Use this for
 // parameters the InitiateAuthorizationFlow variants do not cover, such as prompt.
 func SubmitAuthorizationRequest(params url.Values) (*http.Response, error) {
-	req, err := http.NewRequest("GET", TestServerURL+"/oauth2/authorize?"+params.Encode(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create authorization request: %w", err)
-	}
-
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -176,12 +172,71 @@ func SubmitAuthorizationRequest(params url.Values) (*http.Response, error) {
 			return http.ErrUseLastResponse
 		},
 	}
+	return SubmitAuthorizationRequestWithClient(client, params)
+}
+
+// SubmitAuthorizationRequestWithClient is SubmitAuthorizationRequest through the given client, such as
+// a session client carrying its cookies.
+func SubmitAuthorizationRequestWithClient(client *http.Client, params url.Values) (*http.Response, error) {
+	req, err := http.NewRequest("GET", TestServerURL+"/oauth2/authorize?"+params.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create authorization request: %w", err)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send authorization request: %w", err)
 	}
 	return resp, nil
+}
+
+// StartAuthorizationWithSession sends an authorization request through a session client and returns
+// the authId and executionId the gate redirect carries.
+func StartAuthorizationWithSession(client *http.Client, params url.Values) (string, string, error) {
+	resp, err := SubmitAuthorizationRequestWithClient(client, params)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusFound {
+		return "", "", fmt.Errorf("authorize should redirect to the gate, got status %d", resp.StatusCode)
+	}
+	return ExtractAuthData(resp.Header.Get("Location"))
+}
+
+// SSOCookiePrefix is the prefix of the per-flow SSO handle cookie the session transport mints.
+const SSOCookiePrefix = "tid_sso_"
+
+// NewSessionClient returns a browser-like HTTP client: a cookie jar carries the per-flow SSO cookie
+// across requests, and redirects are not followed so Location headers can be inspected.
+func NewSessionClient() (*http.Client, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cookie jar: %w", err)
+	}
+	return &http.Client{
+		Jar:       jar,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}, nil
+}
+
+// SSOCookieNames returns the per-flow SSO cookie names the session client's jar holds for the server.
+func SSOCookieNames(client *http.Client) ([]string, error) {
+	serverURL, err := url.Parse(TestServerURL)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, cookie := range client.Jar.Cookies(serverURL) {
+		if strings.HasPrefix(cookie.Name, SSOCookiePrefix) {
+			names = append(names, cookie.Name)
+		}
+	}
+	return names, nil
 }
 
 // ExecuteAuthenticationFlow executes an authentication flow and returns the flow step.
@@ -293,6 +348,18 @@ func ExecuteAuthenticationFlowExpectingError(executionId string, inputs map[stri
 
 // CompleteAuthorization completes the authorization using the assertion
 func CompleteAuthorization(authID, assertion string) (*AuthorizationResponse, error) {
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	return CompleteAuthorizationWithClient(client, authID, assertion)
+}
+
+// CompleteAuthorizationWithClient is CompleteAuthorization through the given client, such as a session
+// client carrying its cookies.
+func CompleteAuthorizationWithClient(client *http.Client, authID, assertion string) (
+	*AuthorizationResponse, error) {
 	authzData := map[string]interface{}{
 		"authId":    authID,
 		"assertion": assertion,
@@ -308,12 +375,6 @@ func CompleteAuthorization(authID, assertion string) (*AuthorizationResponse, er
 		return nil, fmt.Errorf("failed to create authorization completion request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -494,16 +555,34 @@ func RequestClientCredentialsToken(clientID, clientSecret, scope, resource strin
 
 // IntrospectToken reports whether the introspection endpoint considers the token active.
 func IntrospectToken(token, clientID, clientSecret string) (bool, error) {
+	result, err := IntrospectTokenResult(token, clientID, clientSecret, false)
+	if err != nil {
+		return false, err
+	}
+	return result.Active, nil
+}
+
+// IntrospectTokenResult introspects the token as the client and returns the answer. The client
+// authenticates with HTTP Basic, or in the request body when credentialsInBody is set, as a
+// client_secret_post client must.
+func IntrospectTokenResult(token, clientID, clientSecret string, credentialsInBody bool) (
+	*IntrospectionResult, error) {
 	introspectData := url.Values{}
 	introspectData.Set("token", token)
+	if credentialsInBody {
+		introspectData.Set("client_id", clientID)
+		introspectData.Set("client_secret", clientSecret)
+	}
 
 	req, err := http.NewRequest("POST", TestServerURL+"/oauth2/introspect",
 		bytes.NewBufferString(introspectData.Encode()))
 	if err != nil {
-		return false, fmt.Errorf("failed to create introspection request: %w", err)
+		return nil, fmt.Errorf("failed to create introspection request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth(clientID, clientSecret)
+	if !credentialsInBody {
+		req.SetBasicAuth(clientID, clientSecret)
+	}
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -513,26 +592,24 @@ func IntrospectToken(token, clientID, clientSecret string) (bool, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("failed to send introspection request: %w", err)
+		return nil, fmt.Errorf("failed to send introspection request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return false, fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("introspection returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("introspection returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result struct {
-		Active bool `json:"active"`
-	}
+	var result IntrospectionResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return false, fmt.Errorf("failed to unmarshal introspection response %s: %w", string(body), err)
+		return nil, fmt.Errorf("failed to unmarshal introspection response %s: %w", string(body), err)
 	}
 
-	return result.Active, nil
+	return &result, nil
 }
 
 // ExtractAuthorizationCode extracts the authorization code from the redirect URI

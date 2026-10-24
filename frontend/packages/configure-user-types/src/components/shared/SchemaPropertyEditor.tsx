@@ -279,7 +279,7 @@ export default function SchemaPropertyEditor({
               <Stack spacing={2} sx={{px: 3, pb: 3, pt: 1}}>
                 <Box sx={{display: 'grid', gridTemplateColumns: {xs: '1fr', md: '1fr 1fr'}, gap: 2}}>
                   <FormControl fullWidth>
-                    <FormLabel>{t('userTypes:propertyName', 'Property Name')}</FormLabel>
+                    <FormLabel>{t('userTypes:propertyName', 'Property name')}</FormLabel>
                     <TextField
                       value={property.name}
                       onChange={(e) => handlePropertyChange(property.id, 'name', e.target.value)}
@@ -308,7 +308,7 @@ export default function SchemaPropertyEditor({
                 </Box>
 
                 <I18nTextInput
-                  label={t('userTypes:displayName', 'Display Name')}
+                  label={t('userTypes:displayName', 'Display name')}
                   value={property.displayName}
                   onChange={(newValue: string) => handlePropertyChange(property.id, 'displayName', newValue)}
                   placeholder={t('userTypes:displayNamePlaceholder', 'e.g., First Name')}
@@ -316,12 +316,12 @@ export default function SchemaPropertyEditor({
                   labels={{
                     triggerTooltip: t('userTypes:displayNameI18n.tooltip', 'Configure translation'),
                     popoverTitle: t('userTypes:displayNameI18n.title', 'Translation'),
-                    createTitle: t('userTypes:displayNameI18n.createTitle', 'Create New Translation'),
+                    createTitle: t('userTypes:displayNameI18n.createTitle', 'Create new translation'),
                     createTooltip: t('userTypes:displayNameI18n.createTooltip', 'Create a new translation key'),
                     languageLabel: t('userTypes:displayNameI18n.language', 'Language'),
-                    keyLabel: t('userTypes:displayNameI18n.i18nKey', 'Translation Key'),
+                    keyLabel: t('userTypes:displayNameI18n.i18nKey', 'Translation key'),
                     selectKeyPlaceholder: t('userTypes:displayNameI18n.selectKey', 'Select a translation key'),
-                    valueLabel: t('userTypes:displayNameI18n.translationValue', 'Translation Value'),
+                    valueLabel: t('userTypes:displayNameI18n.translationValue', 'Translation value'),
                     resolvedValueLabel: t('userTypes:displayNameI18n.resolvedValue', 'Resolved value'),
                     keyRequiredError: t('userTypes:displayNameI18n.keyRequired', 'Translation key is required'),
                     valueRequiredError: t('userTypes:displayNameI18n.valueRequired', 'Translation value is required'),
@@ -470,8 +470,8 @@ export default function SchemaPropertyEditor({
                   <FormControl fullWidth>
                     <FormLabel>
                       {isContactAttributeType(property.type)
-                        ? t('userTypes:contactRegexPattern', 'Regular Expression Pattern')
-                        : t('userTypes:regexPattern', 'Regular Expression Pattern (Optional)')}
+                        ? t('userTypes:contactRegexPattern', 'Regular expression pattern')
+                        : t('userTypes:regexPattern', 'Regular expression pattern (optional)')}
                     </FormLabel>
                     <TextField
                       value={property.regex}
@@ -501,7 +501,7 @@ export default function SchemaPropertyEditor({
                 {/* Enum: value input + chips */}
                 {property.type === 'enum' && (
                   <FormControl fullWidth>
-                    <FormLabel>{t('userTypes:enumValues', 'Allowed Values (Enum) - Optional')}</FormLabel>
+                    <FormLabel>{t('userTypes:enumValues', 'Allowed values (enum) - optional')}</FormLabel>
                     <Box sx={{display: 'flex', gap: 1, mb: 1}}>
                       <TextField
                         value={enumInput[property.id] ?? ''}
@@ -559,7 +559,7 @@ export default function SchemaPropertyEditor({
               '&:hover': {border: '1px dashed', borderColor: 'primary.main'},
             }}
           >
-            {t('userTypes:addProperty', 'Add Property')}
+            {t('userTypes:addProperty', 'Add property')}
           </Button>
         )}
 
@@ -574,7 +574,7 @@ export default function SchemaPropertyEditor({
       </Stack>
 
       <Dialog open={pendingCredentialRemoveId !== null} onClose={() => setPendingCredentialRemoveId(null)}>
-        <DialogTitle>{t('userTypes:removeCredentialDialog.title', 'Remove Credential Flag')}</DialogTitle>
+        <DialogTitle>{t('userTypes:removeCredentialDialog.title', 'Remove credential flag')}</DialogTitle>
         <DialogContent>
           <DialogContentText>
             {isEditMode
@@ -600,7 +600,7 @@ export default function SchemaPropertyEditor({
               setPendingCredentialRemoveId(null);
             }}
           >
-            {t('userTypes:removeCredentialDialog.confirm', 'Remove Credential')}
+            {t('userTypes:removeCredentialDialog.confirm', 'Remove credential')}
           </Button>
         </DialogActions>
       </Dialog>

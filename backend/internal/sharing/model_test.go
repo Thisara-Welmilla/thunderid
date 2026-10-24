@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/thunder-id/thunderid/internal/system/utils"
+	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 )
 
 // ModelTestSuite covers the wire encodings of the request and export types.
@@ -397,4 +398,65 @@ func (s *ModelTestSuite) TestResolvedOverlayResponseIsNeverNull() {
 	s.NotNil(decoded["rules"], "an absent rule set is an empty object")
 	s.NotNil(decoded["policyIds"], "an absent policy list is an empty array")
 	s.Equal(true, decoded["visible"])
+}
+
+// A create body becomes the framework request section by section, with whose decision it is.
+func (s *ModelTestSuite) TestPolicyCreateBodyBecomesTheFrameworkRequest() {
+	var body PolicyCreateBody
+	s.Require().NoError(json.Unmarshal([]byte(`{
+		"initiatingOuId": "child-a",
+		"childUnits": {"mode": "selected", "units": [{"ouId": "grand-a", "reach": "subtree"}]},
+		"otherTreeRoots": {"mode": "selected", "units": [{"ouId": "partner-root"}]}
+	}`), &body))
+
+	req := body.ToPolicyRequest()
+
+	s.Equal("child-a", req.InitiatingOUID)
+	s.Require().NotNil(req.ChildUnits)
+	s.Equal(ChildUnitsSelected, req.ChildUnits.Mode)
+	s.Equal([]ChildUnitRequest{{OUID: "grand-a", Reach: ReachSubtree}}, req.ChildUnits.Units)
+	s.Require().NotNil(req.OtherTreeRoots)
+	s.Equal([]RootUnitRequest{{OUID: "partner-root"}}, req.OtherTreeRoots.Units)
+	s.Nil(req.AllUnits)
+}
+
+// An update body carries the version and the sections, and names no issuer.
+func (s *ModelTestSuite) TestPolicyUpdateBodyCarriesTheVersion() {
+	var body PolicyUpdateBody
+	s.Require().NoError(json.Unmarshal([]byte(
+		`{"version": 3, "allUnits": {"excludedOuIds": ["child-a"]}}`), &body))
+
+	req := body.ToPolicyRequest()
+
+	s.Equal(3, req.Version)
+	s.Empty(req.InitiatingOUID)
+	s.Require().NotNil(req.AllUnits)
+	s.Equal([]string{"child-a"}, req.AllUnits.ExcludedOUIDs)
+}
+
+// Each framework client error is answered in the resource type's own code, keeping the framework's
+// description; a server error stays a server error.
+func (s *ModelTestSuite) TestErrorTranslationAnswersInTheTypesOwnCodes() {
+	own := func(code string) tidcommon.ServiceError {
+		return tidcommon.ServiceError{Type: tidcommon.ClientErrorType, Code: code}
+	}
+	translation := ErrorTranslation{
+		PolicyNotFound: own("T-1"), PolicyExists: own("T-2"), VersionMismatch: own("T-3"),
+		PolicyDeclared: own("T-4"), InvalidLimit: own("T-5"), InvalidOffset: own("T-6"),
+		InvalidPolicy: own("T-7"),
+	}
+	cases := map[string]tidcommon.ServiceError{
+		"T-1": ErrorPolicyNotFound, "T-2": ErrorPolicyExists, "T-3": ErrorVersionMismatch,
+		"T-4": ErrorPolicyDeclared, "T-5": ErrorInvalidLimit, "T-6": ErrorInvalidOffset,
+		"T-7": ErrorReshareNotPermitted,
+	}
+	for want, from := range cases {
+		translated := translation.Translate(&from)
+		s.Require().NotNil(translated)
+		s.Equal(want, translated.Code)
+		s.Equal(from.ErrorDescription, translated.ErrorDescription)
+	}
+
+	s.Equal(&tidcommon.InternalServerError, translation.Translate(&tidcommon.InternalServerError))
+	s.Nil(translation.Translate(nil))
 }

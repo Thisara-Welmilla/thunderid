@@ -442,7 +442,7 @@ export default function TokenUserAttributesSection({
             sx={{px: 0, minHeight: 'auto', '& .MuiAccordionSummary-content': {my: 1}}}
           >
             <Typography variant="body2">
-              {t('applications:edit.token.configure_attributes.toggle', 'Allowed Attributes ({{count}})', {
+              {t('applications:edit.token.configure_attributes.toggle', 'Allowed attributes ({{count}})', {
                 count: currentAttrs.length,
               })}
             </Typography>
@@ -455,7 +455,7 @@ export default function TokenUserAttributesSection({
     return (
       <Box>
         <Typography variant="body2" sx={{mb: 1}}>
-          {t('applications:edit.token.configure_attributes', 'Add or Remove Attributes')}
+          {t('applications:edit.token.configure_attributes', 'Add or remove attributes')}
         </Typography>
         <Typography variant="body2" color="text.disabled" sx={{mb: 2}}>
           {t('applications:edit.token.configure_attributes.hint', 'Click on user attributes to add them to the token.')}
@@ -496,9 +496,9 @@ export default function TokenUserAttributesSection({
   // title and description rather than the multi-token, multi-response wording.
   const resolveCardTitle = (): string => {
     if (!isOAuthMode) {
-      return t('applications:edit.token.token_profile_card.title.native', 'Token Attributes');
+      return t('applications:edit.token.token_profile_card.title.native', 'Token attributes');
     }
-    return t('applications:edit.token.token_profile_card.title', 'Token Attributes & Response');
+    return t('applications:edit.token.token_profile_card.title', 'Token attributes & response');
   };
 
   const resolveCardDescription = (): string => {
@@ -541,12 +541,12 @@ export default function TokenUserAttributesSection({
             }}
             sx={{borderBottom: 1, borderColor: 'divider'}}
           >
-            <Tab label={t('applications:edit.token.tabs.access_token', 'Access Token')} />
+            <Tab label={t('applications:edit.token.tabs.access_token', 'Access token')} />
             <Tab
               label={
                 showUserInfoTab
-                  ? t('applications:edit.token.tabs.id_token_and_user_info', 'ID Token & User Info')
-                  : t('applications:edit.token.tabs.id_token', 'ID Token')
+                  ? t('applications:edit.token.tabs.id_token_and_user_info', 'ID token & user info')
+                  : t('applications:edit.token.tabs.id_token', 'ID token')
               }
             />
           </Tabs>
@@ -569,8 +569,8 @@ export default function TokenUserAttributesSection({
                     }}
                     sx={{borderBottom: 1, borderColor: 'divider'}}
                   >
-                    <Tab label={t('applications:edit.token.tabs.id_token', 'ID Token')} />
-                    <Tab label={t('applications:edit.token.tabs.user_info_endpoint', 'User Info Endpoint')} />
+                    <Tab label={t('applications:edit.token.tabs.id_token', 'ID token')} />
+                    <Tab label={t('applications:edit.token.tabs.user_info_endpoint', 'User info endpoint')} />
                   </Tabs>
                 )}
               </Stack>
@@ -591,7 +591,7 @@ export default function TokenUserAttributesSection({
                         {/* Response Format */}
                         <Box>
                           <Typography variant="subtitle2" sx={{mb: 1}}>
-                            {t('applications:edit.token.id_token.response_format_heading', 'Response Format')}
+                            {t('applications:edit.token.id_token.response_format_heading', 'Response format')}
                           </Typography>
                           <Typography variant="body2" color="text.disabled" sx={{mb: 2}}>
                             {t(
@@ -603,7 +603,7 @@ export default function TokenUserAttributesSection({
                             {/* Row 1: Response Type (full width) */}
                             <FormControl size="small" fullWidth>
                               <FormLabel>
-                                {t('applications:edit.token.id_token.response_type', 'Response Type')}
+                                {t('applications:edit.token.id_token.response_type', 'Response type')}
                               </FormLabel>
                               <Select
                                 displayEmpty
@@ -667,7 +667,7 @@ export default function TokenUserAttributesSection({
                               <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                                 <FormControl size="small" sx={{flex: 1, minWidth: 140}}>
                                   <FormLabel>
-                                    {t('applications:edit.token.id_token.encryption_alg', 'Encryption Algorithm')}
+                                    {t('applications:edit.token.id_token.encryption_alg', 'Encryption algorithm')}
                                   </FormLabel>
                                   <Select
                                     displayEmpty
@@ -697,7 +697,7 @@ export default function TokenUserAttributesSection({
 
                                 <FormControl size="small" sx={{flex: 1, minWidth: 140}}>
                                   <FormLabel>
-                                    {t('applications:edit.token.id_token.encryption_enc', 'Content Encryption')}
+                                    {t('applications:edit.token.id_token.encryption_enc', 'Content encryption')}
                                   </FormLabel>
                                   <Select
                                     displayEmpty
@@ -759,7 +759,7 @@ export default function TokenUserAttributesSection({
                         {/* Response Format */}
                         <Box>
                           <Typography variant="subtitle2" sx={{mb: 1}}>
-                            {t('applications:edit.token.user_info.response_format_heading', 'Response Format')}
+                            {t('applications:edit.token.user_info.response_format_heading', 'Response format')}
                           </Typography>
                           <Typography variant="body2" color="text.disabled" sx={{mb: 2}}>
                             {t(
@@ -771,7 +771,7 @@ export default function TokenUserAttributesSection({
                             {/* Row 1: Response Type (full width) */}
                             <FormControl size="small" fullWidth>
                               <FormLabel>
-                                {t('applications:edit.token.user_info.response_type', 'Response Type')}
+                                {t('applications:edit.token.user_info.response_type', 'Response type')}
                               </FormLabel>
                               <Select
                                 displayEmpty
@@ -836,7 +836,7 @@ export default function TokenUserAttributesSection({
                               <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                                 <FormControl size="small" sx={{flex: 1, minWidth: 140}}>
                                   <FormLabel>
-                                    {t('applications:edit.token.user_info.encryption_alg', 'Encryption Algorithm')}
+                                    {t('applications:edit.token.user_info.encryption_alg', 'Encryption algorithm')}
                                   </FormLabel>
                                   <Select
                                     displayEmpty
@@ -866,7 +866,7 @@ export default function TokenUserAttributesSection({
 
                                 <FormControl size="small" sx={{flex: 1, minWidth: 140}}>
                                   <FormLabel>
-                                    {t('applications:edit.token.user_info.encryption_enc', 'Content Encryption')}
+                                    {t('applications:edit.token.user_info.encryption_enc', 'Content encryption')}
                                   </FormLabel>
                                   <Select
                                     displayEmpty
@@ -917,7 +917,7 @@ export default function TokenUserAttributesSection({
                                 <Typography variant="body2" fontWeight={500}>
                                   {t(
                                     'applications:edit.token.inherit_from_id_token',
-                                    'Use same attributes as ID Token',
+                                    'Use same attributes as ID token',
                                   )}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">

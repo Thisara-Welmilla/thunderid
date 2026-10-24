@@ -210,6 +210,7 @@ func toApplicationGetResponse(ctx context.Context, appDTO *providers.Application
 			PasskeyAllowedOrigins:     appDTO.PasskeyAllowedOrigins,
 			Attestation:               appDTO.Attestation,
 		},
+		Status:    appDTO.Status,
 		Type:      model.ApplicationType(appDTO.Type),
 		Template:  appDTO.Template,
 		URL:       appDTO.URL,
@@ -386,6 +387,7 @@ func (ah *applicationHandler) HandleApplicationPutRequest(w http.ResponseWriter,
 		TosURI:    updatedAppDTO.TosURI,
 		PolicyURI: updatedAppDTO.PolicyURI,
 		Contacts:  updatedAppDTO.Contacts,
+		Status:    updatedAppDTO.Status,
 		Metadata:  updatedAppDTO.Metadata,
 	}
 
@@ -578,38 +580,6 @@ func (ah *applicationHandler) processInboundAuthConfigFromRequest(
 	return inboundAuthConfigDTOs
 }
 
-// toFrameworkSharingRequest turns the wire shape into the one the framework takes. The framework is
-// what validates it, so a mode or a reach the schema does not list is carried across as it was sent
-// and refused there.
-func toFrameworkSharingRequest(p model.SharingPolicyUpdateRequest) sharing.PolicyRequest {
-	req := sharing.PolicyRequest{Version: p.Version}
-	if p.AllUnits != nil {
-		req.AllUnits = &sharing.AllUnitsRequest{ExcludedOUIDs: p.AllUnits.ExcludedOUIDs}
-	}
-	if c := p.ChildUnits; c != nil {
-		req.ChildUnits = &sharing.ChildUnitsRequest{
-			Mode:          sharing.ChildUnitsMode(c.Mode),
-			ExcludedOUIDs: c.ExcludedOUIDs,
-		}
-		for _, u := range c.Units {
-			req.ChildUnits.Units = append(req.ChildUnits.Units, sharing.ChildUnitRequest{
-				OUID:  u.OUID,
-				Reach: sharing.UnitReach(u.Reach),
-			})
-		}
-	}
-	if t := p.OtherTreeRoots; t != nil {
-		req.OtherTreeRoots = &sharing.OtherTreeRootsRequest{
-			Mode:          sharing.OtherTreeRootsMode(t.Mode),
-			ExcludedOUIDs: t.ExcludedOUIDs,
-		}
-		for _, u := range t.Units {
-			req.OtherTreeRoots.Units = append(req.OtherTreeRoots.Units, sharing.RootUnitRequest{OUID: u.OUID})
-		}
-	}
-	return req
-}
-
 // decodeSharingBody reads a policy request body through the shared strict decoder, which refuses a
 // field the body does not declare: a misspelled excludedOuIds would otherwise read as a section with
 // no exclusions and share the application with the organization unit the caller named to keep it
@@ -632,12 +602,11 @@ func decodeSharingBody[T any](ctx context.Context, w http.ResponseWriter, r *htt
 func (ah *applicationHandler) HandleSharingPolicyPostRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	wire, ok := decodeSharingBody[model.SharingPolicyRequest](ctx, w, r)
+	wire, ok := decodeSharingBody[sharing.PolicyCreateBody](ctx, w, r)
 	if !ok {
 		return
 	}
-	req := toFrameworkSharingRequest(wire.SharingPolicyUpdateRequest)
-	req.InitiatingOUID = wire.InitiatingOUID
+	req := wire.ToPolicyRequest()
 	// A reach not bounded by where the issuer sits is a deployment decision, so this API leaves it
 	// to a resource file or an import. An edit may still restate such a section to move its
 	// exclusions, and the framework refuses any edit that would introduce one.
@@ -697,13 +666,13 @@ func (ah *applicationHandler) HandleSharingPolicyGetRequest(w http.ResponseWrite
 func (ah *applicationHandler) HandleSharingPolicyPutRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	wire, ok := decodeSharingBody[model.SharingPolicyUpdateRequest](ctx, w, r)
+	wire, ok := decodeSharingBody[sharing.PolicyUpdateBody](ctx, w, r)
 	if !ok {
 		return
 	}
 
 	policy, svcErr := ah.service.UpdateSharingPolicy(
-		ctx, r.PathValue("id"), r.PathValue("policyId"), toFrameworkSharingRequest(*wire))
+		ctx, r.PathValue("id"), r.PathValue("policyId"), wire.ToPolicyRequest())
 	if svcErr != nil {
 		ah.handleError(ctx, w, r, svcErr)
 		return

@@ -400,6 +400,18 @@ func (f *ouTree) DescendantOUIDs(_ context.Context, ouID string) ([]string, *tid
 	return out, nil
 }
 
+// RootOUIDs returns the organization units in the fixed tree that have no parent.
+func (f *ouTree) RootOUIDs(_ context.Context) ([]string, *tidcommon.ServiceError) {
+	out := []string{}
+	for id, ancestors := range f.ancestors {
+		if len(ancestors) == 0 {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // AllOUIDs returns every organization unit in the fixed tree.
 func (f *ouTree) AllOUIDs(_ context.Context) ([]string, *tidcommon.ServiceError) {
 	out := make([]string, 0, len(f.ancestors))
@@ -630,6 +642,7 @@ func resolverOver(t interface {
 	enumerator := oumock.NewHierarchyEnumeratorInterfaceMock(t)
 	enumerator.EXPECT().DescendantOUIDs(a, a).RunAndReturn(tree.DescendantOUIDs).Maybe()
 	enumerator.EXPECT().AllOUIDs(a).RunAndReturn(tree.AllOUIDs).Maybe()
+	enumerator.EXPECT().RootOUIDs(a).RunAndReturn(tree.RootOUIDs).Maybe()
 	return hierarchy, enumerator
 }
 
@@ -4722,6 +4735,17 @@ func (s *ServiceTestSuite) forgetOU(ouID string) {
 	svc.ouEnumerator = enumerator
 }
 
+// moveOU points the service at a tree where ouID, a unit with nothing beneath it, sits under
+// newParent, which is what it sees once that organization unit is moved.
+func (s *ServiceTestSuite) moveOU(ouID, newParent string) {
+	tree := fixtureTree()
+	tree.ancestors[ouID] = append([]string{newParent}, tree.ancestors[newParent]...)
+	hierarchy, enumerator := resolverOver(s.T(), tree)
+	svc := s.svc.(*sharingService)
+	svc.ouHierarchyResolver = hierarchy
+	svc.ouEnumerator = enumerator
+}
+
 // seedLeafReshare shares the resource with a unit that has no children of its own, stopping there,
 // and has that unit share it on to every child it may later have. A leaf is the unit an
 // organization unit delete reaches first.
@@ -4937,4 +4961,174 @@ func (s *ServiceTestSuite) TestReplayRefusingASectionChangeSaysHowToMakeIt() {
 	s.Equal(ErrorScopeFamilyChange.Code, replayErr.Err.Code)
 	s.Contains(replayErr.Err.ErrorDescription.DefaultValue,
 		"delete the policy through the sharing policies API, then import again")
+}
+
+// requireReachMatchesVisibility checks ListResourceSharedOUIDs against the chain walk: every unit it lists
+// is visible, every unit it leaves out is not, and the owner alone is visible without being listed.
+func (s *ServiceTestSuite) requireReachMatchesVisibility(owner string, want ...string) {
+	ctx := context.Background()
+	got, svcErr := s.svc.ListResourceSharedOUIDs(ctx, testType, testResource)
+	s.Require().Nil(svcErr)
+	s.ElementsMatch(want, got)
+
+	for _, ouID := range []string{rootOU, childOU, grandOU, greatOU, otherOU, ownerOU, nestedOwnerOU} {
+		visible, svcErr := s.svc.IsVisible(ctx, testType, testResource, ouID)
+		s.Require().Nil(svcErr)
+		s.Equal(visible, ouID == owner || slices.Contains(got, ouID), "visibility of %s", ouID)
+	}
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsWithoutPolicies() {
+	s.requireReachMatchesVisibility(ownerOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsForANamedUnit() {
+	s.decl.owner = rootOU
+	_, svcErr := s.svc.CreatePolicy(context.Background(), testType, testResource, rootOU, PolicyRequest{
+		ChildUnits: &ChildUnitsRequest{Mode: ChildUnitsSelected, Units: []ChildUnitRequest{
+			{OUID: childOU, Reach: ReachUnit},
+		}},
+	})
+	s.Require().Nil(svcErr)
+	s.requireReachMatchesVisibility(rootOU, childOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsForANamedSubtree() {
+	s.decl.owner = rootOU
+	_, svcErr := s.svc.CreatePolicy(context.Background(), testType, testResource, rootOU, PolicyRequest{
+		ChildUnits: &ChildUnitsRequest{Mode: ChildUnitsSelected, Units: []ChildUnitRequest{
+			{OUID: childOU, Reach: ReachSubtree},
+		}},
+	})
+	s.Require().Nil(svcErr)
+	s.requireReachMatchesVisibility(rootOU, childOU, grandOU, greatOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsFollowsAReshare() {
+	s.decl.owner = rootOU
+	ctx := context.Background()
+	_, svcErr := s.svc.CreatePolicy(ctx, testType, testResource, rootOU, PolicyRequest{
+		ChildUnits: &ChildUnitsRequest{Mode: ChildUnitsSelected, Units: []ChildUnitRequest{
+			{OUID: childOU, Reach: ReachUnit},
+		}},
+	})
+	s.Require().Nil(svcErr)
+	_, svcErr = s.svc.CreatePolicy(ctx, testType, testResource, rootOU, PolicyRequest{
+		InitiatingOUID: childOU,
+		ChildUnits: &ChildUnitsRequest{Mode: ChildUnitsSelected, Units: []ChildUnitRequest{
+			{OUID: grandOU, Reach: ReachUnit},
+		}},
+	})
+	s.Require().Nil(svcErr)
+	s.requireReachMatchesVisibility(rootOU, childOU, grandOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsLeavesOutAnExcludedSubtree() {
+	s.decl.owner = rootOU
+	_, svcErr := s.svc.CreatePolicy(context.Background(), testType, testResource, rootOU, PolicyRequest{
+		ChildUnits: allChildrenWith(nil, childOU),
+	})
+	s.Require().Nil(svcErr)
+	s.requireReachMatchesVisibility(rootOU, nestedOwnerOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsForANamedRoot() {
+	_, svcErr := s.svc.CreatePolicy(context.Background(), testType, testResource, ownerOU, PolicyRequest{
+		OtherTreeRoots: roots(root(otherOU)),
+	})
+	s.Require().Nil(svcErr)
+	s.requireReachMatchesVisibility(ownerOU, otherOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsForEveryUnitLessAnExclusion() {
+	s.declaredBlanket(PolicyRequest{AllUnits: &AllUnitsRequest{ExcludedOUIDs: []string{childOU}}})
+	s.requireReachMatchesVisibility(ownerOU, rootOU, otherOU, nestedOwnerOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsForEveryRoot() {
+	s.declaredBlanket(PolicyRequest{OtherTreeRoots: &OtherTreeRootsRequest{Mode: OtherTreeRootsAll}})
+	s.requireReachMatchesVisibility(ownerOU, rootOU, otherOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsAsksOnlyForRootsForAnEveryRootShare() {
+	s.declaredBlanket(PolicyRequest{OtherTreeRoots: &OtherTreeRootsRequest{Mode: OtherTreeRootsAll}})
+	// Only RootOUIDs is answered, so walking the trees beneath the roots fails the test.
+	enumerator := oumock.NewHierarchyEnumeratorInterfaceMock(s.T())
+	enumerator.EXPECT().RootOUIDs(mock.Anything).RunAndReturn(fixtureTree().RootOUIDs).Once()
+	s.svc.(*sharingService).ouEnumerator = enumerator
+
+	got, svcErr := s.svc.ListResourceSharedOUIDs(context.Background(), testType, testResource)
+
+	s.Require().Nil(svcErr)
+	s.ElementsMatch([]string{rootOU, otherOU}, got)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsDropsANamedUnitMovedOutOfReach() {
+	s.decl.owner = rootOU
+	_, svcErr := s.svc.CreatePolicy(context.Background(), testType, testResource, rootOU, PolicyRequest{
+		ChildUnits: children(unit(nestedOwnerOU)),
+	})
+	s.Require().Nil(svcErr)
+	s.moveOU(nestedOwnerOU, otherOU)
+	s.requireReachMatchesVisibility(rootOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsKeepsANamedUnitMovedUnderAReachedOne() {
+	s.decl.owner = rootOU
+	_, svcErr := s.svc.CreatePolicy(context.Background(), testType, testResource, rootOU, PolicyRequest{
+		ChildUnits: &ChildUnitsRequest{Mode: ChildUnitsSelected, Units: []ChildUnitRequest{
+			{OUID: childOU, Reach: ReachSubtree},
+			{OUID: nestedOwnerOU, Reach: ReachUnit},
+		}},
+	})
+	s.Require().Nil(svcErr)
+	s.moveOU(nestedOwnerOU, grandOU)
+	s.requireReachMatchesVisibility(rootOU, childOU, grandOU, greatOU, nestedOwnerOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsDropsANamedRootThatIsNoLongerARoot() {
+	_, svcErr := s.svc.CreatePolicy(context.Background(), testType, testResource, ownerOU, PolicyRequest{
+		OtherTreeRoots: roots(root(otherOU)),
+	})
+	s.Require().Nil(svcErr)
+	s.moveOU(otherOU, rootOU)
+	s.requireReachMatchesVisibility(ownerOU)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsDoesNotWalkBeneathANamedRoot() {
+	_, svcErr := s.svc.CreatePolicy(context.Background(), testType, testResource, ownerOU, PolicyRequest{
+		OtherTreeRoots: roots(root(otherOU)),
+	})
+	s.Require().Nil(svcErr)
+	// The enumerator expects no call, so a walk beneath the root fails here, as it does against a
+	// root with more children than the composite store lists.
+	s.svc.(*sharingService).ouEnumerator = oumock.NewHierarchyEnumeratorInterfaceMock(s.T())
+
+	got, svcErr := s.svc.ListResourceSharedOUIDs(context.Background(), testType, testResource)
+
+	s.Require().Nil(svcErr)
+	s.Equal([]string{otherOU}, got)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsFailsWithoutAnEnumerator() {
+	s.svc.(*sharingService).ouEnumerator = nil
+
+	_, svcErr := s.svc.ListResourceSharedOUIDs(context.Background(), testType, testResource)
+
+	s.Require().NotNil(svcErr)
+	s.Equal(tidcommon.InternalServerError.Code, svcErr.Code)
+}
+
+func (s *ServiceTestSuite) TestListResourceSharedOUIDsSkipsADeletedUnit() {
+	s.decl.owner = rootOU
+	_, svcErr := s.svc.CreatePolicy(context.Background(), testType, testResource, rootOU, PolicyRequest{
+		ChildUnits: children(unit(childOU), unit(nestedOwnerOU)),
+	})
+	s.Require().Nil(svcErr)
+	s.forgetOU(childOU)
+
+	got, svcErr := s.svc.ListResourceSharedOUIDs(context.Background(), testType, testResource)
+
+	s.Require().Nil(svcErr)
+	s.Equal([]string{nestedOwnerOU}, got)
 }

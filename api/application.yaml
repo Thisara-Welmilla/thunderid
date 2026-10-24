@@ -523,7 +523,7 @@ paths:
                     acrValues: ["urn:thunder:silver", "urn:thunder:gold"]
       responses:
         "200":
-          description: Application updated
+          description: Application updated, with its `status`
           content:
             application/json:
               schema:
@@ -1540,7 +1540,8 @@ components:
           description: >
             Flow Secret used to authenticate when initiating a flow directly via the Flow Execution API.
             Issued only to full-stack, custom, and mcp applications that either have no OAuth 2.0
-            configuration (embedded) or are configured as a confidential, non-redirect OAuth 2.0 client.
+            configuration (embedded) or are configured as a confidential, non-redirect OAuth 2.0 client
+            with the urn:ietf:params:oauth:grant-type:token-exchange grant type.
             Browser, mobile, and machine-to-machine applications are never issued one. When omitted
             on creation, a secret is generated automatically for eligible applications and returned once in
             the creation response.
@@ -1616,8 +1617,9 @@ components:
             Flow Secret used to authenticate when initiating a flow directly via the Flow Execution API.
             Issued and returned once in the creation response only for full-stack, custom, and mcp
             applications that either have no OAuth 2.0 configuration (embedded) or are configured as a
-            confidential, non-redirect OAuth 2.0 client. Browser, mobile, and machine-to-machine
-            applications are never issued one.
+            confidential, non-redirect OAuth 2.0 client with the
+            urn:ietf:params:oauth:grant-type:token-exchange grant type. Browser, mobile, and
+            machine-to-machine applications are never issued one.
           example: "550e8400e29b41d4a716446655440000abcdef0123456789"
         url:
           type: string
@@ -1680,6 +1682,10 @@ components:
               type: integer
               description: The validity period of the consent in seconds. Default is 0 (no expiration).
               example: 3600
+        status:
+          allOf:
+            - $ref: '#/components/schemas/ApplicationAccessStatus'
+          description: The application's status after the update. Present on update responses only.
         metadata:
           type: object
           additionalProperties: true
@@ -1820,6 +1826,8 @@ components:
           example:
             env: "production"
             team: "platform"
+        status:
+          $ref: '#/components/schemas/ApplicationAccessStatus'
 
     BasicApplicationResponse:
       type: object
@@ -1890,6 +1898,8 @@ components:
           type: boolean
           description: Indicates if the application is read-only (declarative/immutable).
           example: false
+        status:
+          $ref: '#/components/schemas/ApplicationAccessStatus'
 
     ApplicationListResponse:
       type: object
@@ -2031,7 +2041,8 @@ components:
           description: >-
             Enable ID-JAG issuance for this application. Requires a confidential client
             (tokenEndpointAuthMethod other than "none") and at least one entry in
-            allowedAudiences.
+            allowedAudiences. Enabling it also requires the
+            urn:ietf:params:oauth:grant-type:token-exchange grant type in grantTypes.
           example: true
           default: false
         allowedAudiences:
@@ -2041,7 +2052,7 @@ components:
           description: |
             Resource authorization server identifiers this application may request ID-JAGs for.
             The audience parameter on the token-exchange request must exactly match one of
-            these values.
+            these values. Values must not be blank.
           example: ["https://api.partner.example.com"]
         validityPeriod:
           type: integer
@@ -2803,6 +2814,22 @@ components:
           type: array
           items:
             type: string
+
+    ApplicationAccessStatus:
+      type: object
+      readOnly: true
+      description: |
+        The application's effective access status. Computed when the application is read or
+        updated, and never accepted on a write.
+      properties:
+        value:
+          type: string
+          readOnly: true
+          enum: [ACTIVE, SUSPENDED]
+          description: |
+            `ACTIVE` or `SUSPENDED`. `SUSPENDED` is an administrative hold. Applications are never
+            locked.
+          example: "ACTIVE"
 
     Error:
       type: object

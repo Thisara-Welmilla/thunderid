@@ -185,7 +185,7 @@ export default function EditSchemaSettings({
             </Box>
 
             <I18nTextInput
-              label={t('agentTypes:displayName', 'Display Name')}
+              label={t('agentTypes:displayName', 'Display name')}
               value={property.displayName}
               onChange={(newValue: string) => handlePropertyChange(property.id, 'displayName', newValue)}
               placeholder={t('agentTypes:displayNamePlaceholder', 'e.g., First Name')}
@@ -193,12 +193,12 @@ export default function EditSchemaSettings({
               labels={{
                 triggerTooltip: t('agentTypes:displayNameI18n.tooltip', 'Configure translation'),
                 popoverTitle: t('agentTypes:displayNameI18n.title', 'Translation'),
-                createTitle: t('agentTypes:displayNameI18n.createTitle', 'Create New Translation'),
+                createTitle: t('agentTypes:displayNameI18n.createTitle', 'Create new translation'),
                 createTooltip: t('agentTypes:displayNameI18n.createTooltip', 'Create a new translation key'),
                 languageLabel: t('agentTypes:displayNameI18n.language', 'Language'),
-                keyLabel: t('agentTypes:displayNameI18n.i18nKey', 'Translation Key'),
+                keyLabel: t('agentTypes:displayNameI18n.i18nKey', 'Translation key'),
                 selectKeyPlaceholder: t('agentTypes:displayNameI18n.selectKey', 'Select a translation key'),
-                valueLabel: t('agentTypes:displayNameI18n.translationValue', 'Translation Value'),
+                valueLabel: t('agentTypes:displayNameI18n.translationValue', 'Translation value'),
                 resolvedValueLabel: t('agentTypes:displayNameI18n.resolvedValue', 'Resolved value'),
                 keyRequiredError: t('agentTypes:displayNameI18n.keyRequired', 'Translation key is required'),
                 valueRequiredError: t('agentTypes:displayNameI18n.valueRequired', 'Translation value is required'),
@@ -316,8 +316,8 @@ export default function EditSchemaSettings({
               <FormControl fullWidth>
                 <FormLabel>
                   {isContactAttributeType(property.type)
-                    ? t('agentTypes:contactRegexPattern', 'Regular Expression Pattern')
-                    : t('agentTypes:regexPattern', 'Regular Expression Pattern (Optional)')}
+                    ? t('agentTypes:contactRegexPattern', 'Regular expression pattern')
+                    : t('agentTypes:regexPattern', 'Regular expression pattern (optional)')}
                 </FormLabel>
                 <TextField
                   value={property.regex}
@@ -346,7 +346,7 @@ export default function EditSchemaSettings({
             {/* Enum: value input + chips */}
             {property.type === 'enum' && (
               <FormControl fullWidth>
-                <FormLabel>{t('agentTypes:enumValues', 'Allowed Values (Enum)')}</FormLabel>
+                <FormLabel>{t('agentTypes:enumValues', 'Allowed values (enum)')}</FormLabel>
                 <Box sx={{display: 'flex', gap: 1, mb: 1}}>
                   <TextField
                     value={enumInput[property.id] ?? ''}
@@ -398,7 +398,7 @@ export default function EditSchemaSettings({
           '&:hover': {border: '1px dashed', borderColor: 'primary.main'},
         }}
       >
-        {t('agentTypes:addProperty', 'Add Property')}
+        {t('agentTypes:addProperty', 'Add property')}
       </Button>
 
       {/* Credential Removal Confirmation Dialog */}
@@ -409,7 +409,7 @@ export default function EditSchemaSettings({
           setPendingCredentialRemoveId(null);
         }}
       >
-        <DialogTitle>{t('agentTypes:removeCredentialDialog.title', 'Remove Credential Flag')}</DialogTitle>
+        <DialogTitle>{t('agentTypes:removeCredentialDialog.title', 'Remove credential flag')}</DialogTitle>
         <DialogContent>
           <DialogContentText>
             {t(
@@ -442,7 +442,7 @@ export default function EditSchemaSettings({
               setPendingCredentialRemoveId(null);
             }}
           >
-            {t('agentTypes:removeCredentialDialog.confirm', 'Remove Credential')}
+            {t('agentTypes:removeCredentialDialog.confirm', 'Remove credential')}
           </Button>
         </DialogActions>
       </Dialog>

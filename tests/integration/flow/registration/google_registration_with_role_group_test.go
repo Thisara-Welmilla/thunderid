@@ -375,13 +375,6 @@ func (ts *GoogleRegistrationGroupRoleTestSuite) TearDownSuite() {
 		}
 	}
 
-	// Delete test organization unit
-	if googleRegGroupRoleTestOUID != "" {
-		if err := testutils.DeleteOrganizationUnit(googleRegGroupRoleTestOUID); err != nil {
-			ts.T().Logf("Failed to delete test organization unit during teardown: %v", err)
-		}
-	}
-
 	// Clean up any remaining users
 	if len(ts.config.CreatedUserIDs) > 0 {
 		if err := testutils.CleanupUsers(ts.config.CreatedUserIDs); err != nil {
@@ -391,6 +384,13 @@ func (ts *GoogleRegistrationGroupRoleTestSuite) TearDownSuite() {
 
 	if ts.entityTypeID != "" {
 		_ = testutils.DeleteUserType(ts.entityTypeID)
+	}
+
+	// Delete test organization unit
+	if googleRegGroupRoleTestOUID != "" {
+		if err := testutils.DeleteOrganizationUnit(googleRegGroupRoleTestOUID); err != nil {
+			ts.T().Logf("Failed to delete test organization unit during teardown: %v", err)
+		}
 	}
 
 	// Stop mock server

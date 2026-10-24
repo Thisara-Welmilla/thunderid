@@ -85,6 +85,9 @@ type SharingServiceInterface interface {
 	ListVisibleResourceIDs(
 		ctx context.Context, rt ResourceType, ouID string,
 	) ([]string, *tidcommon.ServiceError)
+	// ListResourceSharedOUIDs returns the organization units a resource's policies reach. It is the reverse
+	// of ListVisibleResourceIDs and leaves the owner out the same way.
+	ListResourceSharedOUIDs(ctx context.Context, rt ResourceType, resourceID string) ([]string, *tidcommon.ServiceError)
 	// ResolveOverlayRules returns the effective rule per field for one organization unit.
 	ResolveOverlayRules(
 		ctx context.Context, rt ResourceType, resourceID, ouID string,
@@ -2400,6 +2403,83 @@ func (s *sharingService) clearCaches(ctx context.Context) {
 			s.logger.Warn(ctx, "Failed to clear the overlay cache", log.Error(err))
 		}
 	}
+}
+
+// ListResourceSharedOUIDs returns the organization units a resource's policies reach, owner excluded.
+//
+// Each grant yields the units it could cover, and every candidate is confirmed by the chain walk
+// IsVisible runs, over the policies already loaded.
+func (s *sharingService) ListResourceSharedOUIDs(
+	ctx context.Context, rt ResourceType, resourceID string,
+) ([]string, *tidcommon.ServiceError) {
+	owningOUID, known, svcErr := s.ownerOf(ctx, rt, resourceID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if !known {
+		return []string{}, nil
+	}
+	policies, svcErr := s.ListPolicies(ctx, rt, resourceID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	if s.ouEnumerator == nil {
+		s.logger.Error(ctx, "Organization unit resolver cannot enumerate descendants; reach cannot be listed")
+		return nil, &tidcommon.InternalServerError
+	}
+
+	var candidates []string
+	for _, p := range policies {
+		for _, g := range p.grants() {
+			ouIDs, svcErr := s.reachCandidates(ctx, g)
+			if svcErr != nil {
+				return nil, svcErr
+			}
+			candidates = append(candidates, ouIDs...)
+		}
+	}
+
+	out := []string{}
+	for _, ouID := range utils.UniqueStrings(candidates) {
+		if ouID == owningOUID {
+			continue
+		}
+		chain, svcErr := s.buildChain(ctx, ouID)
+		if svcErr != nil {
+			// A unit a policy names can be deleted while the policy still names it.
+			if svcErr.Code == oupkg.ErrorOrganizationUnitNotFound.Code {
+				continue
+			}
+			return nil, svcErr
+		}
+		if visible, _ := evaluateChain(chain, policies); visible {
+			out = append(out, ouID)
+		}
+	}
+	return out, nil
+}
+
+// reachCandidates lists the organization units one grant could cover. Unlike ousReachedBy, a root
+// grant stops at its root: what lies beneath is reached only through the root's own reshares.
+func (s *sharingService) reachCandidates(ctx context.Context, g grant) ([]string, *tidcommon.ServiceError) {
+	switch g.scope {
+	case scopeChild, scopeRoot:
+		return []string{g.ouID}, nil
+	case scopeChildSubtree:
+		below, svcErr := s.ouEnumerator.DescendantOUIDs(ctx, g.ouID)
+		if svcErr != nil {
+			return nil, svcErr
+		}
+		return append([]string{g.ouID}, below...), nil
+	case scopeAllChildren:
+		return s.ouEnumerator.DescendantOUIDs(ctx, g.ouID)
+	case scopeAllRoots:
+		return s.ouEnumerator.RootOUIDs(ctx)
+	case scopeAllOUs:
+		return s.ouEnumerator.AllOUIDs(ctx)
+	}
+	return nil, nil
 }
 
 // ListVisibleResourceIDs returns the resources of a type an organization unit can see.

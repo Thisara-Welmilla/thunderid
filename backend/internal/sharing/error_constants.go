@@ -403,6 +403,50 @@ var errPolicyNotFound = errors.New("sharing policy not found")
 // ErrorResultLimitExceededInCompositeMode; nothing outside this package sees it.
 var errResultLimitExceededInCompositeMode = errors.New("result limit exceeded in composite mode")
 
+// ErrorTranslation names the errors a resource type answers the framework's client errors with, so
+// every type that mounts sharing endpoints maps them the same way in its own codes.
+type ErrorTranslation struct {
+	PolicyNotFound  tidcommon.ServiceError
+	PolicyExists    tidcommon.ServiceError
+	VersionMismatch tidcommon.ServiceError
+	PolicyDeclared  tidcommon.ServiceError
+	InvalidLimit    tidcommon.ServiceError
+	InvalidOffset   tidcommon.ServiceError
+	// InvalidPolicy answers every other client error, keeping the framework's description.
+	InvalidPolicy tidcommon.ServiceError
+}
+
+// Translate maps a framework error into the resource type's own codes. It logs nothing: the
+// framework already logged its own failures, and a client error is the caller's doing rather than
+// an operational event.
+func (t ErrorTranslation) Translate(svcErr *tidcommon.ServiceError) *tidcommon.ServiceError {
+	if svcErr == nil {
+		return nil
+	}
+	if svcErr.Type != tidcommon.ClientErrorType {
+		return &tidcommon.InternalServerError
+	}
+
+	var mapped tidcommon.ServiceError
+	switch svcErr.Code {
+	case ErrorPolicyNotFound.Code:
+		mapped = t.PolicyNotFound
+	case ErrorPolicyExists.Code:
+		mapped = t.PolicyExists
+	case ErrorVersionMismatch.Code:
+		mapped = t.VersionMismatch
+	case ErrorPolicyDeclared.Code:
+		mapped = t.PolicyDeclared
+	case ErrorInvalidLimit.Code:
+		mapped = t.InvalidLimit
+	case ErrorInvalidOffset.Code:
+		mapped = t.InvalidOffset
+	default:
+		mapped = t.InvalidPolicy
+	}
+	return tidcommon.CustomServiceError(mapped, svcErr.ErrorDescription)
+}
+
 // withDetail returns a copy of err whose description names the offending value.
 func withDetail(err tidcommon.ServiceError, detail string) *tidcommon.ServiceError {
 	out := err

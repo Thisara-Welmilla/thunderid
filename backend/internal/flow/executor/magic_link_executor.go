@@ -64,7 +64,7 @@ func newMagicLinkExecutor(
 		log.String(log.LoggerKeyExecutorName, ExecutorNameMagicLink))
 
 	identifyExec := newIdentifyingExecutor(ExecutorNameMagicLink, defaultInputs, prerequisites,
-		flowFactory, entityProvider, nil)
+		flowFactory, entityProvider, nil, nil)
 	base := flowFactory.CreateExecutor(ExecutorNameMagicLink, providers.ExecutorTypeAuthentication,
 		defaultInputs, prerequisites, &providers.ExecutorMeta{
 			SupportedModes: []string{ExecutorModeGenerate, ExecutorModeVerify},
@@ -326,6 +326,12 @@ func (m *magicLinkExecutor) executeVerify(ctx *providers.NodeContext) (*provider
 		ctx.Context, nil, creds, nil, nil, execResp.AuthUser)
 	execResp.AuthUser = newAuthUser
 	if svcErr != nil {
+		// A stated hold fails the step, as a failed verification does.
+		if stated := statedHold(svcErr); stated != nil {
+			execResp.Status = providers.ExecFailure
+			execResp.Error = stated
+			return execResp, nil
+		}
 		if svcErr.Code == authnprovidermgr.ErrorAuthenticationFailed.Code {
 			execResp.Status = providers.ExecFailure
 			execResp.Error = svcErr
